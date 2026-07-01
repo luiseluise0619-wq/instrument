@@ -145,7 +145,7 @@ def make_vocal():
     delay = int(0.008 * SR)
     left = mono
     right = [0.0] * delay + mono[: len(mono) - delay]
-    return left, right
+    return add_reverb(left, right, wet=0.22)  # lush tail so it isn't dry/"synthy"
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +296,109 @@ def make_chords():
     delay = int(0.011 * SR)
     left = mono
     right = [0.0] * delay + mono[: len(mono) - delay]
-    return left, right
+    return add_reverb(left, right, wet=0.30)  # lush pad
+
+
+# ---------------------------------------------------------------------------
+# Schroeder reverb (Freeverb-style combs + allpass) for lush, less-"synthy" tone
+# ---------------------------------------------------------------------------
+def _comb(x, delay, fb, damp):
+    n = len(x)
+    out = [0.0] * n
+    buf = [0.0] * delay
+    idx = 0
+    store = 0.0
+    for i in range(n):
+        d = buf[idx]
+        store = d * (1.0 - damp) + store * damp
+        buf[idx] = x[i] + store * fb
+        out[i] = d
+        idx = idx + 1 if idx + 1 < delay else 0
+    return out
+
+
+def _allpass(x, delay, fb):
+    n = len(x)
+    out = [0.0] * n
+    buf = [0.0] * delay
+    idx = 0
+    for i in range(n):
+        d = buf[idx]
+        out[i] = -x[i] + d
+        buf[idx] = x[i] + d * fb
+        idx = idx + 1 if idx + 1 < delay else 0
+    return out
+
+
+def _reverb_mono(x, combs, allpasses, damp=0.25, fb=0.84):
+    acc = [0.0] * len(x)
+    for cd in combs:
+        c = _comb(x, cd, fb, damp)
+        for i in range(len(x)):
+            acc[i] += c[i]
+    for ap in allpasses:
+        acc = _allpass(acc, ap, 0.5)
+    return acc
+
+
+def add_reverb(left, right, wet=0.22, tail_s=0.6):
+    extra = int(tail_s * SR)
+    L = left + [0.0] * extra
+    R = right + [0.0] * extra
+    wetL = _reverb_mono(L, [1116, 1188, 1277, 1356], [556, 441])
+    wetR = _reverb_mono(R, [1139, 1211, 1300, 1379], [579, 464])
+    outL = [L[i] * (1.0 - wet) + wetL[i] * wet for i in range(len(L))]
+    outR = [R[i] * (1.0 - wet) + wetR[i] * wet for i in range(len(R))]
+    m = max(max((abs(v) for v in outL), default=1.0),
+            max((abs(v) for v in outR), default=1.0), 1e-9)
+    g = 0.92 / m
+    return [v * g for v in outL], [v * g for v in outR]
+
+
+# ---------------------------------------------------------------------------
+# A finished "vocal chop" groove — shows what chopping actually sounds like:
+# a vocal is sliced and re-sequenced rhythmically over a light beat.
+# ---------------------------------------------------------------------------
+def make_vocal_chop_groove():
+    notes = [261.63, 329.63, 392.00, 329.63]
+    vwl = ["ah", "ee", "oo", "ee"]
+    src = []
+    for i, f in enumerate(notes):
+        va = VOWELS[vwl[i]]
+        vb = VOWELS[vwl[(i + 1) % len(vwl)]]
+        src.extend(vowel_note(f, 0.28, va, vb, breath=(i % 2 == 0)))
+    src = normalize(src, 0.9)
+
+    n_sl = 8
+    sl_len = max(1, len(src) // n_sl)
+    slices = [src[i * sl_len:(i + 1) * sl_len] for i in range(n_sl)]
+
+    bpm = 120.0
+    step = (60.0 / bpm) / 4.0  # 16th grid
+    pattern = [0, -1, 2, 2, 4, -1, 5, 3, 0, 7, 2, -1, 4, 6, 5, -1]
+    total = int(step * len(pattern) * SR) + sl_len
+    buf = [0.0] * total
+
+    for s, idx in enumerate(pattern):
+        if idx < 0:
+            continue
+        p = int(s * step * SR)
+        sl = slices[idx % n_sl]
+        for i in range(len(sl)):
+            if p + i < total:
+                buf[p + i] += sl[i] * 0.9
+
+    # light beat under the chops
+    for s in range(len(pattern)):
+        p = int(s * step * SR)
+        add_hat(buf, p, gain=0.22)
+        if s in (0, 8):
+            add_kick(buf, p, gain=0.8)
+        if s in (4, 12):
+            add_snare(buf, p, gain=0.5)
+
+    buf = normalize(buf, 0.9)
+    return add_reverb(buf, list(buf), wet=0.20)
 
 
 def main():
@@ -319,6 +421,10 @@ def main():
     l, r = make_chords()
     write_wav(os.path.join(out_dir, "chord_stab_pad.wav"), l, r)
     print("wrote examples/chord_stab_pad.wav    (%.1f s)" % (len(l) / SR))
+
+    l, r = make_vocal_chop_groove()
+    write_wav(os.path.join(out_dir, "vocal_chop_groove.wav"), l, r)
+    print("wrote examples/vocal_chop_groove.wav (%.1f s)" % (len(l) / SR))
 
 
 if __name__ == "__main__":
