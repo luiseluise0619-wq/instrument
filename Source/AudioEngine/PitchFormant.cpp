@@ -17,6 +17,9 @@ void PitchFormant::prepare (double sampleRate, int maxBlockSize, int numChannels
     for (int ch = 0; ch < 2; ++ch)
         dryRing[(size_t) ch].assign ((size_t) ringCap, 0.0f);
     ringWrite = 0;
+
+    mixSmoothed.reset (sr, 0.02); // ~20 ms ramp
+    mixSmoothed.setCurrentAndTargetValue (1.0f);
 }
 
 void PitchFormant::reset()
@@ -58,23 +61,29 @@ void PitchFormant::process (juce::AudioBuffer<float>& buffer,
 
     stretch.process (inPtrs, numSamples, outPtrs, numSamples);
 
-    // Latency-matched dry/wet blend (the ring always advances so switching the
-    // mix at runtime stays coherent).
+    // Latency-matched, per-sample-smoothed dry/wet blend. The ring always
+    // advances so toggling the mix at runtime stays coherent; the smoother
+    // avoids zipper noise when the Mix knob moves.
+    mixSmoothed.setTargetValue (mix);
+    const bool doBlend = mixSmoothed.isSmoothing() || mix < 1.0f;
+
     for (int n = 0; n < numSamples; ++n)
     {
         int readIdx = ringWrite - latency;
         if (readIdx < 0)
             readIdx += ringCap;
 
+        const float m = doBlend ? mixSmoothed.getNextValue() : 1.0f;
+
         for (int ch = 0; ch < numChannels; ++ch)
         {
             dryRing[(size_t) ch][(size_t) ringWrite] = inputScratch.getSample (ch, n);
 
-            if (mix < 1.0f)
+            if (doBlend)
             {
                 const float delayedDry = dryRing[(size_t) ch][(size_t) readIdx];
                 const float wet = buffer.getSample (ch, n);
-                buffer.setSample (ch, n, delayedDry * (1.0f - mix) + wet * mix);
+                buffer.setSample (ch, n, delayedDry * (1.0f - m) + wet * m);
             }
         }
 

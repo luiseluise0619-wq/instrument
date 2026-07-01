@@ -6,14 +6,18 @@
 
 /**
     A single polyphonic voice. Plays back a region [start, start+len) of a
-    shared source buffer with an attack ramp and a short release fade so
+    shared source buffer, resampled from the sample's native rate to the host
+    rate (linear interpolation), with an attack ramp and a short release fade so
     retriggering never clicks.
+
+    The voice holds a shared_ptr to the source buffer, so the buffer stays alive
+    for the voice's whole lifetime even if a new sample is loaded mid-note.
 */
 class Voice
 {
 public:
-    void start (double sr,
-                const juce::AudioBuffer<float>* src,
+    void start (double hostSampleRate,
+                std::shared_ptr<const juce::AudioBuffer<float>> src, double srcSampleRate,
                 int startSample, int lengthSamples,
                 float velocity, float attackMs);
 
@@ -21,39 +25,54 @@ public:
     void release();
 
     bool isActive() const { return active; }
-    int  getStartSample() const { return start; }
 
 private:
-    const juce::AudioBuffer<float>* source = nullptr;
-    int   start = 0, length = 0, pos = 0;
-    int   attackSamples = 0;
-    int   releaseSamples = 0;
-    int   releasePos = -1;         // >= 0 once releasing
-    float velocity = 1.0f;
-    double sampleRate = 44100.0;
-    bool  active = false;
+    float envelope() const;
 
-    float envelopeAt (int position) const;
+    std::shared_ptr<const juce::AudioBuffer<float>> source;
+    const float* srcL = nullptr;
+    const float* srcR = nullptr;
+    int   srcNumSamples = 0;
+
+    double pos = 0.0;          // fractional read position (source samples)
+    double start = 0.0;        // slice start (source samples)
+    double length = 0.0;       // slice length (source samples)
+    double ratio = 1.0;        // srcSampleRate / hostSampleRate
+
+    int   outPos = 0;          // output samples elapsed (for the attack ramp)
+    int   attackSamples = 1;   // in output samples
+    int   releaseSamples = 1;  // in output samples
+    int   releasePos = -1;     // >= 0 once releasing (note-off)
+
+    float velocity = 1.0f;
+    bool  active = false;
 };
 
 /**
-    Fixed-size pool of voices sharing one source buffer. Steals the oldest
-    voice when all are busy.
+    Fixed-size pool of voices sharing one source buffer.
+
+    triggerVoice() runs on the audio thread only (MIDI and the processor's
+    lock-free pad queue both feed it there). setSource() runs on the message
+    thread and is guarded by a spin lock; triggerVoice() takes the lock with a
+    try-lock and simply drops the trigger on the rare contended block.
 */
 class VoicePool
 {
 public:
     void prepare (juce::dsp::ProcessSpec spec);
-    void setSource (std::shared_ptr<juce::AudioBuffer<float>> src);
+    void setSource (std::shared_ptr<const juce::AudioBuffer<float>> src, double sampleRate);
 
-    void triggerVoice (int startSample, int lengthSamples,
-                       float velocity, float attackMs, double sr);
+    void triggerVoice (int startSample, int lengthSamples, float velocity, float attackMs);
     void releaseAll();
     void renderNextBlock (juce::AudioBuffer<float>& out, int numSamples);
 
 private:
     static constexpr int kMaxVoices = 16;
     std::array<Voice, kMaxVoices> voices;
-    std::shared_ptr<juce::AudioBuffer<float>> source;   // keeps the buffer alive
-    double sampleRate = 44100.0;
+
+    std::shared_ptr<const juce::AudioBuffer<float>> source;
+    double sourceSampleRate = 44100.0;
+    double hostSampleRate   = 44100.0;
+
+    juce::SpinLock sourceLock;
 };

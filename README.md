@@ -93,3 +93,18 @@ Built plugins land under `build/VocalChopStudio_artefacts/`.
   work everywhere `registerBasicFormats()` covers.
 - The **FX rack** UI edits effect amounts; the processing order in the engine is
   fixed (drag-reorder is a future enhancement).
+
+### Real-time safety
+
+- **Sample-rate correct**: slices are resampled from the sample's native rate to
+  the host rate (linear interpolation) so a 48 kHz sample plays at the right
+  pitch in a 44.1 kHz session.
+- **Thread-safe sample/slice handoff**: loading a new sample and re-slicing
+  happen on the message thread; playing voices hold a `shared_ptr` to the buffer
+  so it can't be freed underneath them, and the audio thread reads slices via a
+  try-lock (dropping a trigger on the rare contended block rather than racing).
+- **Pad triggers** go through a lock-free FIFO to the audio thread — the UI never
+  touches the voice pool directly.
+- **Parameter smoothing**: pitch mix, stereo width, and the FX amounts
+  (drive / reverb / delay) are smoothed (~20 ms) to avoid zipper noise. No
+  allocation, locks, or string work on the audio thread.

@@ -58,12 +58,17 @@ public:
 
     double getLoadedSampleRate() const { return loadedSampleRate; }
 
+    /** Message-thread-safe: queues a pad hit that the audio thread plays. */
+    void triggerSlicePad (int sliceIndex);
+
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
     void handleMidi (const juce::MidiBuffer& midi, int numSamples);
+    void drainPadQueue();
+    void triggerSliceIndex (int sliceIndex, float velocity);
     void applyMasterFXChain (juce::AudioBuffer<float>&);
-    void applyStereoWidth (juce::AudioBuffer<float>&, float width);
+    void applyStereoWidth (juce::AudioBuffer<float>&);
     void reassignSampleToEngines();
 
     //==========================================================================
@@ -94,6 +99,13 @@ private:
 
     // MIDI note that maps to the first slice (C3).
     static constexpr int kRootNote = 48;
+
+    // Lock-free queue of pad hits (message thread -> audio thread).
+    juce::AbstractFifo padFifo { 64 };
+    std::array<int, 64> padQueue {};
+
+    // Smoothed stereo width to avoid zipper noise when the knob moves.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed { 1.0f };
 
     juce::dsp::ProcessSpec spec {};
 

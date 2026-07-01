@@ -113,20 +113,15 @@ void SliceGrid::paint (juce::Graphics& g)
 void SliceGrid::mouseDown (const juce::MouseEvent& e)
 {
     const int idx = padIndexAt (e.getPosition());
-    if (idx < 0)
+    if (idx < 0 || idx >= proc.getSliceEngine().getNumSlices())
         return;
 
-    if (auto slice = proc.getSliceEngine().getSlice (idx))
-    {
-        const float attack = proc.getAPVTS().getRawParameterValue ("attack")->load();
-        proc.getVoicePool().triggerVoice (slice->startSample,
-                                          slice->lengthSamples,
-                                          0.9f, attack,
-                                          proc.getLoadedSampleRate());
-        if (idx < (int) padFlash.size())
-            padFlash[(size_t) idx] = 1.0f;
-        repaint();
-    }
+    // Hand the trigger to the audio thread lock-free; play happens there.
+    proc.triggerSlicePad (idx);
+
+    if (idx < (int) padFlash.size())
+        padFlash[(size_t) idx] = 1.0f;
+    repaint();
 }
 
 void SliceGrid::timerCallback()

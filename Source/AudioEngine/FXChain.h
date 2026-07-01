@@ -7,8 +7,12 @@
 class DistortionFX
 {
 public:
-    void prepare (const juce::dsp::ProcessSpec&) {}
+    void prepare (const juce::dsp::ProcessSpec& spec);
     void process (juce::AudioBuffer<float>& buffer, float drive);
+
+private:
+    double sampleRate = 44100.0;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedDrive { 0.0f };
 };
 
 /** Room reverb wrapping juce::dsp::Reverb; `amount` 0..1 sets the wet level. */
@@ -21,6 +25,7 @@ public:
 private:
     juce::dsp::Reverb reverb;
     double sampleRate = 44100.0;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedAmount { 0.0f };
 };
 
 /** Stereo feedback delay; `amount` 0..1 sets the wet level. */
@@ -43,6 +48,7 @@ private:
     float delaySeconds = 0.35f;
     float feedback     = 0.4f;
     double sampleRate  = 44100.0;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedWet { 0.0f };
 };
 
 /**

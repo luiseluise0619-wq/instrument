@@ -16,6 +16,11 @@ struct SlicePoint
       - Transient : HFC onset detection (with a minimum-gap filter).
       - Grid      : equal divisions across the whole sample.
       - Manual    : user-supplied slice points.
+
+    Slicing (rebuildSlices / sliceByManual) runs on the message thread. The
+    slice list is published under a spin lock; the audio thread reads it with
+    tryGetSlice() (a try-lock that safely drops a trigger on the rare block that
+    coincides with a re-slice, rather than racing the vector).
 */
 class SliceEngine
 {
@@ -33,15 +38,20 @@ public:
     void rebuildSlices();
     void sliceByManual (const std::vector<int>& points);
 
+    // Message-thread reads (UI / waveform).
     int getNumSlices() const                       { return (int) slices.size(); }
     std::optional<SlicePoint> getSlice (int i) const;
     const std::vector<SlicePoint>& getSlices() const { return slices; }
     const std::vector<int>& getTransientPoints() const { return transients; }
 
+    // Audio-thread read: returns false (and leaves out untouched) if the slice
+    // list is being rebuilt or the index is out of range.
+    bool tryGetSlice (int index, SlicePoint& out) const;
+
 private:
-    void sliceByTransient();
-    void sliceByGrid();
-    void detectTransients();
+    std::vector<SlicePoint> buildTransient();
+    std::vector<SlicePoint> buildGrid() const;
+    void publish (std::vector<SlicePoint> newSlices);
 
     std::shared_ptr<juce::AudioBuffer<float>> sample;
     std::vector<SlicePoint> slices;
@@ -51,4 +61,6 @@ private:
     float  sensitivity = 0.3f;
     int    gridDiv     = 16;
     double sampleRate  = 44100.0;
+
+    mutable juce::SpinLock slicesLock;
 };

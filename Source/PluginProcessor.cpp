@@ -72,6 +72,9 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     fxChain.prepare (spec);
     limiter.prepare (sampleRate, samplesPerBlock);
 
+    widthSmoothed.reset (sampleRate, 0.02);
+    widthSmoothed.setCurrentAndTargetValue (widthParam != nullptr ? widthParam->load() : 1.0f);
+
     // The pitch/formant engine has inherent latency — report it to the host.
     setLatencySamples (pitchFormant.getLatencySamples());
 
@@ -93,7 +96,7 @@ bool VocalChopAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
 void VocalChopAudioProcessor::reassignSampleToEngines()
 {
     sliceEngine.setSample (sampleBuffer, loadedSampleRate);
-    voicePool.setSource (sampleBuffer);
+    voicePool.setSource (sampleBuffer, loadedSampleRate);
 }
 
 //==============================================================================
@@ -108,8 +111,9 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     const int numSamples = buffer.getNumSamples();
 
-    // 1) MIDI → slice triggers.
+    // 1) MIDI + pad-queue → slice triggers.
     handleMidi (midi, numSamples);
+    drainPadQueue();
 
     // 2) Render active voices (dry chops).
     voicePool.renderNextBlock (buffer, numSamples);
@@ -128,7 +132,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     applyMasterFXChain (buffer);
 
     // 6) Stereo width.
-    applyStereoWidth (buffer, widthParam->load());
+    applyStereoWidth (buffer);
 
     // 7) Brick-wall limiter.
     limiter.process (buffer);
@@ -136,31 +140,49 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
 void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*numSamples*/)
 {
-    if (sliceEngine.getNumSlices() == 0)
-        return;
-
     for (const auto meta : midi)
     {
         const auto msg = meta.getMessage();
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
-        {
-            const int sliceIdx = juce::jlimit (0, sliceEngine.getNumSlices() - 1,
-                                               msg.getNoteNumber() - kRootNote);
-            if (auto slice = sliceEngine.getSlice (sliceIdx))
-            {
-                voicePool.triggerVoice (slice->startSample,
-                                        slice->lengthSamples,
-                                        msg.getVelocity() / 127.0f,
-                                        attackParam->load(),
-                                        currentSampleRate);
-            }
-        }
+            triggerSliceIndex (msg.getNoteNumber() - kRootNote, msg.getVelocity() / 127.0f);
         else if (msg.isAllNotesOff())
-        {
             voicePool.releaseAll();
-        }
     }
+}
+
+void VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
+{
+    // Audio thread. tryGetSlice() safely no-ops if a re-slice is in progress.
+    SlicePoint slice;
+    if (sliceEngine.tryGetSlice (sliceIndex, slice))
+        voicePool.triggerVoice (slice.startSample, slice.lengthSamples,
+                                velocity, attackParam->load());
+}
+
+void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex)
+{
+    // Message thread (pad click). Hand the index to the audio thread lock-free.
+    int start1, size1, start2, size2;
+    padFifo.prepareToWrite (1, start1, size1, start2, size2);
+    if (size1 > 0)
+    {
+        padQueue[(size_t) start1] = sliceIndex;
+        padFifo.finishedWrite (1);
+    }
+}
+
+void VocalChopAudioProcessor::drainPadQueue()
+{
+    int start1, size1, start2, size2;
+    padFifo.prepareToRead (padFifo.getNumReady(), start1, size1, start2, size2);
+
+    for (int i = 0; i < size1; ++i)
+        triggerSliceIndex (padQueue[(size_t) (start1 + i)], 0.9f);
+    for (int i = 0; i < size2; ++i)
+        triggerSliceIndex (padQueue[(size_t) (start2 + i)], 0.9f);
+
+    padFifo.finishedRead (size1 + size2);
 }
 
 void VocalChopAudioProcessor::applyMasterFXChain (juce::AudioBuffer<float>& buffer)
@@ -170,16 +192,22 @@ void VocalChopAudioProcessor::applyMasterFXChain (juce::AudioBuffer<float>& buff
     fxChain.delay.process      (buffer, delayParam->load());
 }
 
-void VocalChopAudioProcessor::applyStereoWidth (juce::AudioBuffer<float>& buffer, float width)
+void VocalChopAudioProcessor::applyStereoWidth (juce::AudioBuffer<float>& buffer)
 {
-    if (buffer.getNumChannels() < 2 || std::abs (width - 1.0f) < 1.0e-4f)
+    widthSmoothed.setTargetValue (widthParam->load());
+
+    if (buffer.getNumChannels() < 2)
+    {
+        widthSmoothed.skip (buffer.getNumSamples());
         return;
+    }
 
     float* L = buffer.getWritePointer (0);
     float* R = buffer.getWritePointer (1);
 
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
+        const float width = widthSmoothed.getNextValue();
         const float mid  = (L[i] + R[i]) * 0.5f;
         const float side = (L[i] - R[i]) * 0.5f * width;
         L[i] = mid + side;

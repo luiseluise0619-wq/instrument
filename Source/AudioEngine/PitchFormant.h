@@ -45,4 +45,6 @@ private:
     std::vector<float>       dryRing[2];      // latency-matched dry for the mix
     int    ringCap   = 1;
     int    ringWrite = 0;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmoothed { 1.0f };
 };
