@@ -81,12 +81,14 @@ Built plugins land under `build/VocalChopStudio_artefacts/`.
 
 ## Implementation notes
 
-- **Pitch shifting** uses a CPU-cheap time-domain dual-tap variable-delay line
-  with complementary Hann crossfades (no amplitude modulation, click-free). For
-  mastering-grade quality, swap in SoundTouch or zplane élastique inside
-  `PitchFormant::processChannel`.
-- **Formant** is approximated as a first-order spectral tilt rather than a full
-  cepstral envelope shift.
+- **Pitch / formant shifting** uses [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)
+  (MIT), a high-quality spectral engine with proper formant handling: pitch and
+  formant are shifted independently and formants are compensated so shifting
+  pitch keeps the natural vocal character instead of the "chipmunk" effect. It
+  is fetched automatically via CMake `FetchContent` (with its `dsp/` submodule).
+- The engine has inherent latency, which is reported to the host via
+  `setLatencySamples`; the dry path is delay-matched so the dry/wet mix stays
+  phase-aligned. Pin `-DSIGNALSMITH_STRETCH_TAG=<commit>` for reproducible builds.
 - **MP3** decoding depends on the platform codec JUCE exposes; WAV/AIFF/FLAC/Ogg
   work everywhere `registerBasicFormats()` covers.
 - The **FX rack** UI edits effect amounts; the processing order in the engine is

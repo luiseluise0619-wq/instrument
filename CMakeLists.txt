@@ -14,16 +14,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ---------------------------------------------------------------------------
 set(JUCE_SOURCE_DIR "" CACHE PATH "Path to an existing JUCE source tree")
 
+include(FetchContent)
+
 if(JUCE_SOURCE_DIR)
     add_subdirectory(${JUCE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/JUCE)
 else()
-    include(FetchContent)
     FetchContent_Declare(
         JUCE
         GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
         GIT_TAG        8.0.4
         GIT_SHALLOW    TRUE)
     FetchContent_MakeAvailable(JUCE)
+endif()
+
+# ---------------------------------------------------------------------------
+# Signalsmith Stretch — high-quality pitch / formant shifting.
+#
+# Header-only, MIT-licensed, with a `dsp/` git submodule (fetched
+# automatically). Used by Source/AudioEngine/PitchFormant for transparent,
+# formant-preserving pitch shifting. Pin SIGNALSMITH_STRETCH_TAG to a specific
+# commit for reproducible builds; `main` is used by default.
+# ---------------------------------------------------------------------------
+set(SIGNALSMITH_STRETCH_TAG "main" CACHE STRING "signalsmith-stretch git tag/commit")
+
+FetchContent_Declare(
+    signalsmith_stretch
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+    GIT_TAG        ${SIGNALSMITH_STRETCH_TAG})
+
+# Header-only: populate the source but do not add_subdirectory (no build step).
+FetchContent_GetProperties(signalsmith_stretch)
+if(NOT signalsmith_stretch_POPULATED)
+    FetchContent_Populate(signalsmith_stretch)
 endif()
 
 juce_add_plugin(VocalChopStudio
@@ -55,7 +77,9 @@ target_sources(VocalChopStudio PRIVATE
     Source/UI/SliceGrid.cpp
     Source/UI/FXRack.cpp)
 
-target_include_directories(VocalChopStudio PRIVATE Source)
+target_include_directories(VocalChopStudio PRIVATE
+    Source
+    ${signalsmith_stretch_SOURCE_DIR})
 
 target_compile_definitions(VocalChopStudio PRIVATE
     JUCE_WEB_BROWSER=0

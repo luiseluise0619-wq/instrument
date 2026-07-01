@@ -67,10 +67,13 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     spec.numChannels      = 2;
 
     voicePool.prepare (spec);
-    pitchFormant.prepare (sampleRate);
+    pitchFormant.prepare (sampleRate, samplesPerBlock, juce::jmax (1, getTotalNumOutputChannels()));
     granularEngine.prepare (spec);
     fxChain.prepare (spec);
     limiter.prepare (sampleRate, samplesPerBlock);
+
+    // The pitch/formant engine has inherent latency — report it to the host.
+    setLatencySamples (pitchFormant.getLatencySamples());
 
     reassignSampleToEngines();
 }
