@@ -1,0 +1,36 @@
+# Build output
+build/
+Build/
+cmake-build-*/
+out/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Fetched dependencies
+_deps/
+JUCE/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.xcodeproj/
+*.sln
+*.vcxproj*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Plugin build artefacts
+*.vst3
+*.component
+*.o
+*.obj
