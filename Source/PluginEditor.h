@@ -7,6 +7,7 @@
 #include "UI/SliceGrid.h"
 #include "UI/FXRack.h"
 #include "UI/KnobComponent.h"
+#include "UI/AppleLookAndFeel.h"
 
 //==============================================================================
 class VocalChopAudioProcessorEditor : public juce::AudioProcessorEditor
@@ -26,13 +27,18 @@ private:
     void openFileChooser();
     void applySlicing();
     void refreshChildren();
-    void styleComboBox (juce::ComboBox&);
+
+    // Draws a rounded "material" card with hairline border and soft shadow.
+    void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;
 
     VocalChopAudioProcessor& processor;
 
+    // Shared Apple-style look for buttons / combos / menus.
+    AppleLookAndFeel appleLaf;
+
     // Top bar.
-    juce::Label    titleLabel;
-    juce::ComboBox themeBox;
+    juce::Label      titleLabel;
+    juce::ComboBox   themeBox;
     juce::TextButton loadButton { "Load Sample" };
 
     // Slicing controls.
@@ -49,6 +55,10 @@ private:
     WaveformView waveform;
     SliceGrid    sliceGrid;
     FXRack       fxRack;
+
+    // Cached card rectangles (populated in resized(), painted in paint()).
+    juce::Rectangle<int> sliceCardBounds;
+    juce::Rectangle<int> knobCardBounds;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 

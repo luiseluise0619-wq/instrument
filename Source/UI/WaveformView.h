@@ -6,9 +6,13 @@
 class VocalChopAudioProcessor;
 
 /**
-    Draws the loaded sample as a filled waveform with slice boundary markers,
-    a subtle animated glow, and accepts drag-and-drop of audio files to load a
-    new sample. Clicking rebuilds slices via the processor's SliceEngine.
+    Draws the loaded sample as a smooth filled waveform inside a rounded
+    "material" card in the Apple / macOS-iOS visual style. Shows slice-boundary
+    markers with small rounded handles, an empty-state prompt with an SF-symbol
+    style glyph, and accepts drag-and-drop of audio files to load a new sample.
+
+    The min/max envelope is cached from the loaded sample and rebuilt on resize
+    or refresh. A restrained Timer drives a near-zero, subtle animation.
 */
 class WaveformView : public juce::Component,
                      public juce::FileDragAndDropTarget,
@@ -35,7 +39,7 @@ private:
 
     VocalChopAudioProcessor& proc;
     std::vector<float> minEnv, maxEnv;
-    float glowPhase = 0.0f;
+    float phase = 0.0f;
     bool  fileHover = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformView)

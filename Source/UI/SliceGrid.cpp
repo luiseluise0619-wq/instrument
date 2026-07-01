@@ -2,10 +2,13 @@
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
 
+#include <cmath>
+#include <vector>
+
 SliceGrid::SliceGrid (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
-    startTimerHz (30);
+    startTimerHz (60);
 }
 
 SliceGrid::~SliceGrid()
@@ -16,7 +19,7 @@ SliceGrid::~SliceGrid()
 static int columnsFor (int numPads)
 {
     if (numPads <= 0) return 1;
-    int cols = (int) std::ceil (std::sqrt ((double) numPads));
+    const int cols = (int) std::ceil (std::sqrt ((double) numPads));
     return juce::jmax (1, cols);
 }
 
@@ -27,9 +30,15 @@ juce::Rectangle<float> SliceGrid::padBounds (int index, int numPads) const
     const int col  = index % cols;
     const int row  = index / cols;
 
-    const float w = (float) getWidth()  / (float) cols;
-    const float h = (float) getHeight() / (float) juce::jmax (1, rows);
-    return juce::Rectangle<float> (col * w, row * h, w, h).reduced (4.0f);
+    // Even, generous gaps that scale gently with the cell size.
+    const float cellW = (float) getWidth()  / (float) cols;
+    const float cellH = (float) getHeight() / (float) juce::jmax (1, rows);
+    const float gap   = juce::jlimit (5.0f, 12.0f, juce::jmin (cellW, cellH) * 0.10f);
+
+    juce::Rectangle<float> cell ((float) col * cellW,
+                                 (float) row * cellH,
+                                 cellW, cellH);
+    return cell.reduced (gap * 0.5f);
 }
 
 int SliceGrid::padIndexAt (juce::Point<int> p) const
@@ -52,25 +61,51 @@ void SliceGrid::paint (juce::Graphics& g)
 
     if (numPads == 0)
     {
-        g.setColour (theme.text.withAlpha (0.5f));
-        g.setFont (14.0f);
-        g.drawText ("No slices — load a sample", getLocalBounds(),
+        g.setColour (theme.textSecondary);
+        g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Medium")));
+        g.drawText ("Load a sample to see slices", getLocalBounds(),
                     juce::Justification::centred);
         return;
     }
 
+    // Rounded-square pad radius, derived from the theme and clamped.
+    const float radius = juce::jlimit (5.0f, 14.0f, theme.cornerRadius * 0.7f);
+
     for (int i = 0; i < numPads; ++i)
     {
-        auto b = padBounds (i, numPads);
-        const float flash = padFlash[(size_t) i];
+        const auto b = padBounds (i, numPads);
+        const float flash = juce::jlimit (0.0f, 1.0f, padFlash[(size_t) i]);
 
-        g.setColour (theme.knob.darker (0.4f).interpolatedWith (theme.accent, flash));
-        g.fillRoundedRectangle (b, 6.0f);
-        g.setColour (theme.accent.withAlpha (0.4f + 0.6f * flash));
-        g.drawRoundedRectangle (b, 6.0f, 1.5f);
+        // Soft, subtle per-pad drop shadow.
+        {
+            auto shadowRect = b.translated (0.0f, 1.5f);
+            g.setColour (theme.shadow.withAlpha (0.18f + 0.22f * flash));
+            g.fillRoundedRectangle (shadowRect, radius);
+        }
 
-        g.setColour (theme.text.withAlpha (0.85f));
-        g.setFont (juce::jmin (18.0f, b.getHeight() * 0.4f));
+        // Fill: base control colour interpolating toward the accent on trigger.
+        const auto fill = theme.control.interpolatedWith (theme.accent, flash);
+        g.setColour (fill);
+        g.fillRoundedRectangle (b, radius);
+
+        // Optional restrained accent glow while flashing.
+        if (theme.glow > 0.0f && flash > 0.0f)
+        {
+            g.setColour (theme.accentSoft.withMultipliedAlpha (theme.glow * flash));
+            g.fillRoundedRectangle (b.expanded (1.5f), radius + 1.5f);
+            g.setColour (fill);
+            g.fillRoundedRectangle (b, radius);
+        }
+
+        // 1px hairline border, easing toward the accent on trigger.
+        const auto border = theme.separator.interpolatedWith (theme.accent, flash);
+        g.setColour (border);
+        g.drawRoundedRectangle (b, radius, 1.0f);
+
+        // Slice number: secondary colour normally, white while flashing.
+        const float fontSize = juce::jmin (16.0f, b.getHeight() * 0.34f);
+        g.setFont (juce::Font (juce::FontOptions (fontSize).withStyle ("Medium")));
+        g.setColour (theme.textSecondary.interpolatedWith (juce::Colours::white, flash));
         g.drawText (juce::String (i + 1), b, juce::Justification::centred);
     }
 }
@@ -101,7 +136,8 @@ void SliceGrid::timerCallback()
     {
         if (f > 0.0f)
         {
-            f = juce::jmax (0.0f, f - 0.08f);
+            // Smooth exponential-ish decay for a polished falloff.
+            f = juce::jmax (0.0f, f - 0.045f);
             any = true;
         }
     }

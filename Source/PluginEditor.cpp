@@ -1,6 +1,14 @@
 #include "PluginEditor.h"
 #include "UI/ThemeManager.h"
 
+namespace
+{
+    // Consistent outer margin / inner padding for the Apple-style layout.
+    constexpr int kMargin  = 20;
+    constexpr int kPadding = 18;
+    constexpr int kGap     = 16;
+}
+
 //==============================================================================
 VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProcessor& p)
     : AudioProcessorEditor (&p),
@@ -10,9 +18,12 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
       sliceGrid (p),
       fxRack (p.getAPVTS())
 {
+    // Restyle all buttons / combos / menus with the shared Apple look.
+    setLookAndFeel (&appleLaf);
+
     // --- Title ---
     titleLabel.setText ("VocalChop Studio", juce::dontSendNotification);
-    titleLabel.setFont (juce::Font (24.0f, juce::Font::bold));
+    titleLabel.setFont (juce::Font (juce::FontOptions (20.0f).withStyle ("Semibold")));
     titleLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (titleLabel);
 
@@ -21,7 +32,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     for (const auto& t : ThemeManager::themes())
         themeBox.addItem (t.name, themeId++);
     themeBox.setSelectedId (ThemeManager::current() + 1, juce::dontSendNotification);
-    styleComboBox (themeBox);
+    themeBox.setJustificationType (juce::Justification::centred);
     themeBox.onChange = [this]
     {
         ThemeManager::setIndex (themeBox.getSelectedId() - 1);
@@ -38,14 +49,14 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     sliceModeBox.addItem ("Transient", 1);
     sliceModeBox.addItem ("Grid", 2);
     sliceModeBox.setSelectedId (1, juce::dontSendNotification);
-    styleComboBox (sliceModeBox);
+    sliceModeBox.setJustificationType (juce::Justification::centred);
     sliceModeBox.onChange = [this] { applySlicing(); };
     addAndMakeVisible (sliceModeBox);
 
     for (int div : { 4, 8, 16, 32 })
         gridBox.addItem (juce::String (div) + " slices", div);
     gridBox.setSelectedId (16, juce::dontSendNotification);
-    styleComboBox (gridBox);
+    gridBox.setJustificationType (juce::Justification::centred);
     gridBox.onChange = [this] { applySlicing(); };
     addAndMakeVisible (gridBox);
 
@@ -68,13 +79,16 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (fxRack);
 
     setResizable (true, true);
-    setResizeLimits (760, 520, 1600, 1100);
-    setSize (960, 620);
+    setResizeLimits (820, 560, 1700, 1200);
+    setSize (980, 640);
 
     refreshChildren();
 }
 
-VocalChopAudioProcessorEditor::~VocalChopAudioProcessorEditor() = default;
+VocalChopAudioProcessorEditor::~VocalChopAudioProcessorEditor()
+{
+    setLookAndFeel (nullptr);
+}
 
 //==============================================================================
 void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& knob,
@@ -85,11 +99,6 @@ void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& kno
     attachments.push_back (std::make_unique<SliderAttachment> (
         processor.getAPVTS(), paramID, knob->getSlider()));
     addAndMakeVisible (*knob);
-}
-
-void VocalChopAudioProcessorEditor::styleComboBox (juce::ComboBox& box)
-{
-    box.setJustificationType (juce::Justification::centred);
 }
 
 void VocalChopAudioProcessorEditor::openFileChooser()
@@ -132,65 +141,117 @@ void VocalChopAudioProcessorEditor::refreshChildren()
 }
 
 //==============================================================================
+void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
+                                              juce::Rectangle<float> bounds) const
+{
+    const auto& theme = ThemeManager::active();
+    const float radius = theme.cornerRadius;
+
+    // Soft drop shadow.
+    {
+        juce::DropShadow shadow (theme.shadow.withAlpha (0.35f), 18, { 0, 6 });
+        juce::Path p;
+        p.addRoundedRectangle (bounds, radius);
+        shadow.drawForPath (g, p);
+    }
+
+    // Material fill.
+    g.setColour (theme.material);
+    g.fillRoundedRectangle (bounds, radius);
+
+    // Hairline border.
+    g.setColour (theme.separator);
+    g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+}
+
 void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
 
-    juce::ColourGradient bg (theme.bgTop, 0, 0,
-                             theme.bgBottom, 0, (float) getHeight(), false);
+    // Backdrop gradient.
+    juce::ColourGradient bg (theme.bgTop, 0.0f, 0.0f,
+                             theme.bgBottom, 0.0f, (float) getHeight(), false);
     g.setGradientFill (bg);
     g.fillAll();
 
+    // Live label colours.
     titleLabel.setColour (juce::Label::textColourId, theme.text);
 
-    g.setColour (theme.text.withAlpha (0.6f));
-    g.setFont (12.0f);
+    // Hairline under the toolbar.
+    const auto full = getLocalBounds().reduced (kMargin, 0);
+    const int toolbarBottom = kMargin + 34 + (kGap / 2);
+    g.setColour (theme.separator);
+    g.fillRect (full.getX(), toolbarBottom, full.getWidth(), 1);
+
+    // Material cards.
+    if (! sliceCardBounds.isEmpty())
+        drawCard (g, sliceCardBounds.toFloat());
+    if (! knobCardBounds.isEmpty())
+        drawCard (g, knobCardBounds.toFloat());
+
+    // Footer hint.
+    g.setColour (theme.textSecondary);
+    g.setFont (juce::Font (juce::FontOptions (12.0f)));
     g.drawText ("MIDI C3 = slice 1   •   drop audio onto the waveform",
-                getLocalBounds().removeFromBottom (20).reduced (12, 0),
+                getLocalBounds().removeFromBottom (24).reduced (kMargin, 0),
                 juce::Justification::centredRight);
 }
 
 void VocalChopAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (12);
+    auto area = getLocalBounds().reduced (kMargin);
 
-    // Top bar.
-    auto top = area.removeFromTop (36);
-    titleLabel.setBounds (top.removeFromLeft (260));
-    themeBox.setBounds (top.removeFromRight (140).reduced (2));
-    loadButton.setBounds (top.removeFromRight (130).reduced (2));
+    // --- Top toolbar row ---
+    auto top = area.removeFromTop (34);
+    titleLabel.setBounds (top.removeFromLeft (300));
+    themeBox.setBounds  (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
+    top.removeFromRight (10);
+    loadButton.setBounds (top.removeFromRight (140).withSizeKeepingCentre (140, 30));
 
-    area.removeFromTop (8);
+    area.removeFromTop (kGap);
 
-    // Slice control strip.
-    auto sliceBar = area.removeFromTop (70);
-    sliceModeBox.setBounds (sliceBar.removeFromLeft (130).reduced (4).withSizeKeepingCentre (122, 26));
-    gridBox.setBounds (sliceBar.removeFromLeft (130).reduced (4).withSizeKeepingCentre (122, 26));
-    sensitivityKnob.setBounds (sliceBar.removeFromLeft (80).reduced (2));
+    // --- Slice control card ---
+    auto sliceCard = area.removeFromTop (94);
+    sliceCardBounds = sliceCard;
+    {
+        auto inner = sliceCard.reduced (kPadding, kPadding - 4);
+        sliceModeBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
+        inner.removeFromLeft (kGap);
+        gridBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
+        inner.removeFromLeft (kGap);
+        sensitivityKnob.setBounds (inner.removeFromLeft (96));
+    }
 
-    area.removeFromTop (8);
+    area.removeFromTop (kGap);
 
-    // Right column: FX rack.
-    auto right = area.removeFromRight (140);
+    // Reserve footer space.
+    area.removeFromBottom (24 + kGap / 2);
+
+    // --- Right column: FX rack ---
+    auto right = area.removeFromRight (160);
     fxRack.setBounds (right);
-    area.removeFromRight (10);
+    area.removeFromRight (kGap);
 
-    // Waveform occupies the upper portion.
-    waveform.setBounds (area.removeFromTop (juce::jmax (120, area.getHeight() / 3)));
-    area.removeFromTop (10);
+    // --- Waveform (upper section) ---
+    waveform.setBounds (area.removeFromTop (juce::jmax (140, area.getHeight() / 3)));
+    area.removeFromTop (kGap);
 
-    // Knob row.
-    auto knobRow = area.removeFromTop (100);
-    KnobComponent* knobs[] = { pitchKnob.get(), formantKnob.get(), mixKnob.get(),
-                               widthKnob.get(), grainKnob.get(), attackKnob.get() };
-    const int numKnobs = (int) (sizeof (knobs) / sizeof (knobs[0]));
-    const int knobW = knobRow.getWidth() / numKnobs;
-    for (auto* k : knobs)
-        if (k != nullptr)
-            k->setBounds (knobRow.removeFromLeft (knobW).reduced (4));
+    // --- Knob row card ---
+    auto knobCard = area.removeFromTop (128);
+    knobCardBounds = knobCard;
+    {
+        auto knobRow = knobCard.reduced (kPadding, kPadding - 6);
+        KnobComponent* knobs[] = { pitchKnob.get(), formantKnob.get(), mixKnob.get(),
+                                   widthKnob.get(), grainKnob.get(), attackKnob.get() };
+        const int numKnobs = (int) (sizeof (knobs) / sizeof (knobs[0]));
+        const int knobW = knobRow.getWidth() / numKnobs;
+        for (auto* k : knobs)
+            if (k != nullptr)
+                k->setBounds (knobRow.removeFromLeft (knobW).reduced (6, 0));
+    }
 
-    area.removeFromTop (10);
+    area.removeFromTop (kGap);
 
-    // Slice pad grid fills the remainder.
+    // --- Slice pad grid fills the remainder ---
     sliceGrid.setBounds (area);
 }

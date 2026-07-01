@@ -1,50 +1,58 @@
 #include "ThemeManager.h"
 
-int ThemeManager::idx = 0;
+int ThemeManager::idx = 1; // default to the dark "Graphite" theme
 
-std::array<NeonTheme, ThemeManager::kNumThemes> ThemeManager::all = {{
+std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
+    // ---- Silver (light) --------------------------------------------------
     {
-        "Ocean Blue",
-        juce::Colour (0xff0a1128), juce::Colour (0xff001f54),
-        juce::Colour (0x33ffffff),
-        juce::Colour (0xff34cdfe),
-        juce::Colour (0xff5ce1e6),
-        juce::Colour (0xff00b4d8),
-        juce::Colour (0xff90e0ef),
-        juce::Colour (0xffeaf6ff),
-        1.0f
+        "Silver", false,
+        juce::Colour (0xfff5f5f7), juce::Colour (0xffe9e9ec),   // bg gradient
+        juce::Colour (0xb3ffffff), juce::Colour (0xf2ffffff),   // material
+        juce::Colour (0x14000000),                              // separator
+        juce::Colour (0xffffffff), juce::Colour (0x14000000),   // control / track
+        juce::Colour (0xff007aff), juce::Colour (0x26007aff),   // accent (system blue)
+        juce::Colour (0xff1d1d1f),                              // waveform (graphite)
+        juce::Colour (0xff1d1d1f), juce::Colour (0x8c1d1d1f),   // text / secondary
+        juce::Colour (0x1f000000),                              // shadow
+        13.0f, 0.0f
     },
+    // ---- Graphite (dark) -------------------------------------------------
     {
-        "Magenta Dusk",
-        juce::Colour (0xff1a0322), juce::Colour (0xff2d0b3a),
-        juce::Colour (0x33ffffff),
-        juce::Colour (0xffff4dd6),
-        juce::Colour (0xffff77e9),
-        juce::Colour (0xffd633ff),
-        juce::Colour (0xffffa8f0),
-        juce::Colour (0xfffdeaff),
-        1.2f
+        "Graphite", true,
+        juce::Colour (0xff1c1c1e), juce::Colour (0xff0a0a0b),
+        juce::Colour (0x14ffffff), juce::Colour (0x26ffffff),
+        juce::Colour (0x1fffffff),
+        juce::Colour (0xff2c2c2e), juce::Colour (0x1fffffff),
+        juce::Colour (0xff0a84ff), juce::Colour (0x330a84ff),   // system blue (dark)
+        juce::Colour (0xffe5e5ea),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99ffffff),
+        juce::Colour (0x66000000),
+        13.0f, 0.12f
     },
+    // ---- Midnight (deep blue) -------------------------------------------
     {
-        "Acid Lime",
-        juce::Colour (0xff0d1b0d), juce::Colour (0xff14260f),
-        juce::Colour (0x33ffffff),
-        juce::Colour (0xffb6ff3a),
-        juce::Colour (0xffd4ff5c),
-        juce::Colour (0xff9ef01a),
-        juce::Colour (0xffe4ff9e),
-        juce::Colour (0xfff2ffdd),
-        1.1f
+        "Midnight", true,
+        juce::Colour (0xff0b1020), juce::Colour (0xff05070f),
+        juce::Colour (0x14ffffff), juce::Colour (0x24ffffff),
+        juce::Colour (0x1fffffff),
+        juce::Colour (0xff17203a), juce::Colour (0x1fffffff),
+        juce::Colour (0xff64d2ff), juce::Colour (0x3364d2ff),   // system teal
+        juce::Colour (0xff9ad9ff),
+        juce::Colour (0xfff2f6ff), juce::Colour (0x99cfe0ff),
+        juce::Colour (0x80000000),
+        14.0f, 0.18f
     },
+    // ---- Space Gray (neutral) -------------------------------------------
     {
-        "Mono Slate",
-        juce::Colour (0xff121212), juce::Colour (0xff1e1e1e),
-        juce::Colour (0x26ffffff),
-        juce::Colour (0xffe0e0e0),
-        juce::Colour (0xffb0b0b0),
-        juce::Colour (0xff8a8a8a),
-        juce::Colour (0xffffffff),
-        juce::Colour (0xfff5f5f5),
-        0.6f
+        "Space Gray", true,
+        juce::Colour (0xff2a2a2d), juce::Colour (0xff161618),
+        juce::Colour (0x14ffffff), juce::Colour (0x26ffffff),
+        juce::Colour (0x1fffffff),
+        juce::Colour (0xff3a3a3d), juce::Colour (0x1fffffff),
+        juce::Colour (0xffbf5af2), juce::Colour (0x33bf5af2),   // system purple
+        juce::Colour (0xffe7d6ff),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99ffffff),
+        juce::Colour (0x66000000),
+        13.0f, 0.1f
     }
 }};

@@ -30,5 +30,9 @@ private:
 
     std::vector<Module> modules;
 
+    // Layout metrics (kept in sync between resized() and paint()).
+    static constexpr int titleStrip = 26; // reserved height for the "FX" title
+    static constexpr int moduleGap  = 16; // vertical space between modules / divider
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FXRack)
 };

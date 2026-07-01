@@ -5,66 +5,124 @@
 void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     juce::Graphics& g, int x, int y, int width, int height,
     float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
-    juce::Slider& slider)
+    juce::Slider& /*slider*/)
 {
     const auto& theme = ThemeManager::active();
 
-    const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (6.0f);
-    const auto centre = bounds.getCentre();
+    // Leave a little breathing room for the shadow and arc.
+    auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (6.0f);
+    const auto centre  = bounds.getCentre();
     const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
     const float angle  = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
-    // Drop shadow.
+    // Disc slightly inset from the arc rings.
+    const float discRadius = radius * 0.82f;
+    auto discBounds = juce::Rectangle<float> (discRadius * 2.0f, discRadius * 2.0f).withCentre (centre);
+
+    //--------------------------------------------------------------------------
+    // (a) Soft drop shadow beneath the disc.
     {
-        juce::DropShadow shadow (juce::Colours::black.withAlpha (0.6f), 12, { 0, 4 });
-        juce::Path body;
-        body.addEllipse (bounds);
-        shadow.drawForPath (g, body);
+        juce::DropShadow shadow (theme.shadow, 8, { 0, 2 });
+        juce::Path discPath;
+        discPath.addEllipse (discBounds);
+        shadow.drawForPath (g, discPath);
     }
 
-    // Glass body gradient.
-    juce::ColourGradient grad (theme.knob.brighter (0.3f), centre.x, bounds.getY(),
-                               theme.knob.darker (0.5f),  centre.x, bounds.getBottom(), false);
-    g.setGradientFill (grad);
-    g.fillEllipse (bounds);
+    //--------------------------------------------------------------------------
+    // (b) Base disc.
+    g.setColour (theme.control);
+    g.fillEllipse (discBounds);
 
-    // Rim glow.
-    g.setColour (theme.accent.withAlpha (0.35f * theme.glow));
-    g.drawEllipse (bounds, 2.0f);
+    // (f) Very subtle glassy top inner highlight (dark themes only).
+    if (theme.dark)
+    {
+        juce::ColourGradient glass (juce::Colours::white.withAlpha (0.10f),
+                                    centre.x, discBounds.getY(),
+                                    juce::Colours::white.withAlpha (0.0f),
+                                    centre.x, centre.y, false);
+        g.setGradientFill (glass);
+        g.fillEllipse (discBounds.reduced (1.0f));
+    }
 
-    // Value arc.
-    juce::Path arc;
-    const float arcRadius = radius + 3.0f;
-    arc.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                       rotaryStartAngle, angle, true);
-    g.setColour (theme.accent);
-    g.strokePath (arc, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved,
-                                             juce::PathStrokeType::rounded));
+    // Hairline rim on the disc to keep it crisp.
+    g.setColour (theme.separator);
+    g.drawEllipse (discBounds, 1.0f);
 
-    // Pointer.
-    juce::Path pointer;
-    const float pointerLength = radius * 0.7f;
-    const float pointerThickness = 3.0f;
-    pointer.addRoundedRectangle (-pointerThickness * 0.5f, -radius + 4.0f,
-                                 pointerThickness, pointerLength, pointerThickness * 0.5f);
-    pointer.applyTransform (juce::AffineTransform::rotation (angle).translated (centre.x, centre.y));
-    g.setColour (theme.highlight);
-    g.fillPath (pointer);
+    //--------------------------------------------------------------------------
+    // Ring geometry (sits just outside the disc).
+    const float ringRadius = radius - 2.0f;
+    const float ringThickness = juce::jmax (2.5f, radius * 0.10f);
 
-    // Centre cap.
-    g.setColour (theme.knob.darker (0.2f));
-    g.fillEllipse (juce::Rectangle<float> (0, 0, radius * 0.4f, radius * 0.4f).withCentre (centre));
+    // (c) Thin inactive track ring.
+    {
+        juce::Path track;
+        track.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f,
+                             rotaryStartAngle, rotaryEndAngle, true);
+        g.setColour (theme.controlTrack);
+        g.strokePath (track, juce::PathStrokeType (ringThickness,
+                                                   juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
+    }
+
+    // (d) Accent progress arc with rounded caps.
+    if (sliderPos > 0.0f)
+    {
+        juce::Path progress;
+        progress.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f,
+                                rotaryStartAngle, angle, true);
+        g.setColour (theme.accent);
+        g.strokePath (progress, juce::PathStrokeType (ringThickness,
+                                                      juce::PathStrokeType::curved,
+                                                      juce::PathStrokeType::rounded));
+
+        // Subtle bloom around the arc when the theme asks for it.
+        if (theme.glow > 0.0f)
+        {
+            g.setColour (theme.accentSoft.withMultipliedAlpha (theme.glow * 4.0f));
+            g.strokePath (progress, juce::PathStrokeType (ringThickness + 3.0f,
+                                                          juce::PathStrokeType::curved,
+                                                          juce::PathStrokeType::rounded));
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // (e) Small crisp indicator: a short rounded line from mid-disc to the rim.
+    {
+        const float indicatorOuter = discRadius - 3.0f;
+        const float indicatorInner = discRadius * 0.45f;
+        const float thickness = juce::jmax (2.0f, radius * 0.06f);
+
+        juce::Point<float> p1 (centre.x + indicatorInner * std::cos (angle - juce::MathConstants<float>::halfPi),
+                               centre.y + indicatorInner * std::sin (angle - juce::MathConstants<float>::halfPi));
+        juce::Point<float> p2 (centre.x + indicatorOuter * std::cos (angle - juce::MathConstants<float>::halfPi),
+                               centre.y + indicatorOuter * std::sin (angle - juce::MathConstants<float>::halfPi));
+
+        juce::Path indicator;
+        indicator.startNewSubPath (p1);
+        indicator.lineTo (p2);
+        g.setColour (theme.text);
+        g.strokePath (indicator, juce::PathStrokeType (thickness,
+                                                       juce::PathStrokeType::curved,
+                                                       juce::PathStrokeType::rounded));
+    }
 }
 
 //==============================================================================
 KnobComponent::KnobComponent (const juce::String& caption)
 {
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+
+    // ~270 degree sweep in the Apple style.
+    slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f,
+                                juce::MathConstants<float>::pi * 2.75f,
+                                true);
+
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
     slider.setLookAndFeel (&lookAndFeel);
     addAndMakeVisible (slider);
 
     label.setText (caption, juce::dontSendNotification);
+    label.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Medium")));
     label.setJustificationType (juce::Justification::centred);
     label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (label);
@@ -82,11 +140,16 @@ void KnobComponent::resized()
     slider.setBounds (area);
 }
 
-void KnobComponent::paint (juce::Graphics& g)
+void KnobComponent::paint (juce::Graphics& /*g*/)
 {
     const auto& theme = ThemeManager::active();
-    label.setColour (juce::Label::textColourId, theme.text);
+
+    // Caption: secondary colour, medium weight (font set in constructor).
+    label.setColour (juce::Label::textColourId, theme.textSecondary);
+
+    // Minimal value readout under the dial: transparent background/outline.
     slider.setColour (juce::Slider::textBoxTextColourId, theme.text);
+    slider.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     slider.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    g.setColour (theme.text);
+    slider.setColour (juce::Slider::textBoxHighlightColourId, theme.accentSoft);
 }

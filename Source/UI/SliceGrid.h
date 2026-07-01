@@ -8,7 +8,7 @@ class VocalChopAudioProcessor;
 /**
     Grid of trigger pads, one per slice. Clicking a pad plays that slice
     through the processor's voice pool. Pads reflow to a roughly square grid
-    and flash on trigger.
+    and flash on trigger, in a polished Apple / macOS-iOS visual style.
 */
 class SliceGrid : public juce::Component,
                   private juce::Timer

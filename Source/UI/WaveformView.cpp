@@ -2,10 +2,20 @@
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
 
+#include <cmath>
+#include <vector>
+
+namespace
+{
+    // Inner padding between the card edge and the waveform drawing.
+    constexpr float kCardPadding = 12.0f;
+}
+
 WaveformView::WaveformView (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
-    startTimerHz (30);
+    // Subtle, restrained animation. Low rate keeps the Apple look calm.
+    startTimerHz (24);
 }
 
 WaveformView::~WaveformView()
@@ -28,8 +38,10 @@ void WaveformView::rebuildEnvelope()
     if (sample == nullptr || sample->getNumSamples() == 0)
         return;
 
-    const int numColumns = juce::jmax (1, getWidth());
-    const int numSamples = sample->getNumSamples();
+    // Resolve envelope over the drawable area inside the card padding.
+    const int drawWidth = juce::jmax (1, (int) std::floor (getWidth() - 2.0f * kCardPadding));
+    const int numColumns = juce::jmax (1, drawWidth);
+    const int numSamples  = sample->getNumSamples();
     const int numChannels = sample->getNumChannels();
 
     minEnv.assign ((size_t) numColumns, 0.0f);
@@ -64,62 +76,151 @@ void WaveformView::resized()
 
 void WaveformView::timerCallback()
 {
-    glowPhase += 0.05f;
-    if (glowPhase > juce::MathConstants<float>::twoPi)
-        glowPhase -= juce::MathConstants<float>::twoPi;
+    // Very slow breathing phase; used only for a near-invisible shimmer.
+    phase += 0.015f;
+    if (phase > juce::MathConstants<float>::twoPi)
+        phase -= juce::MathConstants<float>::twoPi;
     repaint();
 }
 
 void WaveformView::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
-    auto bounds = getLocalBounds().toFloat();
+    const float radius = theme.cornerRadius;
 
-    // Glass panel background.
-    g.setColour (theme.panel);
-    g.fillRoundedRectangle (bounds, 8.0f);
-    g.setColour (theme.accent.withAlpha (0.25f));
-    g.drawRoundedRectangle (bounds.reduced (0.5f), 8.0f, 1.0f);
+    auto full = getLocalBounds().toFloat();
+    // Reserve room for the drop shadow so the card doesn't touch the edges.
+    auto card = full.reduced (4.0f);
 
+    // --- Soft drop shadow behind the card ------------------------------------
+    {
+        juce::Path cardPath;
+        cardPath.addRoundedRectangle (card, radius);
+        juce::DropShadow (theme.shadow, 10, { 0, 2 }).drawForPath (g, cardPath);
+    }
+
+    // --- Material card fill + hairline border --------------------------------
+    g.setColour (theme.materialStrong);
+    g.fillRoundedRectangle (card, radius);
+
+    // Border tints toward accent while a file is dragged over the view.
+    const juce::Colour border = fileHover ? theme.accent
+                                          : theme.separator;
+    g.setColour (border);
+    g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+
+    // --- Empty state ---------------------------------------------------------
     if (maxEnv.empty())
     {
-        g.setColour (theme.text.withAlpha (0.5f));
-        g.setFont (16.0f);
-        g.drawText (fileHover ? "Release to load audio"
-                              : "Drop an audio file here",
-                    getLocalBounds(), juce::Justification::centred);
+        auto centre = card.getCentre();
+
+        // SF-symbol-style glyph: a downward arrow into an open tray/box.
+        const float gs = 22.0f;                      // glyph size
+        const float gx = centre.x;
+        const float gy = centre.y - 16.0f;
+
+        juce::Path glyph;
+
+        // Arrow shaft.
+        glyph.startNewSubPath (gx, gy - gs * 0.55f);
+        glyph.lineTo          (gx, gy + gs * 0.15f);
+        // Arrow head.
+        glyph.startNewSubPath (gx - gs * 0.28f, gy - gs * 0.1f);
+        glyph.lineTo          (gx,              gy + gs * 0.2f);
+        glyph.lineTo          (gx + gs * 0.28f, gy - gs * 0.1f);
+
+        // Tray / box below the arrow.
+        juce::Path tray;
+        const float tw = gs * 0.9f;
+        const float ty = gy + gs * 0.42f;
+        tray.startNewSubPath (gx - tw, ty);
+        tray.lineTo          (gx - tw, ty + gs * 0.42f);
+        tray.lineTo          (gx + tw, ty + gs * 0.42f);
+        tray.lineTo          (gx + tw, ty);
+
+        const juce::Colour glyphColour = fileHover ? theme.accent
+                                                   : theme.textSecondary;
+        g.setColour (glyphColour);
+        g.strokePath (glyph, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
+        g.strokePath (tray,  juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
+
+        g.setColour (fileHover ? theme.accent : theme.textSecondary);
+        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::plain))
+                       .withStyle ("Medium"));
+        auto textArea = card.withTop (centre.y + 8.0f).withHeight (24.0f);
+        g.drawText (fileHover ? "Release to load" : "Drop audio to load",
+                    textArea, juce::Justification::centred);
         return;
     }
 
-    const float midY   = bounds.getCentreY();
-    const float scale  = bounds.getHeight() * 0.45f;
-    const float glow   = 0.6f + 0.4f * std::sin (glowPhase);
+    // --- Waveform ------------------------------------------------------------
+    auto inner = card.reduced (kCardPadding);
 
-    // Waveform fill.
-    juce::Path wave;
-    wave.startNewSubPath (0.0f, midY);
-    for (size_t x = 0; x < maxEnv.size(); ++x)
-        wave.lineTo ((float) x, midY - maxEnv[x] * scale);
-    for (size_t x = maxEnv.size(); x-- > 0; )
-        wave.lineTo ((float) x, midY - minEnv[x] * scale);
-    wave.closeSubPath();
-
-    g.setColour (theme.waveform.withAlpha (0.75f * glow * theme.glow));
-    g.fillPath (wave);
-    g.setColour (theme.waveform);
-    g.strokePath (wave, juce::PathStrokeType (1.0f));
-
-    // Slice markers.
-    auto sample = proc.getLoadedSample();
-    if (sample != nullptr && sample->getNumSamples() > 0)
+    // Clip everything below to the rounded card so the fill stays inside.
     {
-        const auto& slices = proc.getSliceEngine().getSlices();
-        const float widthRatio = bounds.getWidth() / (float) sample->getNumSamples();
-        g.setColour (theme.highlight.withAlpha (0.6f));
-        for (const auto& s : slices)
+        juce::Graphics::ScopedSaveState clip (g);
+        juce::Path clipPath;
+        clipPath.addRoundedRectangle (card.reduced (1.0f), radius - 1.0f);
+        g.reduceClipRegion (clipPath);
+
+        const float left  = inner.getX();
+        const float midY  = inner.getCentreY();
+        const float scale = inner.getHeight() * 0.46f;
+
+        const size_t n = maxEnv.size();
+
+        // Centre line.
+        g.setColour (theme.separator.withMultipliedAlpha (0.8f));
+        g.drawLine (inner.getX(), midY, inner.getRight(), midY, 1.0f);
+
+        // Build the filled waveform shape (top contour, then back along bottom).
+        juce::Path fill;
+        fill.startNewSubPath (left, midY - maxEnv[0] * scale);
+        for (size_t x = 1; x < n; ++x)
+            fill.lineTo (left + (float) x, midY - maxEnv[x] * scale);
+        for (size_t x = n; x-- > 0; )
+            fill.lineTo (left + (float) x, midY - minEnv[x] * scale);
+        fill.closeSubPath();
+
+        // Subtle, near-zero shimmer on the fill alpha (Apple = restrained).
+        const float shimmer = 0.58f + 0.04f * std::sin (phase) * juce::jmax (0.0f, theme.glow);
+        g.setColour (theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, shimmer)));
+        g.fillPath (fill);
+
+        // Crisp 1px top stroke tracing the upper contour.
+        juce::Path topStroke;
+        topStroke.startNewSubPath (left, midY - maxEnv[0] * scale);
+        for (size_t x = 1; x < n; ++x)
+            topStroke.lineTo (left + (float) x, midY - maxEnv[x] * scale);
+        g.setColour (theme.waveform);
+        g.strokePath (topStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
+
+        // --- Slice markers ---------------------------------------------------
+        auto sample = proc.getLoadedSample();
+        if (sample != nullptr && sample->getNumSamples() > 0)
         {
-            const float xPos = s.startSample * widthRatio;
-            g.drawVerticalLine ((int) xPos, bounds.getY() + 2.0f, bounds.getBottom() - 2.0f);
+            const auto& slices = proc.getSliceEngine().getSlices();
+            const float widthRatio = inner.getWidth() / (float) sample->getNumSamples();
+
+            for (const auto& s : slices)
+            {
+                const float xPos = left + s.startSample * widthRatio;
+                if (xPos < inner.getX() - 0.5f || xPos > inner.getRight() + 0.5f)
+                    continue;
+
+                // Thin accent hairline.
+                g.setColour (theme.accent.withAlpha (0.55f));
+                g.drawLine (xPos, inner.getY() + 3.0f, xPos, inner.getBottom(), 1.0f);
+
+                // Small rounded handle / nub at the top of the marker.
+                const float nubW = 6.0f;
+                const float nubH = 6.0f;
+                juce::Rectangle<float> nub (xPos - nubW * 0.5f, inner.getY(), nubW, nubH);
+                g.setColour (theme.accent);
+                g.fillRoundedRectangle (nub, 2.0f);
+            }
         }
     }
 }
