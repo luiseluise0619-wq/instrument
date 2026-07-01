@@ -61,6 +61,13 @@ public:
     /** Message-thread-safe: queues a pad hit that the audio thread plays. */
     void triggerSlicePad (int sliceIndex);
 
+    /** Live output level (0..1, peak-ish) for the UI meter. */
+    std::atomic<float>& getOutputLevelRef() { return outputLevel; }
+
+    /** Applies a named factory preset's parameter values. */
+    void applyPreset (int presetIndex);
+    static juce::StringArray getPresetNames();
+
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
@@ -93,6 +100,19 @@ private:
     std::atomic<float>* reverbParam  = nullptr;
     std::atomic<float>* delayParam   = nullptr;
     std::atomic<float>* attackParam  = nullptr;
+    std::atomic<float>* decayParam   = nullptr;
+    std::atomic<float>* sustainParam = nullptr;
+    std::atomic<float>* releaseParam = nullptr;
+    std::atomic<float>* filterCutoffParam = nullptr;
+    std::atomic<float>* filterResoParam   = nullptr;
+    std::atomic<float>* filterTypeParam    = nullptr;
+    std::atomic<float>* delayFeedbackParam = nullptr;
+    std::atomic<float>* pingpongParam = nullptr;
+    std::atomic<float>* reverseParam  = nullptr;
+    std::atomic<float>* playModeParam = nullptr;
+    std::atomic<float>* outputGainParam = nullptr;
+
+    std::atomic<float> outputLevel { 0.0f };
 
     double currentSampleRate = 44100.0;
     double loadedSampleRate  = 44100.0;

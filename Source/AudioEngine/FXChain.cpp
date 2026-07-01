@@ -108,6 +108,109 @@ void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
 }
 
 //==============================================================================
+void FilterFX::prepare (const juce::dsp::ProcessSpec& spec)
+{
+    sampleRate  = spec.sampleRate > 0.0 ? spec.sampleRate : 44100.0;
+    numChannels = juce::jlimit (1, 2, (int) spec.numChannels);
+
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        lp[ch].setSampleRate (sampleRate);
+        hp[ch].setSampleRate (sampleRate);
+    }
+
+    reset();
+
+    smoothedCutoff.reset (sampleRate, 0.02); // ~20 ms ramp
+    smoothedCutoff.setCurrentAndTargetValue (1000.0f);
+
+    // Force a recompute on first process().
+    lastCutoff = -1.0f;
+    lastQ      = -1.0f;
+    lastType   = -1;
+}
+
+void FilterFX::reset()
+{
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        lp[ch].reset();
+        hp[ch].reset();
+    }
+}
+
+void FilterFX::updateCoefficients (float cutoffHz, float q, int type) noexcept
+{
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        switch (type)
+        {
+            case 1: // LowPass
+                lp[ch].lowPass (cutoffHz, q);
+                break;
+            case 2: // HighPass
+                lp[ch].highPass (cutoffHz, q);
+                break;
+            case 3: // BandPass: HighPass -> LowPass cascade at the same centre
+                hp[ch].highPass (cutoffHz, q);
+                lp[ch].lowPass  (cutoffHz, q);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float resonance, int type)
+{
+    if (type == 0) // Off/bypass
+        return;
+
+    const float nyqLimit = (float) (sampleRate * 0.49);
+    const float targetCut = juce::jlimit (20.0f, nyqLimit, cutoffHz);
+
+    // resonance [0.1, 8] -> Q. Q is proportional to resonance; clamp keeps the
+    // filter stable and prevents runaway self-oscillation.
+    const float q = juce::jlimit (0.1f, 8.0f, resonance);
+
+    smoothedCutoff.setTargetValue (targetCut);
+
+    const int numCh      = juce::jmin (buffer.getNumChannels(), numChannels);
+    const int numSamples = buffer.getNumSamples();
+
+    // Recompute coefficients per sample only while the cutoff is smoothing;
+    // otherwise recompute once when cutoff/reso/type change, then hold.
+    for (int n = 0; n < numSamples; ++n)
+    {
+        const float cut = smoothedCutoff.getNextValue();
+
+        if (cut != lastCutoff || q != lastQ || type != lastType)
+        {
+            updateCoefficients (cut, q, type);
+            lastCutoff = cut;
+            lastQ      = q;
+            lastType   = type;
+        }
+
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            float x = buffer.getSample (ch, n);
+
+            if (type == 3) // band-pass cascade
+                x = lp[ch].process (hp[ch].process (x));
+            else
+                x = lp[ch].process (x);
+
+            buffer.setSample (ch, n, x);
+        }
+    }
+
+    // If no channels were processed, keep the cutoff smoother advanced.
+    if (numCh == 0)
+        smoothedCutoff.skip (numSamples);
+}
+
+//==============================================================================
 void DelayFX::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate > 0.0 ? spec.sampleRate : 44100.0;
@@ -149,19 +252,44 @@ void DelayFX::process (juce::AudioBuffer<float>& buffer, float amount)
     const int numChannels = juce::jmin (buffer.getNumChannels(), 2);
     const int numSamples  = buffer.getNumSamples();
 
+    // Ping-pong only makes sense with a genuine stereo pair.
+    const bool doPingpong = pingpong && numChannels == 2;
+
     for (int n = 0; n < numSamples; ++n)
     {
         const float wet     = smoothedWet.getNextValue(); // per-sample wet mix
         const int   readPos = (writePos - delaySamples + maxSamples) % maxSamples;
 
-        for (int ch = 0; ch < numChannels; ++ch)
+        if (doPingpong)
         {
-            auto& l = line[(size_t) ch];
-            const float in      = buffer.getSample (ch, n);
-            const float delayed = l[(size_t) readPos];
+            auto& lL = line[0];
+            auto& lR = line[1];
 
-            l[(size_t) writePos] = in + delayed * feedback; // feedback per-block scalar
-            buffer.setSample (ch, n, in + delayed * wet);
+            const float inL = buffer.getSample (0, n);
+            const float inR = buffer.getSample (1, n);
+
+            const float delayedL = lL[(size_t) readPos];
+            const float delayedR = lR[(size_t) readPos];
+
+            // Cross-feed the feedback: the left tap feeds the right line and
+            // vice-versa, so echoes bounce L<->R.
+            lL[(size_t) writePos] = inL + delayedR * feedback;
+            lR[(size_t) writePos] = inR + delayedL * feedback;
+
+            buffer.setSample (0, n, inL + delayedL * wet);
+            buffer.setSample (1, n, inR + delayedR * wet);
+        }
+        else
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto& l = line[(size_t) ch];
+                const float in      = buffer.getSample (ch, n);
+                const float delayed = l[(size_t) readPos];
+
+                l[(size_t) writePos] = in + delayed * feedback; // feedback per-block scalar
+                buffer.setSample (ch, n, in + delayed * wet);
+            }
         }
 
         writePos = (writePos + 1) % maxSamples;
@@ -177,6 +305,7 @@ void FXChain::prepare (juce::dsp::ProcessSpec s)
 {
     spec = s;
     distortion.prepare (spec);
+    filter.prepare (spec);
     reverb.prepare (spec);
     delay.prepare (spec);
 }

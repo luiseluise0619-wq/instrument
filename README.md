@@ -34,7 +34,22 @@ slice. You can also drop an audio file directly onto the waveform display.
 | `drive`     | 0 … 1        | 0       | tanh soft-clip distortion            |
 | `reverb`    | 0 … 1        | 0.25    | Room reverb wet level                |
 | `delay`     | 0 … 1        | 0.2     | Feedback delay wet level             |
-| `attack`    | 0 … 200 ms   | 5       | Per-slice attack ramp                |
+| `delayFeedback` | 0 … 0.95 | 0.4     | Delay feedback amount                |
+| `pingpong`  | on / off     | off     | Ping-pong (L↔R) delay                |
+| `filterCutoff` | 20 … 20k Hz | 20k   | Filter cutoff (log)                  |
+| `filterReso`| 0.1 … 8      | 0.707   | Filter resonance (Q)                 |
+| `filterType`| Off/LP/HP/BP | Off     | Filter mode                          |
+| `attack`    | 0 … 500 ms   | 5       | Amp envelope attack                  |
+| `decay`     | 0 … 2000 ms  | 0       | Amp envelope decay                   |
+| `sustain`   | 0 … 1        | 1       | Amp envelope sustain level           |
+| `release`   | 0 … 2000 ms  | 20      | Amp envelope release                 |
+| `reverse`   | on / off     | off     | Reverse slice playback               |
+| `playMode`  | Gate/One-Shot| Gate    | Note-off behaviour                   |
+| `outputGain`| -24 … +6 dB  | 0       | Output trim                          |
+
+Six factory presets ship in the preset menu: **Init, Clean Chops, Vocal
+Shimmer, Lo-Fi Tape, Reverse Swell, Hard Stutter**. The editor also shows an
+output level meter and live playheads over the waveform for active voices.
 
 ## Project layout
 

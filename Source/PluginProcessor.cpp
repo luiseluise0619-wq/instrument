@@ -17,6 +17,17 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     reverbParam    = apvts.getRawParameterValue ("reverb");
     delayParam     = apvts.getRawParameterValue ("delay");
     attackParam    = apvts.getRawParameterValue ("attack");
+    decayParam     = apvts.getRawParameterValue ("decay");
+    sustainParam   = apvts.getRawParameterValue ("sustain");
+    releaseParam   = apvts.getRawParameterValue ("release");
+    filterCutoffParam  = apvts.getRawParameterValue ("filterCutoff");
+    filterResoParam    = apvts.getRawParameterValue ("filterReso");
+    filterTypeParam    = apvts.getRawParameterValue ("filterType");
+    delayFeedbackParam = apvts.getRawParameterValue ("delayFeedback");
+    pingpongParam  = apvts.getRawParameterValue ("pingpong");
+    reverseParam   = apvts.getRawParameterValue ("reverse");
+    playModeParam  = apvts.getRawParameterValue ("playMode");
+    outputGainParam = apvts.getRawParameterValue ("outputGain");
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
@@ -52,7 +63,37 @@ VocalChopAudioProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "delay", "Delay", Range (0.0f, 1.0f, 0.001f), 0.2f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        "attack", "Attack", Range (0.0f, 200.0f, 0.1f), 5.0f));
+        "attack", "Attack", Range (0.0f, 500.0f, 0.1f), 5.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "decay", "Decay", Range (0.0f, 2000.0f, 0.1f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "sustain", "Sustain", Range (0.0f, 1.0f, 0.001f), 1.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "release", "Release", Range (0.0f, 2000.0f, 0.1f), 20.0f));
+
+    // Filter cutoff with a musical (logarithmic) response.
+    juce::NormalisableRange<float> cutoffRange (20.0f, 20000.0f, 1.0f);
+    cutoffRange.setSkewForCentre (1000.0f);
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "filterCutoff", "Filter Cutoff", cutoffRange, 20000.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "filterReso", "Filter Reso", Range (0.1f, 8.0f, 0.01f), 0.707f));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "filterType", "Filter Type",
+        juce::StringArray { "Off", "Low Pass", "High Pass", "Band Pass" }, 0));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "delayFeedback", "Delay FB", Range (0.0f, 0.95f, 0.001f), 0.4f));
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "pingpong", "Ping-Pong", false));
+
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "reverse", "Reverse", false));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "playMode", "Play Mode", juce::StringArray { "Gate", "One-Shot" }, 0));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "outputGain", "Output", Range (-24.0f, 6.0f, 0.1f), 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -111,6 +152,12 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     const int numSamples = buffer.getNumSamples();
 
+    // Push per-block voice settings so new triggers use the current ADSR / mode.
+    voicePool.setEnvelope (attackParam->load(), decayParam->load(),
+                           sustainParam->load(), releaseParam->load());
+    voicePool.setReverse (reverseParam->load() >= 0.5f);
+    voicePool.setPlayMode (playModeParam->load() >= 0.5f);
+
     // 1) MIDI + pad-queue → slice triggers.
     handleMidi (midi, numSamples);
     drainPadQueue();
@@ -134,8 +181,15 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // 6) Stereo width.
     applyStereoWidth (buffer);
 
-    // 7) Brick-wall limiter.
+    // 7) Output gain trim (before the limiter so it protects the boosted signal).
+    const float gain = juce::Decibels::decibelsToGain (outputGainParam->load());
+    buffer.applyGain (gain);
+
+    // 8) Brick-wall limiter.
     limiter.process (buffer);
+
+    // Publish the output level for the UI meter (meter applies its own ballistics).
+    outputLevel.store (buffer.getMagnitude (0, numSamples), std::memory_order_relaxed);
 }
 
 void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*numSamples*/)
@@ -156,8 +210,7 @@ void VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
     // Audio thread. tryGetSlice() safely no-ops if a re-slice is in progress.
     SlicePoint slice;
     if (sliceEngine.tryGetSlice (sliceIndex, slice))
-        voicePool.triggerVoice (slice.startSample, slice.lengthSamples,
-                                velocity, attackParam->load());
+        voicePool.triggerVoice (slice.startSample, slice.lengthSamples, velocity);
 }
 
 void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex)
@@ -187,8 +240,14 @@ void VocalChopAudioProcessor::drainPadQueue()
 
 void VocalChopAudioProcessor::applyMasterFXChain (juce::AudioBuffer<float>& buffer)
 {
+    fxChain.filter.process     (buffer, filterCutoffParam->load(),
+                                filterResoParam->load(),
+                                (int) filterTypeParam->load());
     fxChain.distortion.process (buffer, driveParam->load());
     fxChain.reverb.process     (buffer, reverbParam->load());
+
+    fxChain.delay.setFeedback (delayFeedbackParam->load());
+    fxChain.delay.setPingpong (pingpongParam->load() >= 0.5f);
     fxChain.delay.process      (buffer, delayParam->load());
 }
 
@@ -252,6 +311,65 @@ void VocalChopAudioProcessor::parameterChanged (const juce::String& id, float ne
 {
     if (id == "pitch")   pitchFormant.setPitch (newValue);
     if (id == "formant") pitchFormant.setFormant (newValue);
+}
+
+//==============================================================================
+juce::StringArray VocalChopAudioProcessor::getPresetNames()
+{
+    return { "Init", "Clean Chops", "Vocal Shimmer", "Lo-Fi Tape",
+             "Reverse Swell", "Hard Stutter" };
+}
+
+void VocalChopAudioProcessor::applyPreset (int presetIndex)
+{
+    auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+    };
+
+    // Start every preset from a known baseline, then apply the character.
+    set ("pitch", 0.0f);      set ("formant", 0.0f);   set ("mix", 1.0f);
+    set ("width", 1.0f);      set ("grainSize", 80.0f);
+    set ("drive", 0.0f);      set ("reverb", 0.0f);    set ("delay", 0.0f);
+    set ("attack", 5.0f);     set ("decay", 0.0f);     set ("sustain", 1.0f);
+    set ("release", 20.0f);   set ("filterType", 0.0f); set ("filterCutoff", 20000.0f);
+    set ("filterReso", 0.707f); set ("delayFeedback", 0.4f); set ("pingpong", 0.0f);
+    set ("reverse", 0.0f);    set ("playMode", 0.0f);  set ("outputGain", 0.0f);
+
+    switch (presetIndex)
+    {
+        case 1: // Clean Chops
+            set ("attack", 2.0f); set ("reverb", 0.15f); set ("delay", 0.1f);
+            break;
+
+        case 2: // Vocal Shimmer
+            set ("formant", 3.0f); set ("reverb", 0.5f); set ("delay", 0.35f);
+            set ("pingpong", 1.0f); set ("release", 200.0f);
+            set ("filterType", 1.0f); set ("filterCutoff", 9000.0f);
+            break;
+
+        case 3: // Lo-Fi Tape
+            set ("drive", 0.45f); set ("filterType", 1.0f); set ("filterCutoff", 3500.0f);
+            set ("filterReso", 1.0f); set ("width", 0.8f); set ("reverb", 0.2f);
+            set ("pitch", -0.15f); // slight detune wobble feel
+            break;
+
+        case 4: // Reverse Swell
+            set ("reverse", 1.0f); set ("attack", 200.0f); set ("release", 300.0f);
+            set ("reverb", 0.6f); set ("delay", 0.3f); set ("playMode", 1.0f);
+            break;
+
+        case 5: // Hard Stutter
+            set ("attack", 0.0f); set ("decay", 40.0f); set ("sustain", 0.0f);
+            set ("release", 5.0f); set ("drive", 0.5f); set ("grainSize", 40.0f);
+            set ("playMode", 1.0f);
+            break;
+
+        case 0: // Init (baseline already applied)
+        default:
+            break;
+    }
 }
 
 //==============================================================================

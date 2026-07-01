@@ -77,6 +77,7 @@ target_sources(VocalChopStudio PRIVATE
     Source/AudioEngine/VoicePool.cpp
     Source/UI/ThemeManager.cpp
     Source/UI/AppleLookAndFeel.cpp
+    Source/UI/MeterComponent.cpp
     Source/UI/WaveformView.cpp
     Source/UI/KnobComponent.cpp
     Source/UI/SliceGrid.cpp

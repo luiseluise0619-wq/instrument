@@ -222,6 +222,22 @@ void WaveformView::paint (juce::Graphics& g)
                 g.fillRoundedRectangle (nub, 2.0f);
             }
         }
+
+        // --- Playheads (active voices) --------------------------------------
+        float heads[VoicePool::kMaxVoices];
+        const int nHeads = proc.getVoicePool().copyPlayheads (heads, VoicePool::kMaxVoices);
+        for (int h = 0; h < nHeads; ++h)
+        {
+            const float xPos = inner.getX()
+                             + juce::jlimit (0.0f, 1.0f, heads[h]) * inner.getWidth();
+            g.setColour (theme.text.withAlpha (0.9f));
+            g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 1.5f);
+            juce::Path tri;
+            tri.addTriangle (xPos - 4.0f, inner.getY(),
+                             xPos + 4.0f, inner.getY(),
+                             xPos,        inner.getY() + 6.0f);
+            g.fillPath (tri);
+        }
     }
 }
 
