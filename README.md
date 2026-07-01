@@ -79,6 +79,19 @@ cmake --build build
 
 Built plugins land under `build/VocalChopStudio_artefacts/`.
 
+## Using it in a DAW
+
+VocalChop Studio is an **instrument / generator** (not an insert effect), so it
+receives MIDI notes and outputs the chopped audio:
+
+- **FL Studio** (Windows): loads the **VST3** as a generator in the Channel Rack;
+  play slices from the piano roll (MIDI C3 = slice 1) or the on-screen pads.
+- **Ableton / Logic / Cubase / Reaper**: load it on an **instrument/MIDI track**
+  (Logic uses the AU). FL Studio does not use AU.
+
+Drop an audio file onto the waveform (or click *Load Sample*), pick a slice mode,
+then trigger slices with MIDI.
+
 ## Implementation notes
 
 - **Pitch / formant shifting** uses [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)

@@ -48,14 +48,19 @@ if(NOT signalsmith_stretch_POPULATED)
     FetchContent_Populate(signalsmith_stretch)
 endif()
 
+# It's a MIDI-triggered sampler, so it must be an INSTRUMENT (generator), not an
+# audio effect — otherwise FL Studio / Ableton load it on the mixer and never
+# send it piano-roll notes. IS_SYNTH TRUE also sets the VST3 "Instrument"
+# category and the AU 'aumu' type.
 juce_add_plugin(VocalChopStudio
     COMPANY_NAME "VocalChop Labs"
     PLUGIN_MANUFACTURER_CODE VCSL
     PLUGIN_CODE VCS0
     FORMATS VST3 AU Standalone
-    IS_SYNTH FALSE
+    IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
+    VST3_CATEGORIES "Instrument" "Synth" "Sampler"
     COPY_PLUGIN_AFTER_BUILD FALSE
     PRODUCT_NAME "VocalChop Studio")
 
