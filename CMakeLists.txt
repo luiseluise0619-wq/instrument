@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VocalChopStudio VERSION 1.0.0 LANGUAGES C CXX)
+project(VocalChopStudio VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -37,16 +37,16 @@ endif()
 # ---------------------------------------------------------------------------
 set(SIGNALSMITH_STRETCH_TAG "main" CACHE STRING "signalsmith-stretch git tag/commit")
 
+# Header-only: SOURCE_SUBDIR points at a non-existent dir so
+# FetchContent_MakeAvailable only downloads the sources without calling
+# add_subdirectory (we just need the include path). This also avoids the
+# FetchContent_Populate deprecation error on CMake >= 3.30.
 FetchContent_Declare(
     signalsmith_stretch
     GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
-    GIT_TAG        ${SIGNALSMITH_STRETCH_TAG})
-
-# Header-only: populate the source but do not add_subdirectory (no build step).
-FetchContent_GetProperties(signalsmith_stretch)
-if(NOT signalsmith_stretch_POPULATED)
-    FetchContent_Populate(signalsmith_stretch)
-endif()
+    GIT_TAG        ${SIGNALSMITH_STRETCH_TAG}
+    SOURCE_SUBDIR  cmake_subdir_intentionally_unused)
+FetchContent_MakeAvailable(signalsmith_stretch)
 
 # It's a MIDI-triggered sampler, so it must be an INSTRUMENT (generator), not an
 # audio effect — otherwise FL Studio / Ableton load it on the mixer and never

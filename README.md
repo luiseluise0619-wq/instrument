@@ -1,7 +1,18 @@
 # VocalChop Studio
 
 A MIDI-triggered vocal chop / slice instrument built with [JUCE](https://juce.com)
-and exported as **VST3**, **AU**, and **Standalone**.
+and exported as **VST3**, **AU**, and **Standalone**. Licensed under
+**GPL-3.0** (see `LICENSE.md`).
+
+## Release checklist
+
+- [x] CI builds (Windows / macOS / Linux) with downloadable artifacts
+- [x] pluginval strictness-5 run in CI
+- [x] GPL-3.0 licensing notice (`LICENSE.md`)
+- [ ] Green CI run confirmed (check the Actions tab after pushing)
+- [ ] Manual smoke test in a DAW (load sample → slice → play → automate)
+- [ ] macOS only: code-sign + notarize before distributing to others
+- [ ] Include the full GPL text as `COPYING` in binary distributions
 
 Load a vocal (or any sample), slice it by transient onsets or an even grid,
 then trigger the slices from MIDI or the on-screen pad grid. Each chop runs
@@ -75,6 +86,18 @@ Source/
     SliceGrid.*            Clickable slice pad grid
     FXRack.*               FX amount rack
 ```
+
+## Get a build without installing anything (CI)
+
+Every push builds the plugin automatically on GitHub Actions for
+**Windows / macOS / Linux** and runs [pluginval](https://github.com/Tracktion/pluginval)
+(strictness 5) against the VST3. To download a ready-made build:
+
+1. Open the repo's **Actions** tab on GitHub.
+2. Click the latest **Build & Validate** run (green check = build passed).
+3. Scroll to **Artifacts** and download e.g. `VocalChopStudio-Windows-VST3`.
+4. Unzip and copy the `VocalChop Studio.vst3` folder to
+   `C:\Program Files\Common Files\VST3\`, then rescan plugins in your DAW.
 
 ## Building
 

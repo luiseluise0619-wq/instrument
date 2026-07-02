@@ -98,7 +98,10 @@ public:
     void setReverse (bool shouldReverse);
     void setPlayMode (bool oneShot);
 
-    void triggerVoice (int startSample, int lengthSamples, float velocity);
+    /** Returns the index of the voice that was started (for note-off routing),
+        or -1 if the trigger was dropped. */
+    int  triggerVoice (int startSample, int lengthSamples, float velocity);
+    void releaseVoice (int voiceIndex);
     void releaseAll();
     void renderNextBlock (juce::AudioBuffer<float>& out, int numSamples);
 

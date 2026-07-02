@@ -116,6 +116,8 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     widthSmoothed.reset (sampleRate, 0.02);
     widthSmoothed.setCurrentAndTargetValue (widthParam != nullptr ? widthParam->load() : 1.0f);
 
+    noteToVoice.fill (-1);
+
     // The pitch/formant engine has inherent latency — report it to the host.
     setLatencySamples (pitchFormant.getLatencySamples());
 
@@ -198,19 +200,40 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
     {
         const auto msg = meta.getMessage();
 
+        const int note = msg.getNoteNumber();
+
         if (msg.isNoteOn() && msg.getVelocity() > 0)
-            triggerSliceIndex (msg.getNoteNumber() - kRootNote, msg.getVelocity() / 127.0f);
-        else if (msg.isAllNotesOff())
+        {
+            const int voice = triggerSliceIndex (note - kRootNote,
+                                                 msg.getVelocity() / 127.0f);
+            if (juce::isPositiveAndBelow (note, 128))
+                noteToVoice[(size_t) note] = voice;
+        }
+        else if (msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0))
+        {
+            // Gate mode: releasing the key starts that voice's release stage
+            // (one-shot voices ignore this inside the pool).
+            if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+            {
+                voicePool.releaseVoice (noteToVoice[(size_t) note]);
+                noteToVoice[(size_t) note] = -1;
+            }
+        }
+        else if (msg.isAllNotesOff() || msg.isAllSoundOff())
+        {
             voicePool.releaseAll();
+            noteToVoice.fill (-1);
+        }
     }
 }
 
-void VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
+int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
 {
     // Audio thread. tryGetSlice() safely no-ops if a re-slice is in progress.
     SlicePoint slice;
     if (sliceEngine.tryGetSlice (sliceIndex, slice))
-        voicePool.triggerVoice (slice.startSample, slice.lengthSamples, velocity);
+        return voicePool.triggerVoice (slice.startSample, slice.lengthSamples, velocity);
+    return -1;
 }
 
 void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex)

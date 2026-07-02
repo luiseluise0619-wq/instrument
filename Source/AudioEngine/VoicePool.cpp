@@ -235,7 +235,7 @@ void VoicePool::setPlayMode (bool oneShot)
     oneShotMode = oneShot;
 }
 
-void VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity)
+int VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity)
 {
     // Audio thread. Grab a snapshot of the source without blocking the loader.
     std::shared_ptr<const juce::AudioBuffer<float>> src;
@@ -243,23 +243,31 @@ void VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity
     {
         const juce::SpinLock::ScopedTryLockType sl (sourceLock);
         if (! sl.isLocked() || source == nullptr)
-            return;
+            return -1;
         src   = source;            // ref-count bump keeps the buffer alive
         srcSR = sourceSampleRate;
     }
 
     // Prefer a free voice; otherwise steal the first one.
-    for (auto& v : voices)
+    for (int i = 0; i < kMaxVoices; ++i)
     {
+        auto& v = voices[(size_t) i];
         if (! v.isActive())
         {
             v.start (hostSampleRate, src, srcSR, startSample, lengthSamples, velocity,
                      attackMs, decayMs, sustainLvl, releaseMs, reversePlay, oneShotMode);
-            return;
+            return i;
         }
     }
     voices[0].start (hostSampleRate, src, srcSR, startSample, lengthSamples, velocity,
                      attackMs, decayMs, sustainLvl, releaseMs, reversePlay, oneShotMode);
+    return 0;
+}
+
+void VoicePool::releaseVoice (int voiceIndex)
+{
+    if (voiceIndex >= 0 && voiceIndex < kMaxVoices)
+        voices[(size_t) voiceIndex].release();
 }
 
 void VoicePool::releaseAll()
