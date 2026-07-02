@@ -27,7 +27,10 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     pingpongParam  = apvts.getRawParameterValue ("pingpong");
     reverseParam   = apvts.getRawParameterValue ("reverse");
     playModeParam  = apvts.getRawParameterValue ("playMode");
-    outputGainParam = apvts.getRawParameterValue ("outputGain");
+    outputGainParam  = apvts.getRawParameterValue ("outputGain");
+    engineParam      = apvts.getRawParameterValue ("engine");
+    synthWaveParam   = apvts.getRawParameterValue ("synthWave");
+    synthDetuneParam = apvts.getRawParameterValue ("synthDetune");
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
@@ -95,6 +98,15 @@ VocalChopAudioProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "outputGain", "Output", Range (-24.0f, 6.0f, 0.1f), 0.0f));
 
+    // Synth engine mode: play oscillators instead of sample slices.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "engine", "Engine", juce::StringArray { "Chop", "Synth" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "synthWave", "Synth Wave",
+        juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthDetune", "Detune", Range (0.0f, 50.0f, 0.1f), 7.0f));
+
     return { params.begin(), params.end() };
 }
 
@@ -108,6 +120,7 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     spec.numChannels      = 2;
 
     voicePool.prepare (spec);
+    synthEngine.prepare (spec);
     pitchFormant.prepare (sampleRate, samplesPerBlock, juce::jmax (1, getTotalNumOutputChannels()));
     granularEngine.prepare (spec);
     fxChain.prepare (spec);
@@ -160,12 +173,19 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     voicePool.setReverse (reverseParam->load() >= 0.5f);
     voicePool.setPlayMode (playModeParam->load() >= 0.5f);
 
-    // 1) MIDI + pad-queue → slice triggers.
+    synthEngine.setEnvelope (attackParam->load(), decayParam->load(),
+                             sustainParam->load(), releaseParam->load());
+    synthEngine.setWave ((int) synthWaveParam->load());
+    synthEngine.setDetuneCents (synthDetuneParam->load());
+
+    // 1) MIDI + pad-queue → slice / synth triggers.
     handleMidi (midi, numSamples);
     drainPadQueue();
 
-    // 2) Render active voices (dry chops).
+    // 2) Render both sources (the unused engine is simply silent, so
+    //    switching modes mid-note never clicks).
     voicePool.renderNextBlock (buffer, numSamples);
+    synthEngine.render (buffer, numSamples);
 
     // 3) Pitch / formant transformation.
     pitchFormant.process (buffer,
@@ -200,20 +220,32 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
     {
         const auto msg = meta.getMessage();
 
-        const int note = msg.getNoteNumber();
+        const int  note  = msg.getNoteNumber();
+        const bool synth = isSynthMode();
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {
-            const int voice = triggerSliceIndex (note - kRootNote,
-                                                 msg.getVelocity() / 127.0f);
-            if (juce::isPositiveAndBelow (note, 128))
-                noteToVoice[(size_t) note] = voice;
+            if (synth)
+            {
+                synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
+            }
+            else
+            {
+                const int voice = triggerSliceIndex (note - kRootNote,
+                                                     msg.getVelocity() / 127.0f);
+                if (juce::isPositiveAndBelow (note, 128))
+                    noteToVoice[(size_t) note] = voice;
+            }
         }
         else if (msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0))
         {
+            if (synth)
+            {
+                synthEngine.noteOff (note);
+            }
             // Gate mode: releasing the key starts that voice's release stage
             // (one-shot voices ignore this inside the pool).
-            if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+            else if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
             {
                 voicePool.releaseVoice (noteToVoice[(size_t) note]);
                 noteToVoice[(size_t) note] = -1;
@@ -222,6 +254,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
             voicePool.releaseAll();
+            synthEngine.releaseAll();
             noteToVoice.fill (-1);
         }
     }
@@ -255,12 +288,20 @@ void VocalChopAudioProcessor::drainPadQueue()
     int start1, size1, start2, size2;
     padFifo.prepareToRead (padFifo.getNumReady(), start1, size1, start2, size2);
 
+    const bool synth = isSynthMode();
+
+    auto fire = [this, synth] (int idx, float vel)
+    {
+        if (synth)
+            synthEngine.tapNote (kRootNote + idx, vel);   // same key mapping
+        else
+            triggerSliceIndex (idx, vel);
+    };
+
     for (int i = 0; i < size1; ++i)
-        triggerSliceIndex (padQueue[(size_t) (start1 + i)],
-                           padQueueVel[(size_t) (start1 + i)]);
+        fire (padQueue[(size_t) (start1 + i)], padQueueVel[(size_t) (start1 + i)]);
     for (int i = 0; i < size2; ++i)
-        triggerSliceIndex (padQueue[(size_t) (start2 + i)],
-                           padQueueVel[(size_t) (start2 + i)]);
+        fire (padQueue[(size_t) (start2 + i)], padQueueVel[(size_t) (start2 + i)]);
 
     padFifo.finishedRead (size1 + size2);
 }
@@ -452,6 +493,8 @@ void VocalChopAudioProcessor::randomizeParams()
     set ("decay",        uni (0.0f, 400.0f));
     set ("sustain",      uni (0.4f, 1.0f));
     set ("release",      uni (10.0f, 400.0f));
+    set ("synthWave",    (float) rng.nextInt (4));
+    set ("synthDetune",  uni (0.0f, 25.0f));
 }
 
 //==============================================================================

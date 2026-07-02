@@ -53,13 +53,15 @@ private:
     juce::TextButton randomButton { "RND" };
 
     // Slicing controls.
+    juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox sliceModeBox;
     juce::ComboBox gridBox;
+    juce::ComboBox synthWaveBox;   // Saw / Square / Sine / Triangle
     KnobComponent  sensitivityKnob { "Sensitivity" };
 
     // Main / grouped knobs.
     std::unique_ptr<KnobComponent> pitchKnob, formantKnob, mixKnob, widthKnob,
-                                   grainKnob, attackKnob;
+                                   grainKnob, attackKnob, detuneKnob;
     std::unique_ptr<KnobComponent> decayKnob, sustainKnob, releaseKnob,
                                    filterCutoffKnob, filterResoKnob, outputGainKnob;
 

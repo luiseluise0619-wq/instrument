@@ -131,6 +131,13 @@ receives MIDI notes and outputs the chopped audio:
 Drop an audio file onto the waveform (or click *Load Sample*), pick a slice mode,
 then trigger slices with MIDI.
 
+### Synth engine
+
+Switch the **Engine** selector to **Synth** and the instrument makes sound with
+no sample at all: a 16-voice, 2-oscillator synth (PolyBLEP saw/square, sine,
+triangle) with a detune control, driven by the same ADSR, filter and FX chain.
+The on-screen keyboard and MIDI both play it (C3-based, velocity-sensitive).
+
 ### Demo samples
 
 Two royalty-free demo samples ship in `examples/` so you have something to load

@@ -111,6 +111,22 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     randomButton.onClick = [this] { processor.randomizeParams(); };
     addAndMakeVisible (randomButton);
 
+    // --- Engine mode: sample chopping vs. built-in synth ---
+    engineBox.addItem ("Chop",  1);
+    engineBox.addItem ("Synth", 2);
+    comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        processor.getAPVTS(), "engine", engineBox));
+    engineBox.onChange = [this] { refreshChildren(); };   // keyboard span changes
+    addAndMakeVisible (engineBox);
+
+    synthWaveBox.addItem ("Saw", 1);
+    synthWaveBox.addItem ("Square", 2);
+    synthWaveBox.addItem ("Sine", 3);
+    synthWaveBox.addItem ("Triangle", 4);
+    comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        processor.getAPVTS(), "synthWave", synthWaveBox));
+    addAndMakeVisible (synthWaveBox);
+
     // --- Slice mode (initialised from the engine so restored state shows) ---
     auto& engine = processor.getSliceEngine();
 
@@ -148,7 +164,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (formantKnob, "formant",   "Formant");
     addKnob (mixKnob,     "mix",       "Mix");
     addKnob (widthKnob,   "width",     "Width");
-    addKnob (grainKnob,   "grainSize", "Grain");
+    addKnob (grainKnob,   "grainSize",   "Grain");
+    addKnob (detuneKnob,  "synthDetune", "Detune");
 
     // --- Filter knobs + combo ---
     addKnob (filterCutoffKnob, "filterCutoff", "Cutoff");
@@ -362,11 +379,15 @@ void VocalChopAudioProcessorEditor::resized()
     sliceCardBounds = sliceCard;
     {
         auto inner = sliceCard.reduced (kPadding, kPadding - 4);
+        engineBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 30));
+        inner.removeFromLeft (kGap);
         sliceModeBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
         inner.removeFromLeft (kGap);
         gridBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
         inner.removeFromLeft (kGap);
         sensitivityKnob.setBounds (inner.removeFromLeft (96));
+        inner.removeFromLeft (kGap);
+        synthWaveBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 30));
     }
 
     area.removeFromTop (kGap);
@@ -428,7 +449,7 @@ void VocalChopAudioProcessorEditor::resized()
         layoutKnobRow (envCard,  { attackKnob.get(), decayKnob.get(),
                                    sustainKnob.get(), releaseKnob.get() });
         layoutKnobRow (toneCard, { pitchKnob.get(), formantKnob.get(), mixKnob.get(),
-                                   widthKnob.get(), grainKnob.get() });
+                                   widthKnob.get(), grainKnob.get(), detuneKnob.get() });
     }
 
     // Bottom row: Filter | Playback.

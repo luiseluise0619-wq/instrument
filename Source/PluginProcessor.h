@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "AudioEngine/SliceEngine.h"
+#include "AudioEngine/SynthEngine.h"
 #include "AudioEngine/VoicePool.h"
 #include "AudioEngine/PitchFormant.h"
 #include "AudioEngine/GranularEngine.h"
@@ -65,6 +66,12 @@ public:
     /** Live output level (0..1, peak-ish) for the UI meter. */
     std::atomic<float>& getOutputLevelRef() { return outputLevel; }
 
+    /** True when the Synth engine is selected (keyboard plays synth notes). */
+    bool isSynthMode() const
+    {
+        return engineParam != nullptr && engineParam->load() >= 0.5f;
+    }
+
     /** Applies a named factory preset's parameter values. */
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
@@ -91,6 +98,7 @@ private:
     juce::AudioProcessorValueTreeState apvts;
 
     VoicePool      voicePool;
+    SynthEngine    synthEngine;
     SliceEngine    sliceEngine;
     PitchFormant   pitchFormant;
     GranularEngine granularEngine;
@@ -121,6 +129,9 @@ private:
     std::atomic<float>* reverseParam  = nullptr;
     std::atomic<float>* playModeParam = nullptr;
     std::atomic<float>* outputGainParam = nullptr;
+    std::atomic<float>* engineParam      = nullptr;
+    std::atomic<float>* synthWaveParam   = nullptr;
+    std::atomic<float>* synthDetuneParam = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
 

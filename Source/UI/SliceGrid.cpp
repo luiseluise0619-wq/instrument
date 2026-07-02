@@ -29,7 +29,11 @@ bool SliceGrid::isBlackKey (int semitone)
 
 int SliceGrid::keySpan() const
 {
-    // Whole octaves, at least one, enough to cover every slice.
+    // Synth mode: a fixed two-octave keyboard (every key makes sound).
+    if (proc.isSynthMode())
+        return 24;
+
+    // Chop mode: whole octaves, at least one, enough to cover every slice.
     const int numSlices = proc.getSliceEngine().getNumSlices();
     const int octaves   = juce::jlimit (1, 3, (numSlices + 11) / 12);
     return octaves * 12;
@@ -101,7 +105,9 @@ void SliceGrid::paint (juce::Graphics& g)
     g.setColour (theme.separator);
     g.drawRoundedRectangle (card.reduced (0.5f), theme.cornerRadius, 1.0f);
 
-    if (numSlices == 0)
+    const bool synthMode = proc.isSynthMode();
+
+    if (numSlices == 0 && ! synthMode)
     {
         g.setColour (theme.textSecondary);
         g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Medium")));
@@ -129,7 +135,7 @@ void SliceGrid::paint (juce::Graphics& g)
     auto drawWhite = [&] (int s)
     {
         auto r = keyRect (s, span).reduced (1.2f, 0.0f);
-        const bool  enabled = s < numSlices;
+        const bool  enabled = synthMode || s < numSlices;
         const float flash   = keyFlash[(size_t) s];
         const bool  hover   = (s == hoveredKey && enabled);
         const float pressed = flash;   // 0..1 visual press amount
@@ -208,7 +214,7 @@ void SliceGrid::paint (juce::Graphics& g)
     auto drawBlack = [&] (int s)
     {
         auto r = keyRect (s, span);
-        const bool  enabled = s < numSlices;
+        const bool  enabled = synthMode || s < numSlices;
         const float flash   = keyFlash[(size_t) s];
         const bool  hover   = (s == hoveredKey && enabled);
 
@@ -283,7 +289,9 @@ void SliceGrid::paint (juce::Graphics& g)
 void SliceGrid::mouseDown (const juce::MouseEvent& e)
 {
     const int key = keyAt (e.position);
-    if (key < 0 || key >= proc.getSliceEngine().getNumSlices())
+    if (key < 0)
+        return;
+    if (! proc.isSynthMode() && key >= proc.getSliceEngine().getNumSlices())
         return;
 
     // Velocity from the strike position, like a real keybed: clicking near
