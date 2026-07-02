@@ -550,6 +550,29 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     p.filterEnvOct  = d.fltEnvOct;
     p.filterEnvMs   = d.fltEnvMs;
 
+    // --- Lushness settings by category, with a few name-specific accents ----
+    const juce::String cat (d.category);
+    const juce::String name (d.name);
+
+    if (cat == "PAD")        { p.chorusMix = 0.50f; p.driftCents = 4.0f;  p.velToFilterOct = 0.4f; }
+    else if (cat == "LEAD")  { p.chorusMix = 0.28f; p.driftCents = 3.0f;  p.velToFilterOct = 0.6f; }
+    else if (cat == "KEYS")  { p.chorusMix = 0.25f; p.driftCents = 2.0f;  p.velToFilterOct = 1.1f; }
+    else if (cat == "BELL")  { p.chorusMix = 0.22f; p.driftCents = 1.5f;  p.velToFilterOct = 0.8f; }
+    else if (cat == "PLUCK") { p.chorusMix = 0.18f; p.driftCents = 2.0f;  p.velToFilterOct = 1.2f;
+                               p.filterQ = 1.5f; }
+    else if (cat == "BASS")  { p.chorusMix = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
+                               p.satAmount = 0.30f; }
+    else /* MISC / INIT */   { p.chorusMix = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
+
+    if (name == "Acid Lead")     { p.filterQ = 5.5f; p.satAmount = 0.35f; }
+    if (name == "Wobble Growl")  p.filterQ = 2.2f;
+    if (name == "Neon Bass")     p.filterQ = 1.4f;
+    if (name == "Supersaw Lead") p.chorusMix = 0.40f;
+    if (name == "Chip Lead")     { p.chorusMix = 0.0f; p.driftCents = 0.0f; }
+    if (name == "Sub 808")       { p.driftCents = 0.5f; p.chorusMix = 0.0f; }
+    if (name == "Synth Brass")   p.chorusMix = 0.30f;
+    if (name == "Airy Flute")    p.chorusMix = 0.20f;
+
     currentInstrument = i;
 }
 
