@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VocalChopStudio VERSION 1.1.0 LANGUAGES C CXX)
+project(VocalChopStudio VERSION 1.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,6 +81,9 @@ juce_add_plugin(VocalChopStudio
 
 juce_generate_juce_header(VocalChopStudio)
 
+# Embed the demo vocal so first-run users get sound in one click.
+juce_add_binary_data(VocalChopData SOURCES examples/vocal_chop_demo.wav)
+
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
@@ -115,6 +118,7 @@ target_compile_definitions(VocalChopStudio PRIVATE
 
 target_link_libraries(VocalChopStudio
     PRIVATE
+        VocalChopData
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_gui_basics

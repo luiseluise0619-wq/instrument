@@ -50,6 +50,7 @@ private:
     juce::ComboBox   presetBox;
     juce::ComboBox   themeBox;
     juce::TextButton loadButton   { "Load Sample" };
+    juce::TextButton demoButton   { "Demo" };
     juce::TextButton abButton     { "A/B" };
     juce::TextButton randomButton { "RND" };
 

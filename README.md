@@ -88,6 +88,19 @@ Source/
     FXRack.*               FX amount rack
 ```
 
+## Download (Releases)
+
+Ready-made builds live on the **Releases** page:
+grab `VocalChopStudio-vX.Y.Z-Windows.zip` (or macOS/Linux), unzip, and copy
+`VocalChop Studio.vst3` into your VST3 folder
+(`C:\Program Files\Common Files\VST3\` on Windows). Each zip includes the
+Standalone app and the GPL licence text.
+
+First run: the plugin opens in **Synth** mode with the Supersaw Lead patch, so
+it makes sound immediately — or hit **Demo** to load the embedded demo vocal
+and start chopping. Loading any sample switches the engine to Chop
+automatically.
+
 ## Get a build without installing anything (CI)
 
 Every push builds the plugin automatically on GitHub Actions for

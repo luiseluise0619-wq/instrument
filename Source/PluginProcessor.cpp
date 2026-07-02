@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "AudioEngine/SampleLoader.h"
+#include "BinaryData.h"
 
 //==============================================================================
 VocalChopAudioProcessor::VocalChopAudioProcessor()
@@ -35,6 +36,10 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
+
+    // First-run experience: the default engine is Synth, so boot with a
+    // designed patch (Supersaw Lead) instead of the bare init tone.
+    applyEnginePatch (8);
 }
 
 VocalChopAudioProcessor::~VocalChopAudioProcessor()
@@ -101,7 +106,7 @@ VocalChopAudioProcessor::createParameterLayout()
 
     // Synth engine mode: play oscillators instead of sample slices.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "engine", "Engine", juce::StringArray { "Chop", "Synth" }, 0));
+        "engine", "Engine", juce::StringArray { "Chop", "Synth" }, 1));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "synthWave", "Synth Wave",
         juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
@@ -352,7 +357,8 @@ std::shared_ptr<juce::AudioBuffer<float>> VocalChopAudioProcessor::getLoadedSamp
     return sampleBuffer;
 }
 
-bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file)
+bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
+                                                  bool switchEngineToChop)
 {
     double sr = currentSampleRate;
     auto buffer = SampleLoader::decode (file, sr);
@@ -363,6 +369,22 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file)
     loadedSampleRate = sr;
     loadedSampleFile = file;
     reassignSampleToEngines();
+
+    // Loading a sample means the user wants to chop it - switch engines so
+    // the keyboard immediately plays slices (state restore passes false).
+    if (switchEngineToChop)
+        if (auto* p = apvts.getParameter ("engine"))
+            p->setValueNotifyingHost (0.0f);
+
+    return true;
+}
+
+bool VocalChopAudioProcessor::loadDemoSample()
+{
+    if (! loadSampleFromMemory (BinaryData::vocal_chop_demo_wav,
+                                BinaryData::vocal_chop_demo_wavSize))
+        return false;
+    sliceEngine.rebuildSlices();
     return true;
 }
 
@@ -376,6 +398,9 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
     reassignSampleToEngines();
+
+    if (auto* p = apvts.getParameter ("engine"))
+        p->setValueNotifyingHost (0.0f);
     return true;
 }
 
@@ -718,7 +743,7 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     // with no sample rather than failing state restore.
     const juce::File sample (xml->getStringAttribute ("samplePath"));
     if (sample.existsAsFile())
-        loadSampleFromFile (sample);
+        loadSampleFromFile (sample, false);
     else
         sliceEngine.rebuildSlices();
 }

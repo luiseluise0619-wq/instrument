@@ -49,8 +49,9 @@ public:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     std::shared_ptr<juce::AudioBuffer<float>> getLoadedSample() const;
-    bool loadSampleFromFile (const juce::File&);
+    bool loadSampleFromFile (const juce::File&, bool switchEngineToChop = true);
     bool loadSampleFromMemory (const void* data, int sizeBytes);
+    bool loadDemoSample();   // embedded demo vocal, one-click start
 
     SliceEngine&    getSliceEngine()  { return sliceEngine; }
     VoicePool&      getVoicePool()    { return voicePool;   }

@@ -100,6 +100,17 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     loadButton.onClick = [this] { openFileChooser(); };
     addAndMakeVisible (loadButton);
 
+    // One-click start: load the embedded demo vocal and slice it.
+    demoButton.onClick = [this]
+    {
+        if (processor.loadDemoSample())
+        {
+            applySlicing();
+            refreshChildren();
+        }
+    };
+    addAndMakeVisible (demoButton);
+
     // --- A/B compare + randomise ---
     abButton.onClick = [this]
     {
@@ -378,7 +389,8 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     // Footer hint.
     g.setColour (theme.textSecondary);
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText ("MIDI C3 = slice 1   •   drop audio onto the waveform",
+    g.drawText (juce::String ("MIDI C3 = slice 1   •   drop audio onto the waveform   •   v")
+                    + JucePlugin_VersionString,
                 getLocalBounds().removeFromBottom (24).reduced (kMargin, 0),
                 juce::Justification::centredRight);
 }
@@ -395,6 +407,8 @@ void VocalChopAudioProcessorEditor::resized()
     themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
     top.removeFromRight (kGap / 2);
     loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 30));
+    top.removeFromRight (kGap / 2);
+    demoButton.setBounds (top.removeFromRight (70).withSizeKeepingCentre (70, 30));
     top.removeFromRight (kGap / 2);
     randomButton.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
     top.removeFromRight (kGap / 2);
