@@ -66,6 +66,12 @@ private:
     juce::ComboBox synthWaveBox;   // Saw / Square / Sine / Triangle
     KnobComponent  sensitivityKnob { "Sensitivity" };
 
+    // Octave shift for the whole synth (drives the synthOctave parameter).
+    juce::TextButton octDownButton { "-" };
+    juce::TextButton octUpButton   { "+" };
+    juce::Label      octLabel;
+    std::unique_ptr<juce::ParameterAttachment> octAttachment;
+
     // Main / grouped knobs.
     std::unique_ptr<KnobComponent> pitchKnob, formantKnob, mixKnob, widthKnob,
                                    grainKnob, attackKnob, detuneKnob;

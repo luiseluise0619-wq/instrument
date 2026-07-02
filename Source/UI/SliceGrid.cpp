@@ -29,9 +29,10 @@ bool SliceGrid::isBlackKey (int semitone)
 
 int SliceGrid::keySpan() const
 {
-    // Synth mode: a fixed two-octave keyboard (every key makes sound).
+    // Synth mode: a three-octave keyboard (every key makes sound); the
+    // OCT -/+ buttons shift the whole instrument a further +-2 octaves.
     if (proc.isSynthMode())
-        return 24;
+        return 36;
 
     // Chop mode: whole octaves, at least one, enough to cover every slice.
     const int numSlices = proc.getSliceEngine().getNumSlices();

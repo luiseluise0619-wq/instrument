@@ -414,6 +414,33 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     sensitivityKnob.getSlider().onValueChange = [this] { applySlicing(); };
     addAndMakeVisible (sensitivityKnob);
 
+    // --- Octave shift: +-2 octaves on top of the 3-octave keyboard ---
+    if (auto* octParam = processor.getAPVTS().getParameter ("synthOctave"))
+    {
+        octAttachment = std::make_unique<juce::ParameterAttachment> (
+            *octParam,
+            [this] (float v)
+            {
+                octLabel.setText ("Oct " + juce::String ((int) std::round (v)),
+                                  juce::dontSendNotification);
+            });
+        octAttachment->sendInitialUpdate();
+
+        auto shiftOctave = [this, octParam] (int delta)
+        {
+            const float cur = octParam->convertFrom0to1 (octParam->getValue());
+            const float next = (float) juce::jlimit (-2, 2, (int) std::round (cur) + delta);
+            octParam->setValueNotifyingHost (octParam->convertTo0to1 (next));
+            grabKeysSoon();
+        };
+        octDownButton.onClick = [shiftOctave] { shiftOctave (-1); };
+        octUpButton.onClick   = [shiftOctave] { shiftOctave (+1); };
+    }
+    octLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (octDownButton);
+    addAndMakeVisible (octLabel);
+    addAndMakeVisible (octUpButton);
+
     // --- Envelope knobs ---
     addKnob (attackKnob,  "attack",  "Attack");
     addKnob (decayKnob,   "decay",   "Decay");
@@ -696,6 +723,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     // Live label colours.
     titleLabel.setColour (juce::Label::textColourId, theme.text);
     presetLabel.setColour (juce::Label::textColourId, theme.textSecondary);
+    octLabel.setColour (juce::Label::textColourId, theme.textSecondary);
 
     // Hairline under the toolbar.
     const auto full = getLocalBounds().reduced (kMargin, 0);
@@ -752,17 +780,21 @@ void VocalChopAudioProcessorEditor::resized()
     sliceCardBounds = sliceCard;
     {
         auto inner = sliceCard.reduced (kPadding, kPadding - 4);
-        engineBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 30));
+        engineBox.setBounds (inner.removeFromLeft (110).withSizeKeepingCentre (110, 30));
         inner.removeFromLeft (kGap);
-        sliceModeBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
+        sliceModeBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 30));
         inner.removeFromLeft (kGap);
-        gridBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
+        gridBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 30));
         inner.removeFromLeft (kGap);
-        sensitivityKnob.setBounds (inner.removeFromLeft (96));
+        sensitivityKnob.setBounds (inner.removeFromLeft (90));
         inner.removeFromLeft (kGap);
-        synthWaveBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 30));
+        synthWaveBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 30));
         inner.removeFromLeft (kGap);
-        instrumentBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
+        instrumentBox.setBounds (inner.removeFromLeft (160).withSizeKeepingCentre (160, 30));
+        inner.removeFromLeft (kGap);
+        octDownButton.setBounds (inner.removeFromLeft (30).withSizeKeepingCentre (30, 30));
+        octLabel.setBounds      (inner.removeFromLeft (52).withSizeKeepingCentre (52, 30));
+        octUpButton.setBounds   (inner.removeFromLeft (30).withSizeKeepingCentre (30, 30));
     }
 
     area.removeFromTop (kGap);
