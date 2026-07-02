@@ -78,7 +78,7 @@ SynthEngine::Voice* SynthEngine::findFreeVoice()
 
 void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOffSamples)
 {
-    const double hz     = midiToHz (juce::jlimit (0, 127, midiNote));
+    const double hz     = midiToHz (juce::jlimit (0, 127, midiNote + octave * 12));
     const double detune = std::pow (2.0, detuneCents / 1200.0);
 
     v.note     = midiNote;

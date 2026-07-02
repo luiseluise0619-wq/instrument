@@ -97,6 +97,7 @@ target_sources(VocalChopStudio PRIVATE
     Source/UI/WaveformView.cpp
     Source/UI/KnobComponent.cpp
     Source/UI/SliceGrid.cpp
+    Source/UI/ChordBar.cpp
     Source/UI/FXRack.cpp)
 
 target_include_directories(VocalChopStudio PRIVATE

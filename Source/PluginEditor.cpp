@@ -50,6 +50,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
       processor (p),
       sensitivityKnob ("Sensitivity"),
       waveform (p),
+      chordBar (p),
       sliceGrid (p),
       fxRack (p.getAPVTS())
 {
@@ -126,6 +127,21 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "synthWave", synthWaveBox));
     addAndMakeVisible (synthWaveBox);
+
+    // --- Instrument picker: designed synth patches (switches to Synth mode) ---
+    int instId = 1;
+    for (const auto& name : VocalChopAudioProcessor::getInstrumentNames())
+        instrumentBox.addItem (name, instId++);
+    instrumentBox.setTextWhenNothingSelected ("Instrument");
+    instrumentBox.onChange = [this]
+    {
+        if (instrumentBox.getSelectedId() > 0)
+            processor.applyInstrument (instrumentBox.getSelectedId() - 1);
+        refreshChildren();
+    };
+    addAndMakeVisible (instrumentBox);
+
+    addAndMakeVisible (chordBar);
 
     // --- Slice mode (initialised from the engine so restored state shows) ---
     auto& engine = processor.getSliceEngine();
@@ -205,8 +221,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (fxRack);
 
     setResizable (true, true);
-    setResizeLimits (900, 640, 1800, 1300);
-    setSize (1060, 760);
+    setResizeLimits (940, 680, 1800, 1400);
+    setSize (1080, 800);
 
     refreshChildren();
 }
@@ -388,6 +404,8 @@ void VocalChopAudioProcessorEditor::resized()
         sensitivityKnob.setBounds (inner.removeFromLeft (96));
         inner.removeFromLeft (kGap);
         synthWaveBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 30));
+        inner.removeFromLeft (kGap);
+        instrumentBox.setBounds (inner.removeFromLeft (150).withSizeKeepingCentre (150, 30));
     }
 
     area.removeFromTop (kGap);
@@ -403,9 +421,11 @@ void VocalChopAudioProcessorEditor::resized()
 
     area.removeFromTop (kGap);
 
-    // --- Slice pad grid along the bottom ---
-    auto sliceGridRow = area.removeFromBottom (juce::jmax (120, area.getHeight() * 34 / 100));
+    // --- Keyboard along the bottom, chord bar just above it ---
+    auto sliceGridRow = area.removeFromBottom (juce::jmax (120, area.getHeight() * 32 / 100));
     sliceGrid.setBounds (sliceGridRow);
+    area.removeFromBottom (kGap / 2);
+    chordBar.setBounds (area.removeFromBottom (36));
     area.removeFromBottom (kGap);
 
     // --- Controls area: cards row (grouped) + FX rack side column ---

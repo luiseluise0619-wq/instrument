@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "UI/WaveformView.h"
 #include "UI/SliceGrid.h"
+#include "UI/ChordBar.h"
 #include "UI/FXRack.h"
 #include "UI/KnobComponent.h"
 #include "UI/MeterComponent.h"
@@ -78,6 +79,8 @@ private:
 
     // Views.
     WaveformView   waveform;
+    ChordBar       chordBar;
+    juce::ComboBox instrumentBox;
     MeterComponent meter { processor.getOutputLevelRef() };
     SliceGrid      sliceGrid;
     FXRack         fxRack;

@@ -84,6 +84,11 @@ public:
     /** Randomises the sound-design parameters (message thread only). */
     void randomizeParams();
 
+    /** Built-in synth instruments: applying one switches to Synth mode and
+        dials in a designed patch (wave/detune/octave/ADSR/filter/FX). */
+    static juce::StringArray getInstrumentNames();
+    void applyInstrument (int instrumentIndex);
+
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
@@ -132,6 +137,7 @@ private:
     std::atomic<float>* engineParam      = nullptr;
     std::atomic<float>* synthWaveParam   = nullptr;
     std::atomic<float>* synthDetuneParam = nullptr;
+    std::atomic<float>* synthOctaveParam = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
 

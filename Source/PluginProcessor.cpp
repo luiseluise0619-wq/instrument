@@ -31,6 +31,7 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     engineParam      = apvts.getRawParameterValue ("engine");
     synthWaveParam   = apvts.getRawParameterValue ("synthWave");
     synthDetuneParam = apvts.getRawParameterValue ("synthDetune");
+    synthOctaveParam = apvts.getRawParameterValue ("synthOctave");
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
@@ -106,6 +107,8 @@ VocalChopAudioProcessor::createParameterLayout()
         juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "synthDetune", "Detune", Range (0.0f, 50.0f, 0.1f), 7.0f));
+    params.push_back (std::make_unique<juce::AudioParameterInt> (
+        "synthOctave", "Octave", -2, 2, 0));
 
     return { params.begin(), params.end() };
 }
@@ -177,6 +180,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                              sustainParam->load(), releaseParam->load());
     synthEngine.setWave ((int) synthWaveParam->load());
     synthEngine.setDetuneCents (synthDetuneParam->load());
+    synthEngine.setOctave ((int) synthOctaveParam->load());
 
     // 1) MIDI + pad-queue → slice / synth triggers.
     handleMidi (midi, numSamples);
@@ -436,6 +440,94 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
             break;
 
         case 0: // Init (baseline already applied)
+        default:
+            break;
+    }
+}
+
+//==============================================================================
+juce::StringArray VocalChopAudioProcessor::getInstrumentNames()
+{
+    return { "Init Synth", "Neon Bass", "Dream Pad", "Crystal Pluck",
+             "Retro Lead", "Glass Bell", "Soft Keys" };
+}
+
+void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
+{
+    auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+    };
+
+    // Every instrument starts from a clean synth baseline.
+    set ("engine",       1.0f);          // Synth mode
+    set ("synthWave",    0.0f);          // Saw
+    set ("synthDetune",  7.0f);
+    set ("synthOctave",  0.0f);
+    set ("attack",       5.0f);   set ("decay",   120.0f);
+    set ("sustain",      0.75f);  set ("release", 60.0f);
+    set ("filterType",   0.0f);   set ("filterCutoff", 20000.0f);
+    set ("filterReso",   0.707f);
+    set ("drive",        0.0f);   set ("reverb", 0.15f);
+    set ("delay",        0.0f);   set ("pingpong", 0.0f);
+    set ("width",        1.0f);   set ("mix", 1.0f);
+    set ("pitch",        0.0f);   set ("formant", 0.0f);
+
+    switch (instrumentIndex)
+    {
+        case 1: // Neon Bass — fat detuned saw an octave down, dark filter
+            set ("synthOctave", -1.0f); set ("synthDetune", 12.0f);
+            set ("filterType", 1.0f);   set ("filterCutoff", 500.0f);
+            set ("filterReso", 1.2f);   set ("drive", 0.3f);
+            set ("attack", 0.0f); set ("decay", 200.0f);
+            set ("sustain", 0.8f); set ("release", 80.0f);
+            set ("reverb", 0.0f); set ("width", 0.9f);
+            break;
+
+        case 2: // Dream Pad — wide slow saw wash
+            set ("synthDetune", 18.0f);
+            set ("attack", 400.0f); set ("decay", 800.0f);
+            set ("sustain", 0.8f);  set ("release", 900.0f);
+            set ("filterType", 1.0f); set ("filterCutoff", 3200.0f);
+            set ("reverb", 0.6f); set ("width", 1.5f);
+            break;
+
+        case 3: // Crystal Pluck — snappy triangle with echo
+            set ("synthWave", 3.0f);
+            set ("attack", 0.0f);  set ("decay", 180.0f);
+            set ("sustain", 0.0f); set ("release", 120.0f);
+            set ("filterType", 1.0f); set ("filterCutoff", 6000.0f);
+            set ("filterReso", 1.8f);
+            set ("delay", 0.3f); set ("pingpong", 1.0f);
+            set ("reverb", 0.25f);
+            break;
+
+        case 4: // Retro Lead — square with slap-back
+            set ("synthWave", 1.0f); set ("synthDetune", 10.0f);
+            set ("attack", 3.0f);  set ("decay", 100.0f);
+            set ("sustain", 0.7f); set ("release", 150.0f);
+            set ("filterType", 1.0f); set ("filterCutoff", 8000.0f);
+            set ("delay", 0.25f);
+            break;
+
+        case 5: // Glass Bell — pure sine an octave up, long shimmer
+            set ("synthWave", 2.0f); set ("synthOctave", 1.0f);
+            set ("synthDetune", 4.0f);
+            set ("attack", 2.0f);  set ("decay", 600.0f);
+            set ("sustain", 0.2f); set ("release", 700.0f);
+            set ("reverb", 0.5f);  set ("width", 1.3f);
+            break;
+
+        case 6: // Soft Keys — mellow triangle EP feel
+            set ("synthWave", 3.0f);
+            set ("attack", 5.0f);  set ("decay", 300.0f);
+            set ("sustain", 0.6f); set ("release", 250.0f);
+            set ("filterType", 1.0f); set ("filterCutoff", 5500.0f);
+            set ("reverb", 0.3f);
+            break;
+
+        case 0: // Init Synth (baseline already applied)
         default:
             break;
     }

@@ -30,6 +30,7 @@ public:
     void setEnvelope (float attackMs, float decayMs, float sustain0to1, float releaseMs);
     void setWave (int waveType)      { wave = juce::jlimit (0, 3, waveType); }
     void setDetuneCents (float c)    { detuneCents = juce::jlimit (0.0f, 50.0f, c); }
+    void setOctave (int oct)         { octave = juce::jlimit (-2, 2, oct); }
 
     void noteOn  (int midiNote, float velocity);
     void noteOff (int midiNote);
@@ -69,6 +70,7 @@ private:
 
     double sampleRate = 44100.0;
     int    wave = Saw;
+    int    octave = 0;
     float  detuneCents = 7.0f;
 
     float attackMs = 5.0f, decayMs = 120.0f, sustainLvl = 0.75f, releaseMs = 60.0f;
