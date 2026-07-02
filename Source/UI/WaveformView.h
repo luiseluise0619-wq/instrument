@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
 #include <vector>
 
 class VocalChopAudioProcessor;
@@ -37,6 +38,10 @@ public:
 
     /** Recomputes the cached min/max envelope from the current sample. */
     void refresh();
+
+    /** Fired after a dropped file loads, so the editor can refresh the
+        keyboard and slice controls too. */
+    std::function<void()> onSampleDropped;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void fileDragEnter (const juce::StringArray& files, int x, int y) override;

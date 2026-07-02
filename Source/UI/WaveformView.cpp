@@ -358,5 +358,9 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
         return;
 
     if (proc.loadSampleFromFile (juce::File (files[0])))
+    {
         refresh();
+        if (onSampleDropped != nullptr)
+            onSampleDropped();
+    }
 }

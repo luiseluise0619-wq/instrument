@@ -286,9 +286,8 @@ void SliceGrid::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-void SliceGrid::mouseDown (const juce::MouseEvent& e)
+void SliceGrid::pressKey (int key, juce::Point<float> position)
 {
-    const int key = keyAt (e.position);
     if (key < 0)
         return;
     if (! proc.isSynthMode() && key >= proc.getSliceEngine().getNumSlices())
@@ -298,15 +297,55 @@ void SliceGrid::mouseDown (const juce::MouseEvent& e)
     // the front edge of the key plays louder than up by the felt.
     const auto  r = keyRect (key, keySpan());
     const float posInKey = juce::jlimit (0.0f, 1.0f,
-                                         (e.position.y - r.getY()) / juce::jmax (1.0f, r.getHeight()));
+                                         (position.y - r.getY()) / juce::jmax (1.0f, r.getHeight()));
     const float velocity = 0.35f + 0.65f * posInKey;
 
-    // Same mapping as MIDI: key semitone offset == slice index.
-    proc.triggerSlicePad (key, velocity);
+    // Same mapping as MIDI: key semitone offset == slice index. The key is
+    // gated — it sounds until the mouse button is released, like a real key.
+    proc.pressSlicePad (key, velocity);
+    pressedKey = key;
 
     if (key < (int) keyFlash.size())
         keyFlash[(size_t) key] = 0.55f + 0.45f * velocity;   // light follows strength
     repaint();
+}
+
+void SliceGrid::mouseDown (const juce::MouseEvent& e)
+{
+    pressKey (keyAt (e.position), e.position);
+}
+
+void SliceGrid::mouseDrag (const juce::MouseEvent& e)
+{
+    // Glissando: sliding across the keybed releases the old key and plays
+    // the one under the pointer.
+    const int key = keyAt (e.position);
+    if (key == pressedKey)
+        return;
+
+    if (pressedKey >= 0)
+        proc.releaseSlicePad (pressedKey);
+    pressedKey = -1;
+
+    pressKey (key, e.position);
+}
+
+void SliceGrid::mouseUp (const juce::MouseEvent&)
+{
+    if (pressedKey >= 0)
+    {
+        proc.releaseSlicePad (pressedKey);
+        pressedKey = -1;
+    }
+}
+
+void SliceGrid::flashKey (int semitone, float strength)
+{
+    if (juce::isPositiveAndBelow (semitone, (int) keyFlash.size()))
+    {
+        keyFlash[(size_t) semitone] = juce::jlimit (0.0f, 1.0f, strength);
+        repaint();
+    }
 }
 
 void SliceGrid::mouseMove (const juce::MouseEvent& e)
@@ -331,11 +370,15 @@ void SliceGrid::mouseExit (const juce::MouseEvent&)
 void SliceGrid::timerCallback()
 {
     bool any = false;
-    for (auto& f : keyFlash)
+    for (size_t i = 0; i < keyFlash.size(); ++i)
     {
-        if (f > 0.0f)
+        // A held key stays lit; released keys fade out.
+        if ((int) i == pressedKey)
+            continue;
+
+        if (keyFlash[i] > 0.0f)
         {
-            f = juce::jmax (0.0f, f - 0.05f);
+            keyFlash[i] = juce::jmax (0.0f, keyFlash[i] - 0.05f);
             any = true;
         }
     }

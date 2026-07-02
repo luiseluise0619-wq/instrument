@@ -138,6 +138,7 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     widthSmoothed.setCurrentAndTargetValue (widthParam != nullptr ? widthParam->load() : 1.0f);
 
     noteToVoice.fill (-1);
+    padKeyToVoice.fill (-1);
 
     // The pitch/formant engine has inherent latency — report it to the host.
     setLatencySamples (pitchFormant.getLatencySamples());
@@ -161,6 +162,22 @@ void VocalChopAudioProcessor::reassignSampleToEngines()
 {
     sliceEngine.setSample (sampleBuffer, loadedSampleRate);
     voicePool.setSource (sampleBuffer, loadedSampleRate);
+}
+
+void VocalChopAudioProcessor::rescanSlices()
+{
+    sliceEngine.rebuildSlices();
+
+    // Transient detection on pads / sustained material can yield almost no
+    // slices, which reads as "the keyboard is broken". Fall back to an even
+    // 16-part grid so a fresh load is always playable.
+    if (sliceEngine.getMode() == SliceEngine::Transient
+        && sliceEngine.getNumSlices() < 4)
+    {
+        sliceEngine.setMode (SliceEngine::Grid);
+        sliceEngine.setGridDivision (16);
+        sliceEngine.rebuildSlices();
+    }
 }
 
 //==============================================================================
@@ -265,6 +282,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
             voicePool.releaseAll();
             synthEngine.releaseAll();
             noteToVoice.fill (-1);
+            padKeyToVoice.fill (-1);
         }
     }
 }
@@ -278,18 +296,34 @@ int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
     return -1;
 }
 
-void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex, float velocity)
+void VocalChopAudioProcessor::queuePadEvent (int sliceIndex, float velocity, int type)
 {
-    // Message thread (key click). Hand index+velocity to the audio thread
-    // lock-free.
+    // Message thread (key click / computer keyboard). Hand the event to the
+    // audio thread lock-free.
     int start1, size1, start2, size2;
     padFifo.prepareToWrite (1, start1, size1, start2, size2);
     if (size1 > 0)
     {
-        padQueue[(size_t) start1]    = sliceIndex;
-        padQueueVel[(size_t) start1] = juce::jlimit (0.0f, 1.0f, velocity);
+        padQueue[(size_t) start1]     = sliceIndex;
+        padQueueVel[(size_t) start1]  = juce::jlimit (0.0f, 1.0f, velocity);
+        padQueueType[(size_t) start1] = type;
         padFifo.finishedWrite (1);
     }
+}
+
+void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex, float velocity)
+{
+    queuePadEvent (sliceIndex, velocity, padTap);
+}
+
+void VocalChopAudioProcessor::pressSlicePad (int sliceIndex, float velocity)
+{
+    queuePadEvent (sliceIndex, velocity, padOn);
+}
+
+void VocalChopAudioProcessor::releaseSlicePad (int sliceIndex)
+{
+    queuePadEvent (sliceIndex, 0.0f, padOff);
 }
 
 void VocalChopAudioProcessor::drainPadQueue()
@@ -299,18 +333,41 @@ void VocalChopAudioProcessor::drainPadQueue()
 
     const bool synth = isSynthMode();
 
-    auto fire = [this, synth] (int idx, float vel)
+    auto fire = [this, synth] (int idx, float vel, int type)
     {
+        const int note = kRootNote + idx;   // same key mapping as MIDI
+
+        if (type == padOff)
+        {
+            if (synth)
+                synthEngine.noteOff (note);
+            else if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
+            {
+                voicePool.releaseVoice (padKeyToVoice[(size_t) idx]);
+                padKeyToVoice[(size_t) idx] = -1;
+            }
+            return;
+        }
+
         if (synth)
-            synthEngine.tapNote (kRootNote + idx, vel);   // same key mapping
+        {
+            if (type == padOn) synthEngine.noteOn (note, vel);
+            else               synthEngine.tapNote (note, vel);
+        }
         else
-            triggerSliceIndex (idx, vel);
+        {
+            const int voice = triggerSliceIndex (idx, vel);
+            if (type == padOn && juce::isPositiveAndBelow (idx, 128))
+                padKeyToVoice[(size_t) idx] = voice;
+        }
     };
 
     for (int i = 0; i < size1; ++i)
-        fire (padQueue[(size_t) (start1 + i)], padQueueVel[(size_t) (start1 + i)]);
+        fire (padQueue[(size_t) (start1 + i)], padQueueVel[(size_t) (start1 + i)],
+              padQueueType[(size_t) (start1 + i)]);
     for (int i = 0; i < size2; ++i)
-        fire (padQueue[(size_t) (start2 + i)], padQueueVel[(size_t) (start2 + i)]);
+        fire (padQueue[(size_t) (start2 + i)], padQueueVel[(size_t) (start2 + i)],
+              padQueueType[(size_t) (start2 + i)]);
 
     padFifo.finishedRead (size1 + size2);
 }
@@ -369,6 +426,7 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     loadedSampleRate = sr;
     loadedSampleFile = file;
     reassignSampleToEngines();
+    rescanSlices();
 
     // Loading a sample means the user wants to chop it - switch engines so
     // the keyboard immediately plays slices (state restore passes false).
@@ -381,11 +439,8 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
 
 bool VocalChopAudioProcessor::loadDemoSample()
 {
-    if (! loadSampleFromMemory (BinaryData::vocal_chop_demo_wav,
-                                BinaryData::vocal_chop_demo_wavSize))
-        return false;
-    sliceEngine.rebuildSlices();
-    return true;
+    return loadSampleFromMemory (BinaryData::vocal_chop_demo_wav,
+                                 BinaryData::vocal_chop_demo_wavSize);
 }
 
 bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBytes)
@@ -398,6 +453,7 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
     reassignSampleToEngines();
+    rescanSlices();
 
     if (auto* p = apvts.getParameter ("engine"))
         p->setValueNotifyingHost (0.0f);

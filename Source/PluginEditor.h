@@ -21,6 +21,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    // Computer-keyboard playing (Z S X D C ... like FL Studio's typing keys).
+    bool keyPressed (const juce::KeyPress&) override;
+    bool keyStateChanged (bool isKeyDown) override;
+    void mouseDown (const juce::MouseEvent&) override;
+
 private:
     using SliderAttachment   = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ComboBoxAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
@@ -30,7 +35,9 @@ private:
                   const juce::String& paramID, const juce::String& caption);
     void openFileChooser();
     void applySlicing();
+    void syncSliceControls();   // reflect the engine's mode/grid in the combos
     void refreshChildren();
+    void grabKeysSoon();        // return keyboard focus after combo popups
 
     // Draws a rounded "material" card with hairline border and soft shadow.
     void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;
@@ -94,6 +101,13 @@ private:
     juce::Rectangle<int> playbackCardBounds;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+
+    // Computer-keyboard note state (one flag per mapped key).
+    std::array<bool, 32> typingKeyHeld {};
+
+    // Cached Ocean Pluck scene (repainted only on resize / theme change).
+    juce::Image backdropCache;
+    int backdropTheme = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VocalChopAudioProcessorEditor)
 };

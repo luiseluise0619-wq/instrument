@@ -64,6 +64,11 @@ public:
         Velocity 0..1 (keyboard clicks pass the strike position). */
     void triggerSlicePad (int sliceIndex, float velocity = 0.9f);
 
+    /** Gate-style pad events for the on-screen / computer keyboard: press
+        starts the note, release enters its release stage (like real MIDI). */
+    void pressSlicePad (int sliceIndex, float velocity = 0.9f);
+    void releaseSlicePad (int sliceIndex);
+
     /** Live output level (0..1, peak-ish) for the UI meter. */
     std::atomic<float>& getOutputLevelRef() { return outputLevel; }
 
@@ -101,6 +106,8 @@ private:
     void applyMasterFXChain (juce::AudioBuffer<float>&);
     void applyStereoWidth (juce::AudioBuffer<float>&);
     void reassignSampleToEngines();
+    void rescanSlices();
+    void queuePadEvent (int sliceIndex, float velocity, int type);
 
     //==========================================================================
     juce::AudioProcessorValueTreeState apvts;
@@ -151,12 +158,17 @@ private:
     static constexpr int kRootNote = 48;
 
     // Lock-free queue of key/pad hits (message thread -> audio thread).
+    enum PadEvent { padTap = 0, padOn = 1, padOff = 2 };
     juce::AbstractFifo padFifo { 64 };
     std::array<int, 64>   padQueue {};
     std::array<float, 64> padQueueVel {};
+    std::array<int, 64>   padQueueType {};
 
     // Which voice each held MIDI note started (-1 = none), for note-off routing.
     std::array<int, 128> noteToVoice {};
+
+    // Same, for held on-screen / computer-keyboard pads (audio thread only).
+    std::array<int, 128> padKeyToVoice {};
 
     // A/B compare snapshots of the parameter tree.
     juce::ValueTree snapshotA, snapshotB;

@@ -25,11 +25,16 @@ public:
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp   (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
 
     /** Call after slices change to refresh the keyboard. */
     void refresh() { repaint(); }
+
+    /** Lights a key from outside (computer-keyboard playing). */
+    void flashKey (int semitone, float strength);
 
 private:
     void timerCallback() override;
@@ -40,9 +45,12 @@ private:
     juce::Rectangle<float> keyRect (int semitone, int span) const;
     int  keyAt (juce::Point<float> position) const;
 
+    void pressKey (int key, juce::Point<float> position);
+
     VocalChopAudioProcessor& proc;
     std::vector<float> keyFlash;          // per-key decay level
     int hoveredKey = -1;
+    int pressedKey = -1;                  // key held by the mouse (gate)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceGrid)
 };

@@ -98,8 +98,14 @@ Standalone app and the GPL licence text.
 
 First run: the plugin opens in **Synth** mode with the Supersaw Lead patch, so
 it makes sound immediately — or hit **Demo** to load the embedded demo vocal
-and start chopping. Loading any sample switches the engine to Chop
-automatically.
+and start chopping. Loading any sample (button or drag-and-drop) re-slices it
+right away and switches the engine to Chop automatically; if transient
+detection finds too few slices it falls back to an even 16-part grid.
+
+You can play three ways: MIDI, clicking the on-screen keys (click-and-hold
+gates the note, sliding plays glissando), or **typing on the computer
+keyboard** — `Z S X D C V G B H N J M` is the lower octave and
+`Q 2 W 3 E R 5 T 6 Y 7 U` the upper, FL Studio-style.
 
 ## Get a build without installing anything (CI)
 

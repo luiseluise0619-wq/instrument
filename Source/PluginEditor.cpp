@@ -13,34 +13,258 @@ namespace
     constexpr int kCaptionH   = 20;
     constexpr int kMeterW     = 30;
 
-    // Restrained backdrop for full-glow themes: an Apple-dark canvas with two
-    // very soft colour blooms (cyan top-left, pink top-right). No grid, no
-    // horizon — the glow lives in the controls, not the wallpaper.
-    void drawSynthwaveBackdrop (juce::Graphics& g, juce::Rectangle<float> area)
+    // Cheap deterministic pseudo-random for the starfield (no <random> on
+    // the paint path, same sky every frame).
+    float hash01 (int n)
     {
-        const juce::Colour cyan (0xff00f5ff);
-        const juce::Colour pink (0xffff2daa);
+        unsigned int u = (unsigned int) n;
+        u = (u << 13) ^ u;
+        u = u * (u * u * 15731u + 789221u) + 1376312589u;
+        return (float) (u & 0x7fffffffu) / (float) 0x7fffffff;
+    }
 
+    // A stylised leaping dolphin in unit space (0..1, facing right, y down).
+    juce::Path makeDolphinPath()
+    {
+        juce::Path p;
+
+        // Body: tail joint -> back -> nose -> belly -> tail joint.
+        p.startNewSubPath (0.10f, 0.64f);
+        p.cubicTo (0.14f, 0.30f, 0.34f, 0.02f, 0.62f, 0.02f);   // back rising
+        p.cubicTo (0.76f, 0.02f, 0.90f, 0.16f, 0.97f, 0.30f);   // head to nose
+        p.cubicTo (0.88f, 0.38f, 0.74f, 0.46f, 0.58f, 0.50f);   // jaw / chest
+        p.cubicTo (0.42f, 0.55f, 0.24f, 0.62f, 0.14f, 0.70f);   // belly to tail
+        p.closeSubPath();
+
+        // Tail flukes.
+        p.startNewSubPath (0.12f, 0.62f);
+        p.cubicTo (0.06f, 0.68f, 0.02f, 0.78f, 0.00f, 0.90f);   // lower fluke
+        p.cubicTo (0.06f, 0.82f, 0.09f, 0.78f, 0.13f, 0.76f);   // notch
+        p.cubicTo (0.16f, 0.82f, 0.20f, 0.86f, 0.26f, 0.88f);   // upper fluke
+        p.cubicTo (0.22f, 0.78f, 0.18f, 0.70f, 0.16f, 0.64f);
+        p.closeSubPath();
+
+        // Dorsal fin.
+        p.startNewSubPath (0.48f, 0.06f);
+        p.cubicTo (0.50f, -0.08f, 0.56f, -0.14f, 0.64f, -0.16f);
+        p.cubicTo (0.60f, -0.06f, 0.60f, 0.00f, 0.62f, 0.03f);
+        p.closeSubPath();
+
+        // Pectoral fin.
+        p.startNewSubPath (0.56f, 0.40f);
+        p.cubicTo (0.52f, 0.50f, 0.50f, 0.58f, 0.50f, 0.66f);
+        p.cubicTo (0.56f, 0.58f, 0.62f, 0.50f, 0.66f, 0.44f);
+        p.closeSubPath();
+
+        return p;
+    }
+
+    void drawNeonDolphin (juce::Graphics& g, juce::Rectangle<float> box,
+                          float angleRadians, bool flipped)
+    {
+        auto p = makeDolphinPath();
+
+        auto t = juce::AffineTransform::translation (-0.5f, -0.5f)
+                     .scaled (flipped ? -box.getWidth() : box.getWidth(),
+                              box.getHeight())
+                     .rotated (angleRadians)
+                     .translated (box.getCentreX(), box.getCentreY());
+        p.applyTransform (t);
+
+        const juce::Colour cyan    (0xff00f5ff);
+        const juce::Colour magenta (0xffff2daa);
+        const auto pb = p.getBounds();
+
+        // Dark glass body so the neon edge pops.
         {
-            juce::ColourGradient bloom (cyan.withAlpha (0.10f),
-                                        area.getX() + area.getWidth() * 0.18f,
-                                        area.getY(),
+            juce::ColourGradient body (juce::Colour (0xff141a3e), pb.getX(), pb.getY(),
+                                       juce::Colour (0xff2a1050), pb.getRight(), pb.getBottom(),
+                                       false);
+            g.setGradientFill (body);
+            g.fillPath (p);
+        }
+
+        // Neon rim: wide soft glow passes, then a crisp gradient edge.
+        juce::ColourGradient rim (cyan, pb.getX(), pb.getY(),
+                                  magenta, pb.getRight(), pb.getBottom(), false);
+
+        g.setGradientFill (rim);
+        g.setOpacity (0.08f);
+        g.strokePath (p, juce::PathStrokeType (10.0f, juce::PathStrokeType::curved));
+        g.setOpacity (0.16f);
+        g.strokePath (p, juce::PathStrokeType (5.5f, juce::PathStrokeType::curved));
+        g.setOpacity (0.90f);
+        g.strokePath (p, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved));
+        g.setOpacity (1.0f);
+    }
+
+    // The full-bleed "Ocean Pluck" scene for the default glow theme: night
+    // sky, stars, neon mountains, a sun ring, the perspective sea grid and
+    // two leaping neon dolphins. Painted once into a cached image.
+    void paintOceanScene (juce::Graphics& g, int wi, int hi)
+    {
+        const float w = (float) wi;
+        const float h = (float) hi;
+        const float horizonY = h * 0.42f;
+        const float cx = w * 0.5f;
+
+        const juce::Colour cyan    (0xff00f5ff);
+        const juce::Colour purple  (0xffb026ff);
+        const juce::Colour magenta (0xffff2daa);
+
+        // --- Sky ------------------------------------------------------------
+        {
+            juce::ColourGradient sky (juce::Colour (0xff050814), 0.0f, 0.0f,
+                                      juce::Colour (0xff1a0b3c), 0.0f, horizonY, false);
+            sky.addColour (0.55, juce::Colour (0xff0a0d2c));
+            g.setGradientFill (sky);
+            g.fillRect (0.0f, 0.0f, w, horizonY + 1.0f);
+        }
+
+        // --- Stars ----------------------------------------------------------
+        for (int i = 0; i < 150; ++i)
+        {
+            const float sx = hash01 (i * 3 + 1) * w;
+            const float sy = hash01 (i * 3 + 2) * horizonY * 0.92f;
+            const float sr = 0.5f + hash01 (i * 3 + 3) * 1.1f;
+            const float a  = 0.10f + hash01 (i * 7 + 5) * 0.55f;
+
+            g.setColour ((i % 9 == 0 ? cyan : juce::Colours::white).withAlpha (a));
+            g.fillEllipse (sx, sy, sr, sr);
+        }
+
+        // --- Sun ring (top right) --------------------------------------------
+        {
+            const float r  = juce::jmin (w, h) * 0.16f;
+            const float ox = w * 0.82f, oy = h * 0.14f;
+
+            g.setColour (purple.withAlpha (0.07f));
+            g.drawEllipse (ox - r, oy - r, r * 2.0f, r * 2.0f, 9.0f);
+            g.setColour (cyan.withAlpha (0.35f));
+            g.drawEllipse (ox - r, oy - r, r * 2.0f, r * 2.0f, 1.6f);
+            g.setColour (purple.withAlpha (0.30f));
+            g.drawEllipse (ox - r * 0.82f, oy - r * 0.82f, r * 1.64f, r * 1.64f, 1.0f);
+        }
+
+        // --- Horizon glow ----------------------------------------------------
+        {
+            juce::ColourGradient glow (magenta.withAlpha (0.32f), cx, horizonY,
+                                       juce::Colours::transparentBlack, cx,
+                                       horizonY - h * 0.16f, false);
+            g.setGradientFill (glow);
+            g.fillRect (0.0f, horizonY - h * 0.16f, w, h * 0.16f);
+        }
+
+        // --- Mountains (two layers, jagged, neon ridge) -----------------------
+        auto ridge = [&] (int seed, float base, float amp, juce::Colour fill,
+                          juce::Colour stroke, float strokeAlpha)
+        {
+            juce::Path m;
+            m.startNewSubPath (0.0f, base);
+            const int peaks = 9;
+            for (int i = 0; i <= peaks; ++i)
+            {
+                const float px = w * (float) i / (float) peaks;
+                const float py = base - amp * (0.25f + 0.75f * hash01 (seed + i * 17));
+                m.lineTo (px, py);
+            }
+            m.lineTo (w, base);
+            m.closeSubPath();
+
+            g.setColour (fill);
+            g.fillPath (m);
+            g.setColour (stroke.withAlpha (strokeAlpha * 0.25f));
+            g.strokePath (m, juce::PathStrokeType (4.0f));
+            g.setColour (stroke.withAlpha (strokeAlpha));
+            g.strokePath (m, juce::PathStrokeType (1.2f));
+        };
+
+        ridge (91, horizonY + 1.0f, h * 0.11f, juce::Colour (0xff0a0c26),
+               purple, 0.45f);
+        ridge (47, horizonY + 1.0f, h * 0.055f, juce::Colour (0xff060818),
+               magenta, 0.40f);
+
+        // --- Sea: base + perspective grid -------------------------------------
+        {
+            juce::ColourGradient sea (juce::Colour (0xff12082e), 0.0f, horizonY,
+                                      juce::Colour (0xff050814), 0.0f, h, false);
+            g.setGradientFill (sea);
+            g.fillRect (0.0f, horizonY, w, h - horizonY);
+        }
+
+        // Horizon line, hot.
+        g.setColour (magenta.withAlpha (0.18f));
+        g.fillRect (0.0f, horizonY - 2.5f, w, 5.0f);
+        g.setColour (magenta.withAlpha (0.75f));
+        g.fillRect (0.0f, horizonY - 0.75f, w, 1.5f);
+
+        // Verticals converging on the vanishing point.
+        for (int k = -14; k <= 14; ++k)
+        {
+            const float xTop = cx + (float) k * w * 0.012f;
+            const float xBot = cx + (float) k * w * 0.085f;
+            g.setColour (magenta.withAlpha (k == 0 ? 0.10f : 0.13f));
+            g.drawLine (xTop, horizonY, xBot, h, 1.0f);
+        }
+
+        // Horizontals rushing toward the viewer.
+        for (int row = 1; row <= 9; ++row)
+        {
+            const float t = (float) row / 9.0f;
+            const float y = horizonY + (h - horizonY) * t * t * 1.04f;
+            if (y > h) break;
+            g.setColour (magenta.interpolatedWith (cyan, 0.25f)
+                             .withAlpha (0.06f + 0.14f * t));
+            g.drawLine (0.0f, y, w, y, t > 0.6f ? 1.4f : 1.0f);
+        }
+
+        // --- Dolphins ----------------------------------------------------------
+        {
+            const float s = juce::jmin (w, h);
+            drawNeonDolphin (g, { w * 0.13f, h * 0.075f, s * 0.30f, s * 0.21f },
+                             -0.32f, false);
+            drawNeonDolphin (g, { w * 0.60f, h * 0.16f, s * 0.20f, s * 0.14f },
+                             -0.15f, true);
+
+            // Splash sparks where the big dolphin left the water.
+            for (int i = 0; i < 14; ++i)
+            {
+                const float sx = w * 0.16f + hash01 (i * 5 + 3) * w * 0.14f;
+                const float sy = horizonY - h * 0.02f - hash01 (i * 5 + 4) * h * 0.05f;
+                g.setColour (cyan.withAlpha (0.12f + 0.30f * hash01 (i * 5 + 6)));
+                g.fillEllipse (sx, sy, 2.0f, 2.0f);
+            }
+        }
+
+        // --- Soft blooms + corner vignette so panels stay readable -------------
+        {
+            juce::ColourGradient bloom (cyan.withAlpha (0.07f), w * 0.16f, 0.0f,
                                         juce::Colours::transparentBlack,
-                                        area.getX() + area.getWidth() * 0.18f,
-                                        area.getY() + area.getHeight() * 0.55f, true);
+                                        w * 0.16f, h * 0.5f, true);
             g.setGradientFill (bloom);
-            g.fillRect (area);
+            g.fillRect (0.0f, 0.0f, w, h);
         }
         {
-            juce::ColourGradient bloom (pink.withAlpha (0.07f),
-                                        area.getRight() - area.getWidth() * 0.15f,
-                                        area.getY(),
-                                        juce::Colours::transparentBlack,
-                                        area.getRight() - area.getWidth() * 0.15f,
-                                        area.getY() + area.getHeight() * 0.5f, true);
-            g.setGradientFill (bloom);
-            g.fillRect (area);
+            juce::ColourGradient vig (juce::Colours::transparentBlack, cx, h * 0.45f,
+                                      juce::Colour (0xff050814).withAlpha (0.55f),
+                                      0.0f, h, true);
+            vig.addColour (0.72, juce::Colours::transparentBlack);
+            g.setGradientFill (vig);
+            g.fillRect (0.0f, 0.0f, w, h);
         }
+    }
+
+    // FL-style typing keys: bottom row = C3 octave, top row = C4 octave.
+    const juce::String kTypingKeys ("zsxdcvgbhnjm,q2w3er5t6y7u");
+
+    int typingKeySemitone (int i)     { return i < 13 ? i : 12 + (i - 13); }
+
+    bool physicalKeyDown (juce::juce_wchar c)
+    {
+        if (juce::KeyPress::isKeyCurrentlyDown ((int) c))
+            return true;
+        const juce::juce_wchar up = juce::CharacterFunctions::toUpperCase (c);
+        return up != c && juce::KeyPress::isKeyCurrentlyDown ((int) up);
     }
 }
 
@@ -57,9 +281,13 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // Restyle all buttons / combos / menus with the shared Apple look.
     setLookAndFeel (&appleLaf);
 
+    // The editor itself plays notes from the computer keyboard.
+    setWantsKeyboardFocus (true);
+
     // --- Title ---
-    titleLabel.setText ("VocalChop Studio", juce::dontSendNotification);
-    titleLabel.setFont (juce::Font (juce::FontOptions (20.0f).withStyle ("Semibold")));
+    titleLabel.setText ("VOCALCHOP STUDIO", juce::dontSendNotification);
+    titleLabel.setFont (juce::Font (juce::FontOptions (19.0f).withStyle ("Semibold"))
+                            .withExtraKerningFactor (0.14f));
     titleLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (titleLabel);
 
@@ -100,13 +328,15 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     loadButton.onClick = [this] { openFileChooser(); };
     addAndMakeVisible (loadButton);
 
-    // One-click start: load the embedded demo vocal and slice it.
+    // One-click start: load the embedded demo vocal (the processor slices it,
+    // falling back to a grid when transients are sparse — reflect that here).
     demoButton.onClick = [this]
     {
         if (processor.loadDemoSample())
         {
-            applySlicing();
+            syncSliceControls();
             refreshChildren();
+            grabKeysSoon();
         }
     };
     addAndMakeVisible (demoButton);
@@ -128,7 +358,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     engineBox.addItem ("Synth", 2);
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "engine", engineBox));
-    engineBox.onChange = [this] { refreshChildren(); };   // keyboard span changes
+    engineBox.onChange = [this] { refreshChildren(); grabKeysSoon(); };
     addAndMakeVisible (engineBox);
 
     synthWaveBox.addItem ("Saw", 1);
@@ -164,6 +394,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         if (instrumentBox.getSelectedId() > 0)
             processor.applyInstrument (instrumentBox.getSelectedId() - 1);
         refreshChildren();
+        grabKeysSoon();   // pick a patch, play it immediately
     };
     addAndMakeVisible (instrumentBox);
 
@@ -241,6 +472,12 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (outputGainKnob, "outputGain", "Output");
 
     // --- Views ---
+    waveform.onSampleDropped = [this]
+    {
+        syncSliceControls();
+        refreshChildren();
+        grabKeysSoon();
+    };
     addAndMakeVisible (waveform);
     addAndMakeVisible (meter);
     addAndMakeVisible (sliceGrid);
@@ -284,8 +521,9 @@ void VocalChopAudioProcessorEditor::openFileChooser()
         const auto file = fc.getResult();
         if (file.existsAsFile() && processor.loadSampleFromFile (file))
         {
-            applySlicing();
+            syncSliceControls();
             refreshChildren();
+            grabKeysSoon();
         }
     });
 }
@@ -301,11 +539,77 @@ void VocalChopAudioProcessorEditor::applySlicing()
     refreshChildren();
 }
 
+void VocalChopAudioProcessorEditor::syncSliceControls()
+{
+    auto& engine = processor.getSliceEngine();
+    sliceModeBox.setSelectedId (engine.getMode() == SliceEngine::Grid ? 2 : 1,
+                                juce::dontSendNotification);
+
+    const int div = engine.getGridDivision();
+    if (div == 4 || div == 8 || div == 16 || div == 32)
+        gridBox.setSelectedId (div, juce::dontSendNotification);
+}
+
 void VocalChopAudioProcessorEditor::refreshChildren()
 {
     waveform.refresh();
     sliceGrid.refresh();
     repaint();
+}
+
+//==============================================================================
+void VocalChopAudioProcessorEditor::grabKeysSoon()
+{
+    // Combo popups steal focus; take it back once they've closed so the
+    // computer keyboard plays notes right away.
+    juce::Component::SafePointer<VocalChopAudioProcessorEditor> safe (this);
+    juce::Timer::callAfterDelay (120, [safe]
+    {
+        if (safe != nullptr && safe->isShowing())
+            safe->grabKeyboardFocus();
+    });
+}
+
+void VocalChopAudioProcessorEditor::mouseDown (const juce::MouseEvent&)
+{
+    grabKeyboardFocus();
+}
+
+bool VocalChopAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+{
+    // Swallow mapped musical keys (sound is driven by keyStateChanged, which
+    // also sees releases); everything else passes through.
+    const auto c = juce::CharacterFunctions::toLowerCase (
+                       (juce::juce_wchar) key.getTextCharacter());
+    return kTypingKeys.indexOfChar (c) >= 0;
+}
+
+bool VocalChopAudioProcessorEditor::keyStateChanged (bool)
+{
+    bool handled = false;
+
+    for (int i = 0; i < kTypingKeys.length(); ++i)
+    {
+        const bool down = physicalKeyDown (kTypingKeys[i]);
+        if (down == typingKeyHeld[(size_t) i])
+            continue;
+
+        typingKeyHeld[(size_t) i] = down;
+        const int semitone = typingKeySemitone (i);
+
+        if (down)
+        {
+            processor.pressSlicePad (semitone, 0.85f);
+            sliceGrid.flashKey (semitone, 0.9f);
+        }
+        else
+        {
+            processor.releaseSlicePad (semitone);
+        }
+        handled = true;
+    }
+
+    return handled;
 }
 
 //==============================================================================
@@ -323,7 +627,21 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
         shadow.drawForPath (g, p);
     }
 
-    // Material fill.
+    // Material fill. On the glow theme the panels are darker glass so the
+    // scene shows through without fighting the controls.
+    if (theme.glow >= 0.9f)
+    {
+        g.setColour (juce::Colour (0xc008102a));
+        g.fillRoundedRectangle (bounds, radius);
+
+        // Faint neon rim.
+        g.setColour (theme.accent.withAlpha (0.10f));
+        g.drawRoundedRectangle (bounds.expanded (1.0f), radius + 1.0f, 2.5f);
+        g.setColour (theme.accent.withAlpha (0.28f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+        return;
+    }
+
     g.setColour (theme.material);
     g.fillRoundedRectangle (bounds, radius);
 
@@ -353,15 +671,30 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
 
-    // Backdrop gradient.
-    juce::ColourGradient bg (theme.bgTop, 0.0f, 0.0f,
-                             theme.bgBottom, 0.0f, (float) getHeight(), false);
-    g.setGradientFill (bg);
-    g.fillAll();
-
-    // Full-glow themes get the cyber-synthwave scene on top of the gradient.
     if (theme.glow >= 0.9f)
-        drawSynthwaveBackdrop (g, getLocalBounds().toFloat());
+    {
+        // Full-glow default theme: the Ocean Pluck scene, cached so knob
+        // repaints don't re-render the artwork.
+        if (backdropCache.getWidth()  != getWidth()
+         || backdropCache.getHeight() != getHeight()
+         || backdropTheme != ThemeManager::current())
+        {
+            backdropCache = juce::Image (juce::Image::ARGB,
+                                         juce::jmax (1, getWidth()),
+                                         juce::jmax (1, getHeight()), true);
+            juce::Graphics ig (backdropCache);
+            paintOceanScene (ig, getWidth(), getHeight());
+            backdropTheme = ThemeManager::current();
+        }
+        g.drawImageAt (backdropCache, 0, 0);
+    }
+    else
+    {
+        juce::ColourGradient bg (theme.bgTop, 0.0f, 0.0f,
+                                 theme.bgBottom, 0.0f, (float) getHeight(), false);
+        g.setGradientFill (bg);
+        g.fillAll();
+    }
 
     // Live label colours.
     titleLabel.setColour (juce::Label::textColourId, theme.text);
@@ -389,7 +722,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     // Footer hint.
     g.setColour (theme.textSecondary);
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText (juce::String ("MIDI C3 = slice 1   •   drop audio onto the waveform   •   v")
+    g.drawText (juce::String ("Play: MIDI / click keys / type Z S X D C V ...   •   drop audio to chop   •   v")
                     + JucePlugin_VersionString,
                 getLocalBounds().removeFromBottom (24).reduced (kMargin, 0),
                 juce::Justification::centredRight);
