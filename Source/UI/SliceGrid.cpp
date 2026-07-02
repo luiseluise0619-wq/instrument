@@ -3,7 +3,6 @@
 #include "../PluginProcessor.h"
 
 #include <cmath>
-#include <vector>
 
 SliceGrid::SliceGrid (VocalChopAudioProcessor& processor)
     : proc (processor)
@@ -16,123 +15,173 @@ SliceGrid::~SliceGrid()
     stopTimer();
 }
 
-static int columnsFor (int numPads)
+//==============================================================================
+bool SliceGrid::isBlackKey (int semitone)
 {
-    if (numPads <= 0) return 1;
-    const int cols = (int) std::ceil (std::sqrt ((double) numPads));
-    return juce::jmax (1, cols);
+    const int s = semitone % 12;
+    return s == 1 || s == 3 || s == 6 || s == 8 || s == 10;
 }
 
-juce::Rectangle<float> SliceGrid::padBounds (int index, int numPads) const
+int SliceGrid::keySpan() const
 {
-    const int cols = columnsFor (numPads);
-    const int rows = (numPads + cols - 1) / cols;
-    const int col  = index % cols;
-    const int row  = index / cols;
-
-    // Even, generous gaps that scale gently with the cell size.
-    const float cellW = (float) getWidth()  / (float) cols;
-    const float cellH = (float) getHeight() / (float) juce::jmax (1, rows);
-    const float gap   = juce::jlimit (5.0f, 12.0f, juce::jmin (cellW, cellH) * 0.10f);
-
-    juce::Rectangle<float> cell ((float) col * cellW,
-                                 (float) row * cellH,
-                                 cellW, cellH);
-    return cell.reduced (gap * 0.5f);
+    // Whole octaves, at least one, enough to cover every slice.
+    const int numSlices = proc.getSliceEngine().getNumSlices();
+    const int octaves   = juce::jlimit (1, 3, (numSlices + 11) / 12);
+    return octaves * 12;
 }
 
-int SliceGrid::padIndexAt (juce::Point<int> p) const
+juce::Rectangle<float> SliceGrid::keyboardArea() const
 {
-    const int numPads = proc.getSliceEngine().getNumSlices();
-    for (int i = 0; i < numPads; ++i)
-        if (padBounds (i, numPads).contains (p.toFloat()))
-            return i;
+    return getLocalBounds().toFloat().reduced (6.0f, 6.0f);
+}
+
+juce::Rectangle<float> SliceGrid::keyRect (int semitone, int span) const
+{
+    const auto area = keyboardArea();
+
+    // Count white keys in the span and this key's white index.
+    int whitesTotal = 0, whitesBefore = 0;
+    for (int s = 0; s < span; ++s)
+    {
+        if (! isBlackKey (s))
+        {
+            if (s < semitone) ++whitesBefore;
+            ++whitesTotal;
+        }
+    }
+
+    const float whiteW = area.getWidth() / (float) juce::jmax (1, whitesTotal);
+
+    if (! isBlackKey (semitone))
+        return { area.getX() + whitesBefore * whiteW, area.getY(),
+                 whiteW, area.getHeight() };
+
+    // Black key: centred on the boundary after the previous white key.
+    const float blackW = whiteW * 0.62f;
+    const float x = area.getX() + whitesBefore * whiteW - blackW * 0.5f;
+    return { x, area.getY(), blackW, area.getHeight() * 0.62f };
+}
+
+int SliceGrid::keyAt (juce::Point<float> p) const
+{
+    const int span = keySpan();
+
+    // Black keys sit on top, so hit-test them first.
+    for (int s = 0; s < span; ++s)
+        if (isBlackKey (s) && keyRect (s, span).contains (p))
+            return s;
+    for (int s = 0; s < span; ++s)
+        if (! isBlackKey (s) && keyRect (s, span).contains (p))
+            return s;
     return -1;
 }
 
+//==============================================================================
 void SliceGrid::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
-    const int numPads = proc.getSliceEngine().getNumSlices();
+    const int numSlices = proc.getSliceEngine().getNumSlices();
+    const int span = keySpan();
 
-    if ((int) padFlash.size() != numPads)
-        padFlash.assign ((size_t) numPads, 0.0f);
-    lastPadCount = numPads;
+    if ((int) keyFlash.size() != span)
+        keyFlash.assign ((size_t) span, 0.0f);
 
-    if (numPads == 0)
+    // Card behind the keyboard.
+    const auto card = getLocalBounds().toFloat().reduced (2.0f);
+    juce::DropShadow (theme.shadow, 10, { 0, 2 })
+        .drawForRectangle (g, card.getSmallestIntegerContainer());
+    g.setColour (theme.material);
+    g.fillRoundedRectangle (card, theme.cornerRadius);
+    g.setColour (theme.separator);
+    g.drawRoundedRectangle (card.reduced (0.5f), theme.cornerRadius, 1.0f);
+
+    if (numSlices == 0)
     {
         g.setColour (theme.textSecondary);
         g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Medium")));
-        g.drawText ("Load a sample to see slices", getLocalBounds(),
+        g.drawText ("Load a sample to play", getLocalBounds(),
                     juce::Justification::centred);
         return;
     }
 
-    // Rounded-square pad radius, derived from the theme and clamped.
-    const float radius = juce::jlimit (5.0f, 14.0f, theme.cornerRadius * 0.7f);
+    const juce::Colour whiteFill = theme.dark ? juce::Colour (0xffe9edf6)
+                                              : juce::Colours::white;
+    const juce::Colour blackFill = theme.dark ? juce::Colour (0xff141628)
+                                              : juce::Colour (0xff2a2a2e);
 
-    for (int i = 0; i < numPads; ++i)
+    auto drawKey = [&] (int s)
     {
-        const auto b = padBounds (i, numPads);
-        const float flash = juce::jlimit (0.0f, 1.0f, padFlash[(size_t) i]);
+        const auto  r        = keyRect (s, span).reduced (1.0f, 0.0f);
+        const bool  black    = isBlackKey (s);
+        const bool  enabled  = s < numSlices;
+        const float flash    = keyFlash[(size_t) s];
+        const float cornerR  = black ? 3.5f : 4.5f;
 
-        // Soft, subtle per-pad drop shadow.
+        juce::Colour fill = black ? blackFill : whiteFill;
+        if (! enabled)
+            fill = fill.withAlpha (black ? 0.35f : 0.18f);
+        fill = fill.interpolatedWith (theme.accent, flash * 0.85f);
+
+        // Rounded at the bottom only, like a real keybed.
+        juce::Path key;
+        key.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(),
+                                 cornerR, cornerR, false, false, true, true);
+
+        // Accent glow while the key is lit.
+        if (flash > 0.0f && theme.glow > 0.0f)
         {
-            auto shadowRect = b.translated (0.0f, 1.5f);
-            g.setColour (theme.shadow.withAlpha (0.18f + 0.22f * flash));
-            g.fillRoundedRectangle (shadowRect, radius);
+            g.setColour (theme.accent.withAlpha (0.5f * flash * theme.glow));
+            g.strokePath (key, juce::PathStrokeType (4.0f));
         }
 
-        // Fill: base control colour interpolating toward the accent on trigger.
-        const auto fill = theme.control.interpolatedWith (theme.accent, flash);
         g.setColour (fill);
-        g.fillRoundedRectangle (b, radius);
+        g.fillPath (key);
+        g.setColour (theme.separator.withAlpha (black ? 0.9f : 0.55f));
+        g.strokePath (key, juce::PathStrokeType (1.0f));
 
-        // Optional restrained accent glow while flashing.
-        if (theme.glow > 0.0f && flash > 0.0f)
+        // Octave labels on Cs.
+        if (! black && s % 12 == 0 && enabled)
         {
-            g.setColour (theme.accentSoft.withMultipliedAlpha (theme.glow * flash));
-            g.fillRoundedRectangle (b.expanded (1.5f), radius + 1.5f);
-            g.setColour (fill);
-            g.fillRoundedRectangle (b, radius);
+            g.setColour (juce::Colour (0xff5a5f73).withAlpha (0.8f));
+            g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Medium")));
+            g.drawText ("C" + juce::String (3 + s / 12),
+                        r.reduced (2.0f).removeFromBottom (14.0f),
+                        juce::Justification::centred);
         }
+    };
 
-        // 1px hairline border, easing toward the accent on trigger.
-        const auto border = theme.separator.interpolatedWith (theme.accent, flash);
-        g.setColour (border);
-        g.drawRoundedRectangle (b, radius, 1.0f);
-
-        // Slice number: secondary colour normally, white while flashing.
-        const float fontSize = juce::jmin (16.0f, b.getHeight() * 0.34f);
-        g.setFont (juce::Font (juce::FontOptions (fontSize).withStyle ("Medium")));
-        g.setColour (theme.textSecondary.interpolatedWith (juce::Colours::white, flash));
-        g.drawText (juce::String (i + 1), b, juce::Justification::centred);
-    }
+    // Whites first, then blacks on top.
+    for (int s = 0; s < span; ++s)
+        if (! isBlackKey (s))
+            drawKey (s);
+    for (int s = 0; s < span; ++s)
+        if (isBlackKey (s))
+            drawKey (s);
 }
 
+//==============================================================================
 void SliceGrid::mouseDown (const juce::MouseEvent& e)
 {
-    const int idx = padIndexAt (e.getPosition());
-    if (idx < 0 || idx >= proc.getSliceEngine().getNumSlices())
+    const int key = keyAt (e.position);
+    if (key < 0 || key >= proc.getSliceEngine().getNumSlices())
         return;
 
-    // Hand the trigger to the audio thread lock-free; play happens there.
-    proc.triggerSlicePad (idx);
+    // Same mapping as MIDI: key semitone offset == slice index.
+    proc.triggerSlicePad (key);
 
-    if (idx < (int) padFlash.size())
-        padFlash[(size_t) idx] = 1.0f;
+    if (key < (int) keyFlash.size())
+        keyFlash[(size_t) key] = 1.0f;
     repaint();
 }
 
 void SliceGrid::timerCallback()
 {
     bool any = false;
-    for (auto& f : padFlash)
+    for (auto& f : keyFlash)
     {
         if (f > 0.0f)
         {
-            // Smooth exponential-ish decay for a polished falloff.
-            f = juce::jmax (0.0f, f - 0.045f);
+            f = juce::jmax (0.0f, f - 0.05f);
             any = true;
         }
     }

@@ -6,9 +6,15 @@
 class VocalChopAudioProcessor;
 
 /**
-    Grid of trigger pads, one per slice. Clicking a pad plays that slice
-    through the processor's voice pool. Pads reflow to a roughly square grid
-    and flash on trigger, in a polished Apple / macOS-iOS visual style.
+    Piano-keyboard trigger view (replaces the old square pad grid).
+
+    Keys start at C3 and map 1:1 onto slices, exactly like incoming MIDI
+    (note - C3 = slice index), so what you click is what the piano roll plays.
+    Keys beyond the current slice count are shown disabled. A pressed key
+    lights up with the theme accent and decays smoothly.
+
+    Public interface is kept from the pad-grid version so the editor and
+    processor wiring are unchanged.
 */
 class SliceGrid : public juce::Component,
                   private juce::Timer
@@ -20,17 +26,20 @@ public:
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
 
-    /** Call after slices change to refresh the pad layout. */
+    /** Call after slices change to refresh the keyboard. */
     void refresh() { repaint(); }
 
 private:
     void timerCallback() override;
-    int  padIndexAt (juce::Point<int> position) const;
-    juce::Rectangle<float> padBounds (int index, int numPads) const;
+
+    static bool isBlackKey (int semitone);
+    int  keySpan() const;                 // how many semitones we draw
+    juce::Rectangle<float> keyboardArea() const;
+    juce::Rectangle<float> keyRect (int semitone, int span) const;
+    int  keyAt (juce::Point<float> position) const;
 
     VocalChopAudioProcessor& proc;
-    std::vector<float> padFlash;   // per-pad decay level
-    int lastPadCount = 0;
+    std::vector<float> keyFlash;          // per-key decay level
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceGrid)
 };

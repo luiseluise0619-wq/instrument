@@ -88,14 +88,14 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         // Layered outer halo (widest & faintest first) so the arc "emits" light.
         if (glowNow > 0.0f)
         {
-            for (int layer = 3; layer >= 1; --layer)
+            for (int layer = 4; layer >= 1; --layer)
             {
-                const float alpha = juce::jlimit (0.0f, 1.0f, 0.10f * glowNow * (float) layer);
+                const float alpha = juce::jlimit (0.0f, 1.0f, 0.14f * glowNow * (float) layer);
                 juce::ColourGradient halo (arcGrad);
                 halo.multiplyOpacity (alpha);
                 g.setGradientFill (halo);
                 g.strokePath (progress,
-                              juce::PathStrokeType (ringThickness + 3.0f * (float) layer,
+                              juce::PathStrokeType (ringThickness + 3.5f * (float) layer,
                                                     juce::PathStrokeType::curved,
                                                     juce::PathStrokeType::rounded));
             }
