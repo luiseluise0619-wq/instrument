@@ -114,7 +114,7 @@ namespace
 
     // The full-bleed "Ocean Pluck" scene for the default glow theme: night
     // sky, stars, neon mountains, a sun ring, the perspective sea grid and
-    // two leaping neon dolphins. Painted once into a cached image.
+    // a neon megacity with hover-car streaks. Painted once into a cached image.
     void paintOceanScene (juce::Graphics& g, int wi, int hi)
     {
         const float w = (float) wi;
