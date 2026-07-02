@@ -147,8 +147,7 @@ void WaveformView::paint (juce::Graphics& g)
                                                    juce::PathStrokeType::rounded));
 
         g.setColour (fileHover ? theme.accent : theme.textSecondary);
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::plain))
-                       .withStyle ("Medium"));
+        g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Medium")));
         auto textArea = card.withTop (centre.y + 8.0f).withHeight (24.0f);
         g.drawText (fileHover ? "Release to load" : "Drop audio to load",
                     textArea, juce::Justification::centred);

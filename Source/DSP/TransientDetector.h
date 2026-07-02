@@ -25,9 +25,11 @@ public:
         float minGapMs    = 50.0f;
     };
 
+    // Note: no default argument for `p` — GCC/Clang reject `= {}` for a nested
+    // struct with member initializers used inside the enclosing class.
     static std::vector<int> detect (const juce::AudioBuffer<float>& buffer,
                                      double sampleRate,
-                                     const Params& p = {})
+                                     const Params& p)
     {
         std::vector<int> onsets;
         const int numSamples = buffer.getNumSamples();
