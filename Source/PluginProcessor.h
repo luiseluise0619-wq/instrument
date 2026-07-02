@@ -68,6 +68,14 @@ public:
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
 
+    /** A/B compare: stores the current knobs into the active slot and swaps
+        to the other one. Message thread only. */
+    void toggleAB();
+    bool isSlotB() const { return abIsB; }
+
+    /** Randomises the sound-design parameters (message thread only). */
+    void randomizeParams();
+
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
@@ -127,6 +135,10 @@ private:
 
     // Which voice each held MIDI note started (-1 = none), for note-off routing.
     std::array<int, 128> noteToVoice {};
+
+    // A/B compare snapshots of the parameter tree.
+    juce::ValueTree snapshotA, snapshotB;
+    bool abIsB = false;
 
     // Smoothed stereo width to avoid zipper noise when the knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed { 1.0f };

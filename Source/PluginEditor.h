@@ -48,7 +48,9 @@ private:
     juce::Label      presetLabel;
     juce::ComboBox   presetBox;
     juce::ComboBox   themeBox;
-    juce::TextButton loadButton { "Load Sample" };
+    juce::TextButton loadButton   { "Load Sample" };
+    juce::TextButton abButton     { "A/B" };
+    juce::TextButton randomButton { "RND" };
 
     // Slicing controls.
     juce::ComboBox sliceModeBox;

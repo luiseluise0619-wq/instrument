@@ -3,17 +3,19 @@
 int ThemeManager::idx = 0; // default to the synthwave "Neon Wave" theme
 
 std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
-    // ---- Neon Wave (synthwave: deep indigo + glowing cyan/magenta) --------
+    // ---- Neon Ocean (cyber synthwave: deep navy sea + neon cyan/purple) ---
+    // Palette per design spec: #050814 navy, #00F5FF cyan, #B026FF purple,
+    // #FF2DAA hot pink, #3AA0FF soft blue glow.
     {
-        "Neon Wave", true,
-        juce::Colour (0xff17103c), juce::Colour (0xff060213),   // bg gradient
-        juce::Colour (0x1aa78bfa), juce::Colour (0x2eb794ff),   // material (violet tint)
-        juce::Colour (0x33d0bfff),                              // separator
-        juce::Colour (0xff1b1642), juce::Colour (0x26ffffff),   // control / track
-        juce::Colour (0xff00e5ff), juce::Colour (0x5900e5ff),   // accent (electric cyan)
-        juce::Colour (0xffff4dd6),                              // waveform (neon magenta)
-        juce::Colour (0xffeef4ff), juce::Colour (0xa8cfe0ff),   // text / secondary
-        juce::Colour (0xcc02010a),                              // shadow
+        "Neon Ocean", true,
+        juce::Colour (0xff0b1030), juce::Colour (0xff050814),   // bg gradient (navy)
+        juce::Colour (0x1a3aa0ff), juce::Colour (0x2e3aa0ff),   // material (soft blue glass)
+        juce::Colour (0x3d3aa0ff),                              // separator (soft blue)
+        juce::Colour (0xff0c1233), juce::Colour (0x26ffffff),   // control / track
+        juce::Colour (0xff00f5ff), juce::Colour (0x5900f5ff),   // accent (neon cyan)
+        juce::Colour (0xffff2daa),                              // waveform (hot pink)
+        juce::Colour (0xffeafcff), juce::Colour (0xb03aa0ff),   // text / secondary
+        juce::Colour (0xcc02040c),                              // shadow
         14.0f, 1.0f                                             // FULL glow
     },
     // ---- Silver (light) --------------------------------------------------

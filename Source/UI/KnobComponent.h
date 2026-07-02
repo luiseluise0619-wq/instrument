@@ -14,7 +14,9 @@
     All colours are pulled live from ThemeManager::active() so switching themes
     restyles the control instantly.
 */
-class KnobComponent : public juce::Component
+class KnobComponent : public juce::Component,
+                      private juce::Timer,
+                      private juce::Slider::Listener
 {
 public:
     explicit KnobComponent (const juce::String& caption);
@@ -34,9 +36,15 @@ private:
                                float rotaryEndAngle, juce::Slider&) override;
     };
 
+    // Light-trail: turning the knob flares the glow, which then decays.
+    // (Slider::Listener is used so clients remain free to set slider.onValueChange.)
+    void sliderValueChanged (juce::Slider*) override;
+    void timerCallback() override;
+
     juce::Slider slider;
     juce::Label  label;
     KnobLookAndFeel lookAndFeel;
+    float dragGlow = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KnobComponent)
 };

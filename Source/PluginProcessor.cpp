@@ -397,6 +397,60 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
 }
 
 //==============================================================================
+void VocalChopAudioProcessor::toggleAB()
+{
+    // Save the current knobs into the slot we're leaving, then load the other
+    // slot (first toggle simply carries the current sound across).
+    auto current = apvts.copyState();
+
+    if (abIsB)
+    {
+        snapshotB = current;
+        if (snapshotA.isValid())
+            apvts.replaceState (snapshotA.createCopy());
+    }
+    else
+    {
+        snapshotA = current;
+        if (snapshotB.isValid())
+            apvts.replaceState (snapshotB.createCopy());
+    }
+
+    abIsB = ! abIsB;
+}
+
+void VocalChopAudioProcessor::randomizeParams()
+{
+    auto& rng = juce::Random::getSystemRandom();
+
+    auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+    };
+    auto uni = [&rng] (float lo, float hi) { return lo + rng.nextFloat() * (hi - lo); };
+
+    // Musical-but-surprising ranges; envelope stays playable on purpose.
+    set ("pitch",        uni (-12.0f, 12.0f));
+    set ("formant",      uni (-6.0f, 6.0f));
+    set ("grainSize",    uni (30.0f, 300.0f));
+    set ("drive",        uni (0.0f, 0.6f));
+    set ("reverb",       uni (0.0f, 0.7f));
+    set ("delay",        uni (0.0f, 0.6f));
+    set ("delayFeedback",uni (0.2f, 0.7f));
+    set ("pingpong",     rng.nextBool() ? 1.0f : 0.0f);
+    set ("width",        uni (0.6f, 1.6f));
+    set ("filterType",   (float) rng.nextInt (4));
+    set ("filterCutoff", uni (300.0f, 18000.0f));
+    set ("filterReso",   uni (0.5f, 4.0f));
+    set ("reverse",      rng.nextFloat() < 0.25f ? 1.0f : 0.0f);
+    set ("attack",       uni (0.0f, 80.0f));
+    set ("decay",        uni (0.0f, 400.0f));
+    set ("sustain",      uni (0.4f, 1.0f));
+    set ("release",      uni (10.0f, 400.0f));
+}
+
+//==============================================================================
 void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // Full session state: parameters + sample path + slicing + theme, so that

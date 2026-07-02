@@ -12,6 +12,68 @@ namespace
     constexpr int kToolbarH   = 34;
     constexpr int kCaptionH   = 20;
     constexpr int kMeterW     = 30;
+
+    // Cyber-synthwave backdrop for full-glow themes (Neon Ocean): a deep
+    // space sky (purple -> blue -> navy), a glowing pink/cyan horizon, and a
+    // 3D perspective grid floor converging on the horizon.
+    void drawSynthwaveBackdrop (juce::Graphics& g, juce::Rectangle<float> area)
+    {
+        const juce::Colour purple  (0xffb026ff);
+        const juce::Colour softBlue(0xff3aa0ff);
+        const juce::Colour pink    (0xffff2daa);
+        const juce::Colour cyan    (0xff00f5ff);
+        const juce::Colour navy    (0xff050814);
+
+        const float horizonY = area.getY() + area.getHeight() * 0.62f;
+
+        // --- Sky: purple -> blue -> navy, with a pink bloom above the horizon.
+        {
+            juce::ColourGradient sky (purple.withAlpha (0.28f), area.getX(), area.getY(),
+                                      navy, area.getX(), horizonY, false);
+            sky.addColour (0.45, softBlue.withAlpha (0.16f));
+            sky.addColour (0.92, pink.withAlpha (0.10f));
+            g.setGradientFill (sky);
+            g.fillRect (area.withBottom (horizonY));
+        }
+
+        // --- Horizon glow line (pink core inside a cyan bloom).
+        for (int layer = 3; layer >= 1; --layer)
+        {
+            g.setColour (cyan.withAlpha (0.05f * (float) layer));
+            g.fillRect (juce::Rectangle<float> (area.getX(), horizonY - 2.0f * (float) layer,
+                                                area.getWidth(), 4.0f * (float) layer));
+        }
+        g.setColour (pink.withAlpha (0.55f));
+        g.fillRect (juce::Rectangle<float> (area.getX(), horizonY - 0.75f, area.getWidth(), 1.5f));
+
+        // --- Perspective grid floor below the horizon.
+        const float cx = area.getCentreX();
+        const float bottom = area.getBottom();
+
+        // Radial lines fanning out from the vanishing point.
+        for (int i = -9; i <= 9; ++i)
+        {
+            const float xBottom = cx + (float) i * area.getWidth() * 0.16f;
+            const float fade = 1.0f - std::abs ((float) i) / 11.0f;
+            g.setColour (cyan.withAlpha (0.10f * fade));
+            g.drawLine (cx, horizonY, xBottom, bottom, 1.0f);
+        }
+
+        // Horizontal scanlines, spacing widening toward the viewer.
+        for (int row = 1; row <= 8; ++row)
+        {
+            const float t = (float) row / 8.0f;
+            const float y = horizonY + t * t * (bottom - horizonY);
+            g.setColour (cyan.withAlpha (0.05f + 0.07f * t));
+            g.drawLine (area.getX(), y, area.getRight(), y, 1.0f);
+        }
+
+        // --- Soft fog so panels stay readable over the grid.
+        juce::ColourGradient fog (juce::Colours::transparentBlack, cx, horizonY,
+                                  navy.withAlpha (0.55f), cx, bottom, false);
+        g.setGradientFill (fog);
+        g.fillRect (area.withTop (horizonY));
+    }
 }
 
 //==============================================================================
@@ -68,6 +130,18 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // --- Load button ---
     loadButton.onClick = [this] { openFileChooser(); };
     addAndMakeVisible (loadButton);
+
+    // --- A/B compare + randomise ---
+    abButton.onClick = [this]
+    {
+        processor.toggleAB();
+        abButton.setButtonText (processor.isSlotB() ? "B" : "A");
+        repaint();
+    };
+    addAndMakeVisible (abButton);
+
+    randomButton.onClick = [this] { processor.randomizeParams(); };
+    addAndMakeVisible (randomButton);
 
     // --- Slice mode (initialised from the engine so restored state shows) ---
     auto& engine = processor.getSliceEngine();
@@ -258,6 +332,10 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     g.setGradientFill (bg);
     g.fillAll();
 
+    // Full-glow themes get the cyber-synthwave scene on top of the gradient.
+    if (theme.glow >= 0.9f)
+        drawSynthwaveBackdrop (g, getLocalBounds().toFloat());
+
     // Live label colours.
     titleLabel.setColour (juce::Label::textColourId, theme.text);
     presetLabel.setColour (juce::Label::textColourId, theme.textSecondary);
@@ -297,12 +375,16 @@ void VocalChopAudioProcessorEditor::resized()
     auto top = area.removeFromTop (kToolbarH);
     titleLabel.setBounds (top.removeFromLeft (300));
 
-    // Right-aligned: theme, load, preset combo, preset label.
+    // Right-aligned: theme, load, RND, A/B, preset combo, preset label.
     themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
     top.removeFromRight (kGap / 2);
-    loadButton.setBounds (top.removeFromRight (140).withSizeKeepingCentre (140, 30));
+    loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 30));
     top.removeFromRight (kGap / 2);
-    presetBox.setBounds (top.removeFromRight (170).withSizeKeepingCentre (170, 30));
+    randomButton.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
+    top.removeFromRight (kGap / 2);
+    abButton.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
+    top.removeFromRight (kGap / 2);
+    presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 30));
     presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
 
     area.removeFromTop (kGap);

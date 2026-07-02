@@ -5,7 +5,7 @@
 void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     juce::Graphics& g, int x, int y, int width, int height,
     float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
-    juce::Slider& /*slider*/)
+    juce::Slider& slider)
 {
     const auto& theme = ThemeManager::active();
 
@@ -64,21 +64,36 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
                                                    juce::PathStrokeType::rounded));
     }
 
-    // (d) Accent progress arc with rounded caps and a neon halo.
+    // (d) LED-ring progress arc with a neon halo and cyan->purple gradient.
     if (sliderPos > 0.0f)
     {
+        // Turning the knob flares the glow briefly (the "light trail").
+        const float trail = (float) slider.getProperties()
+                                          .getWithDefault ("dragGlow", 0.0f);
+        const float glowNow = juce::jlimit (0.0f, 1.5f,
+                                            theme.glow * (1.0f + 1.5f * trail));
+
         juce::Path progress;
         progress.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f,
                                 rotaryStartAngle, angle, true);
 
+        // Full-glow themes sweep the arc cyan -> electric purple.
+        const juce::Colour arcEnd = theme.glow >= 0.9f ? juce::Colour (0xffb026ff)
+                                                       : theme.accent;
+        juce::ColourGradient arcGrad (theme.accent,
+                                      bounds.getX(), bounds.getBottom(),
+                                      arcEnd,
+                                      bounds.getRight(), bounds.getY(), false);
+
         // Layered outer halo (widest & faintest first) so the arc "emits" light.
-        if (theme.glow > 0.0f)
+        if (glowNow > 0.0f)
         {
             for (int layer = 3; layer >= 1; --layer)
             {
-                const float alpha = juce::jlimit (0.0f, 1.0f,
-                                                  0.10f * theme.glow * (float) layer);
-                g.setColour (theme.accent.withAlpha (alpha));
+                const float alpha = juce::jlimit (0.0f, 1.0f, 0.10f * glowNow * (float) layer);
+                juce::ColourGradient halo (arcGrad);
+                halo.multiplyOpacity (alpha);
+                g.setGradientFill (halo);
                 g.strokePath (progress,
                               juce::PathStrokeType (ringThickness + 3.0f * (float) layer,
                                                     juce::PathStrokeType::curved,
@@ -87,7 +102,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         }
 
         // Crisp bright core on top of the halo.
-        g.setColour (theme.accent);
+        g.setGradientFill (arcGrad);
         g.strokePath (progress, juce::PathStrokeType (ringThickness,
                                                       juce::PathStrokeType::curved,
                                                       juce::PathStrokeType::rounded));
@@ -99,8 +114,9 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
                 centre.x + ringRadius * std::cos (angle - juce::MathConstants<float>::halfPi),
                 centre.y + ringRadius * std::sin (angle - juce::MathConstants<float>::halfPi));
 
-            const float dotR = ringThickness * 0.9f;
-            g.setColour (theme.accent.withAlpha (0.35f * theme.glow));
+            const float dotR = ringThickness * (0.9f + 0.5f * trail);
+            g.setColour (theme.accent.withAlpha (juce::jlimit (0.0f, 1.0f,
+                                                               0.35f * glowNow)));
             g.fillEllipse (juce::Rectangle<float> (dotR * 4.0f, dotR * 4.0f).withCentre (tip));
             g.setColour (juce::Colours::white.interpolatedWith (theme.accent, 0.25f));
             g.fillEllipse (juce::Rectangle<float> (dotR * 1.6f, dotR * 1.6f).withCentre (tip));
@@ -148,10 +164,32 @@ KnobComponent::KnobComponent (const juce::String& caption)
     label.setJustificationType (juce::Justification::centred);
     label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (label);
+
+    slider.addListener (this);
+}
+
+void KnobComponent::sliderValueChanged (juce::Slider*)
+{
+    dragGlow = 1.0f;
+    slider.getProperties().set ("dragGlow", dragGlow);
+    if (! isTimerRunning())
+        startTimerHz (30);
+    slider.repaint();
+}
+
+void KnobComponent::timerCallback()
+{
+    dragGlow = juce::jmax (0.0f, dragGlow - 0.07f);
+    slider.getProperties().set ("dragGlow", dragGlow);
+    slider.repaint();
+    if (dragGlow <= 0.0f)
+        stopTimer();
 }
 
 KnobComponent::~KnobComponent()
 {
+    stopTimer();
+    slider.removeListener (this);
     slider.setLookAndFeel (nullptr);
 }
 
