@@ -165,11 +165,12 @@ private:
     static constexpr int kRootNote = 48;
 
     // Lock-free queue of key/pad hits (message thread -> audio thread).
+    // Generous size: a dropped note-off would leave a note stuck on.
     enum PadEvent { padTap = 0, padOn = 1, padOff = 2 };
-    juce::AbstractFifo padFifo { 64 };
-    std::array<int, 64>   padQueue {};
-    std::array<float, 64> padQueueVel {};
-    std::array<int, 64>   padQueueType {};
+    juce::AbstractFifo padFifo { 256 };
+    std::array<int, 256>   padQueue {};
+    std::array<float, 256> padQueueVel {};
+    std::array<int, 256>   padQueueType {};
 
     // Which voice each held MIDI note started (-1 = none), for note-off routing.
     std::array<int, 128> noteToVoice {};

@@ -12,7 +12,8 @@
 #include "UI/AppleLookAndFeel.h"
 
 //==============================================================================
-class VocalChopAudioProcessorEditor : public juce::AudioProcessorEditor
+class VocalChopAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                      private juce::Timer
 {
 public:
     explicit VocalChopAudioProcessorEditor (VocalChopAudioProcessor&);
@@ -38,6 +39,13 @@ private:
     void syncSliceControls();   // reflect the engine's mode/grid in the combos
     void refreshChildren();
     void grabKeysSoon();        // return keyboard focus after combo popups
+
+    /** Syncs held typing-key notes with the OS-global key state. Runs from
+        keyStateChanged AND a watchdog timer, so a release that happens while
+        focus is elsewhere (combo popup, other window) can never leave a note
+        stuck on. */
+    bool scanTypingKeys (bool forceReleaseAll = false);
+    void timerCallback() override;
 
     // Draws a rounded "material" card with hairline border and soft shadow.
     void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;

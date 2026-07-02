@@ -512,10 +512,13 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     setSize (1080, 900);
 
     refreshChildren();
+    startTimerHz (30);   // typing-key watchdog (stuck-note guard)
 }
 
 VocalChopAudioProcessorEditor::~VocalChopAudioProcessorEditor()
 {
+    stopTimer();
+    scanTypingKeys (true);   // closing the editor must not leave notes held
     setLookAndFeel (nullptr);
 }
 
@@ -608,13 +611,13 @@ bool VocalChopAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     return kTypingKeys.indexOfChar (c) >= 0;
 }
 
-bool VocalChopAudioProcessorEditor::keyStateChanged (bool)
+bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
 {
     bool handled = false;
 
     for (int i = 0; i < kTypingKeys.length(); ++i)
     {
-        const bool down = physicalKeyDown (kTypingKeys[i]);
+        const bool down = ! forceReleaseAll && physicalKeyDown (kTypingKeys[i]);
         if (down == typingKeyHeld[(size_t) i])
             continue;
 
@@ -634,6 +637,20 @@ bool VocalChopAudioProcessorEditor::keyStateChanged (bool)
     }
 
     return handled;
+}
+
+bool VocalChopAudioProcessorEditor::keyStateChanged (bool)
+{
+    return scanTypingKeys();
+}
+
+void VocalChopAudioProcessorEditor::timerCallback()
+{
+    // Watchdog: key releases are lost when focus moves mid-press (combo
+    // popup, other window, host shortcut). isKeyCurrentlyDown reads global
+    // OS key state, so this catches them within a frame. When the editor is
+    // hidden entirely, let go of everything.
+    scanTypingKeys (! isShowing());
 }
 
 //==============================================================================
