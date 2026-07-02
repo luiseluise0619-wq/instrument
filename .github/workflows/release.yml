@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.2.0) — created if it doesn't exist"
+        required: true
+        default: "v1.2.0"
 
 permissions:
   contents: write
@@ -41,6 +47,8 @@ jobs:
 
       - name: Package
         shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -e
           ART="build/VocalChopStudio_artefacts/Release"
@@ -53,10 +61,12 @@ jobs:
             || echo "See https://www.gnu.org/licenses/gpl-3.0.txt" > dist/COPYING
           cp README.md LICENSE.md dist/
           cd dist
-          cmake -E tar cf "../VocalChopStudio-${GITHUB_REF_NAME}-${RUNNER_OS}.zip" --format=zip -- .
+          cmake -E tar cf "../VocalChopStudio-${RELEASE_TAG}-${RUNNER_OS}.zip" --format=zip -- .
 
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: VocalChopStudio-*.zip
           generate_release_notes: true
