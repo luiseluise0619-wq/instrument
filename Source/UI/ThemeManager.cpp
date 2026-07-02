@@ -1,8 +1,21 @@
 #include "ThemeManager.h"
 
-int ThemeManager::idx = 1; // default to the dark "Graphite" theme
+int ThemeManager::idx = 0; // default to the synthwave "Neon Wave" theme
 
 std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
+    // ---- Neon Wave (synthwave: deep indigo + glowing cyan/magenta) --------
+    {
+        "Neon Wave", true,
+        juce::Colour (0xff17103c), juce::Colour (0xff060213),   // bg gradient
+        juce::Colour (0x1aa78bfa), juce::Colour (0x2eb794ff),   // material (violet tint)
+        juce::Colour (0x33d0bfff),                              // separator
+        juce::Colour (0xff1b1642), juce::Colour (0x26ffffff),   // control / track
+        juce::Colour (0xff00e5ff), juce::Colour (0x5900e5ff),   // accent (electric cyan)
+        juce::Colour (0xffff4dd6),                              // waveform (neon magenta)
+        juce::Colour (0xffeef4ff), juce::Colour (0xa8cfe0ff),   // text / secondary
+        juce::Colour (0xcc02010a),                              // shadow
+        14.0f, 1.0f                                             // FULL glow
+    },
     // ---- Silver (light) --------------------------------------------------
     {
         "Silver", false,

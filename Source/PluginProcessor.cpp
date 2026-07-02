@@ -312,6 +312,7 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file)
 
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
+    loadedSampleFile = file;
     reassignSampleToEngines();
     return true;
 }
@@ -398,15 +399,55 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
 //==============================================================================
 void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
-        copyXmlToBinary (*xml, destData);
+    // Full session state: parameters + sample path + slicing + theme, so that
+    // reopening the project restores everything, not just the knobs.
+    juce::XmlElement root ("VocalChopState");
+    root.setAttribute ("samplePath",  loadedSampleFile.getFullPathName());
+    root.setAttribute ("sliceMode",   (int) sliceEngine.getMode());
+    root.setAttribute ("gridDiv",     sliceEngine.getGridDivision());
+    root.setAttribute ("sensitivity", (double) sliceEngine.getSensitivity());
+    root.setAttribute ("theme",       ThemeManager::current());
+
+    if (auto params = apvts.copyState().createXml())
+        root.addChildElement (params.release());
+
+    copyXmlToBinary (root, destData);
 }
 
 void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+    if (xml == nullptr)
+        return;
+
+    // Legacy format: bare parameter tree.
+    if (xml->hasTagName (apvts.state.getType()))
+    {
+        apvts.replaceState (juce::ValueTree::fromXml (*xml));
+        return;
+    }
+
+    if (! xml->hasTagName ("VocalChopState"))
+        return;
+
+    if (auto* params = xml->getChildByName (apvts.state.getType()))
+        apvts.replaceState (juce::ValueTree::fromXml (*params));
+
+    ThemeManager::setIndex (xml->getIntAttribute ("theme", ThemeManager::current()));
+
+    sliceEngine.setMode ((SliceEngine::Mode) xml->getIntAttribute ("sliceMode",
+                                                                   (int) SliceEngine::Transient));
+    sliceEngine.setGridDivision (xml->getIntAttribute ("gridDiv", 16));
+    sliceEngine.setSensitivity ((float) xml->getDoubleAttribute ("sensitivity", 0.3));
+
+    // Reload the sample from disk; loadSampleFromFile re-slices with the
+    // settings restored above. If the file moved/was deleted, keep running
+    // with no sample rather than failing state restore.
+    const juce::File sample (xml->getStringAttribute ("samplePath"));
+    if (sample.existsAsFile())
+        loadSampleFromFile (sample);
+    else
+        sliceEngine.rebuildSlices();
 }
 
 //==============================================================================

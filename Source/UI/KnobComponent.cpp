@@ -64,24 +64,46 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
                                                    juce::PathStrokeType::rounded));
     }
 
-    // (d) Accent progress arc with rounded caps.
+    // (d) Accent progress arc with rounded caps and a neon halo.
     if (sliderPos > 0.0f)
     {
         juce::Path progress;
         progress.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f,
                                 rotaryStartAngle, angle, true);
+
+        // Layered outer halo (widest & faintest first) so the arc "emits" light.
+        if (theme.glow > 0.0f)
+        {
+            for (int layer = 3; layer >= 1; --layer)
+            {
+                const float alpha = juce::jlimit (0.0f, 1.0f,
+                                                  0.10f * theme.glow * (float) layer);
+                g.setColour (theme.accent.withAlpha (alpha));
+                g.strokePath (progress,
+                              juce::PathStrokeType (ringThickness + 3.0f * (float) layer,
+                                                    juce::PathStrokeType::curved,
+                                                    juce::PathStrokeType::rounded));
+            }
+        }
+
+        // Crisp bright core on top of the halo.
         g.setColour (theme.accent);
         g.strokePath (progress, juce::PathStrokeType (ringThickness,
                                                       juce::PathStrokeType::curved,
                                                       juce::PathStrokeType::rounded));
 
-        // Subtle bloom around the arc when the theme asks for it.
-        if (theme.glow > 0.0f)
+        // Glowing tip dot at the value position (synthwave signature).
+        if (theme.glow >= 0.5f)
         {
-            g.setColour (theme.accentSoft.withMultipliedAlpha (theme.glow * 4.0f));
-            g.strokePath (progress, juce::PathStrokeType (ringThickness + 3.0f,
-                                                          juce::PathStrokeType::curved,
-                                                          juce::PathStrokeType::rounded));
+            const juce::Point<float> tip (
+                centre.x + ringRadius * std::cos (angle - juce::MathConstants<float>::halfPi),
+                centre.y + ringRadius * std::sin (angle - juce::MathConstants<float>::halfPi));
+
+            const float dotR = ringThickness * 0.9f;
+            g.setColour (theme.accent.withAlpha (0.35f * theme.glow));
+            g.fillEllipse (juce::Rectangle<float> (dotR * 4.0f, dotR * 4.0f).withCentre (tip));
+            g.setColour (juce::Colours::white.interpolatedWith (theme.accent, 0.25f));
+            g.fillEllipse (juce::Rectangle<float> (dotR * 1.6f, dotR * 1.6f).withCentre (tip));
         }
     }
 

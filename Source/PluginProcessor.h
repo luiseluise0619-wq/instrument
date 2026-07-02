@@ -89,6 +89,7 @@ private:
     Limiter        limiter;
 
     std::shared_ptr<juce::AudioBuffer<float>> sampleBuffer;
+    juce::File loadedSampleFile;   // persisted in plugin state so reload restores it
 
     // Cached parameter pointers.
     std::atomic<float>* pitchParam   = nullptr;

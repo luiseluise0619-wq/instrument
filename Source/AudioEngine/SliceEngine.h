@@ -31,9 +31,10 @@ public:
 
     void setMode (Mode m)              { mode = m; }
     Mode getMode() const               { return mode; }
-    void setSensitivity (float s)      { sensitivity = juce::jlimit (0.01f, 0.99f, s); }
-    void setGridDivision (int div)     { gridDiv = juce::jlimit (2, 64, div); }
-    int  getGridDivision() const       { return gridDiv; }
+    void  setSensitivity (float s)     { sensitivity = juce::jlimit (0.01f, 0.99f, s); }
+    float getSensitivity() const       { return sensitivity; }
+    void  setGridDivision (int div)    { gridDiv = juce::jlimit (2, 64, div); }
+    int   getGridDivision() const      { return gridDiv; }
 
     void rebuildSlices();
     void sliceByManual (const std::vector<int>& points);

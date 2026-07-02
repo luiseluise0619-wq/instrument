@@ -69,23 +69,29 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     loadButton.onClick = [this] { openFileChooser(); };
     addAndMakeVisible (loadButton);
 
-    // --- Slice mode ---
+    // --- Slice mode (initialised from the engine so restored state shows) ---
+    auto& engine = processor.getSliceEngine();
+
     sliceModeBox.addItem ("Transient", 1);
     sliceModeBox.addItem ("Grid", 2);
-    sliceModeBox.setSelectedId (1, juce::dontSendNotification);
+    sliceModeBox.setSelectedId (engine.getMode() == SliceEngine::Grid ? 2 : 1,
+                                juce::dontSendNotification);
     sliceModeBox.setJustificationType (juce::Justification::centred);
     sliceModeBox.onChange = [this] { applySlicing(); };
     addAndMakeVisible (sliceModeBox);
 
     for (int div : { 4, 8, 16, 32 })
         gridBox.addItem (juce::String (div) + " slices", div);
-    gridBox.setSelectedId (16, juce::dontSendNotification);
+    const int restoredDiv = engine.getGridDivision();
+    gridBox.setSelectedId ((restoredDiv == 4 || restoredDiv == 8
+                            || restoredDiv == 16 || restoredDiv == 32) ? restoredDiv : 16,
+                           juce::dontSendNotification);
     gridBox.setJustificationType (juce::Justification::centred);
     gridBox.onChange = [this] { applySlicing(); };
     addAndMakeVisible (gridBox);
 
     sensitivityKnob.getSlider().setRange (0.05, 0.9, 0.01);
-    sensitivityKnob.getSlider().setValue (0.3, juce::dontSendNotification);
+    sensitivityKnob.getSlider().setValue (engine.getSensitivity(), juce::dontSendNotification);
     sensitivityKnob.getSlider().onValueChange = [this] { applySlicing(); };
     addAndMakeVisible (sensitivityKnob);
 
