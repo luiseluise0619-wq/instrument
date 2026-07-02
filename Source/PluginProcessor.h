@@ -103,6 +103,7 @@ private:
     void handleMidi (const juce::MidiBuffer& midi, int numSamples);
     void drainPadQueue();
     int  triggerSliceIndex (int sliceIndex, float velocity);
+    void clearVoiceMapping (int voiceIndex);   // audio thread
     void applyMasterFXChain (juce::AudioBuffer<float>&);
     void applyStereoWidth (juce::AudioBuffer<float>&);
     void reassignSampleToEngines();

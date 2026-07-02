@@ -281,6 +281,11 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 {
     for (const auto meta : midi)
     {
+        // Note/CC messages only — building a MidiMessage from a large SysEx
+        // event would heap-allocate on the audio thread.
+        if (meta.numBytes > 3)
+            continue;
+
         const auto msg = meta.getMessage();
 
         const int  note  = msg.getNoteNumber();
@@ -302,13 +307,12 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
         }
         else if (msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0))
         {
-            if (synth)
-            {
-                synthEngine.noteOff (note);
-            }
-            // Gate mode: releasing the key starts that voice's release stage
-            // (one-shot voices ignore this inside the pool).
-            else if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+            // Release BOTH engines regardless of the current mode: the note
+            // may have started before an engine switch, and each call is a
+            // safe no-op when that engine holds nothing for this note.
+            synthEngine.noteOff (note);
+
+            if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
             {
                 voicePool.releaseVoice (noteToVoice[(size_t) note]);
                 noteToVoice[(size_t) note] = -1;
@@ -324,12 +328,34 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
     }
 }
 
+void VocalChopAudioProcessor::clearVoiceMapping (int voiceIndex)
+{
+    // Audio thread. A voice slot that self-finished (or was stolen) may still
+    // be referenced by another held note's mapping; releasing that note later
+    // would then cut whichever NEW note reused the slot. Scrub stale entries
+    // whenever a slot is (re)assigned.
+    if (voiceIndex < 0)
+        return;
+
+    for (auto& m : noteToVoice)
+        if (m == voiceIndex)
+            m = -1;
+    for (auto& m : padKeyToVoice)
+        if (m == voiceIndex)
+            m = -1;
+}
+
 int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
 {
     // Audio thread. tryGetSlice() safely no-ops if a re-slice is in progress.
     SlicePoint slice;
     if (sliceEngine.tryGetSlice (sliceIndex, slice))
-        return voicePool.triggerVoice (slice.startSample, slice.lengthSamples, velocity);
+    {
+        const int voice = voicePool.triggerVoice (slice.startSample,
+                                                  slice.lengthSamples, velocity);
+        clearVoiceMapping (voice);
+        return voice;
+    }
     return -1;
 }
 
@@ -376,9 +402,11 @@ void VocalChopAudioProcessor::drainPadQueue()
 
         if (type == padOff)
         {
-            if (synth)
-                synthEngine.noteOff (note);
-            else if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
+            // Release both engines: the pad may have been pressed before an
+            // engine switch (each call safely no-ops when not applicable).
+            synthEngine.noteOff (note);
+
+            if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
             {
                 voicePool.releaseVoice (padKeyToVoice[(size_t) idx]);
                 padKeyToVoice[(size_t) idx] = -1;

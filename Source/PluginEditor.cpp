@@ -658,10 +658,17 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
 {
     bool handled = false;
 
+    // New presses require our keyboard focus — otherwise typing in the
+    // host's own text fields would play notes. Releases are always honoured
+    // (that's the watchdog's whole job).
+    const bool focused = hasKeyboardFocus (true);
+
     for (int i = 0; i < kTypingKeys.length(); ++i)
     {
         const bool down = ! forceReleaseAll && physicalKeyDown (kTypingKeys[i]);
         if (down == typingKeyHeld[(size_t) i])
+            continue;
+        if (down && ! focused)
             continue;
 
         typingKeyHeld[(size_t) i] = down;

@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <vector>
 
 /**
     A single polyphonic voice. Plays back a region [start, start+len) of a
@@ -118,6 +119,11 @@ private:
     std::shared_ptr<const juce::AudioBuffer<float>> source;
     double sourceSampleRate = 44100.0;
     double hostSampleRate   = 44100.0;
+
+    // Replaced sources parked here (message thread) until no voice references
+    // them any more — otherwise a voice slot being reused could drop the LAST
+    // reference and free a multi-megabyte buffer on the audio thread.
+    std::vector<std::shared_ptr<const juce::AudioBuffer<float>>> retiredSources;
 
     // Current envelope / mode settings adopted by newly triggered voices.
     float attackMs    = 5.0f;

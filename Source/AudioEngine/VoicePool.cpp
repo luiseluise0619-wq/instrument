@@ -1,5 +1,7 @@
 #include "VoicePool.h"
 
+#include <algorithm>
+
 //==============================================================================
 void Voice::start (double hostSampleRate,
                    std::shared_ptr<const juce::AudioBuffer<float>> src, double srcSampleRate,
@@ -212,9 +214,26 @@ void VoicePool::prepare (juce::dsp::ProcessSpec spec)
 
 void VoicePool::setSource (std::shared_ptr<const juce::AudioBuffer<float>> src, double sampleRate)
 {
-    const juce::SpinLock::ScopedLockType sl (sourceLock);
-    source = std::move (src);
-    sourceSampleRate = sampleRate > 0.0 ? sampleRate : hostSampleRate;
+    // Message thread. Prune retired buffers nobody references any more (a
+    // use_count of 1 means only this graveyard holds it — voices can never
+    // re-acquire an old source, so the count can only fall).
+    retiredSources.erase (std::remove_if (retiredSources.begin(), retiredSources.end(),
+                                          [] (const std::shared_ptr<const juce::AudioBuffer<float>>& s)
+                                          { return s.use_count() == 1; }),
+                          retiredSources.end());
+
+    std::shared_ptr<const juce::AudioBuffer<float>> old;
+    {
+        const juce::SpinLock::ScopedLockType sl (sourceLock);
+        old = std::move (source);
+        source = std::move (src);
+        sourceSampleRate = sampleRate > 0.0 ? sampleRate : hostSampleRate;
+    }
+
+    // Park the outgoing buffer so its final release happens here, not inside
+    // processBlock when a voice slot gets reused.
+    if (old != nullptr)
+        retiredSources.push_back (std::move (old));
 }
 
 void VoicePool::setEnvelope (float attackMsIn, float decayMsIn, float sustain0to1, float releaseMsIn)
