@@ -9,7 +9,8 @@ and exported as **VST3**, **AU**, and **Standalone**. Licensed under
 - [x] CI builds (Windows / macOS / Linux) with downloadable artifacts
 - [x] pluginval strictness-5 run in CI
 - [x] GPL-3.0 licensing notice (`LICENSE.md`)
-- [ ] Green CI run confirmed (check the Actions tab after pushing)
+- [x] Green CI run confirmed — all 3 OS build + pluginval SUCCESS
+      (run: https://github.com/luiseluise0619-wq/instrument/actions/runs/28557216889)
 - [ ] Manual smoke test in a DAW (load sample → slice → play → automate)
 - [ ] macOS only: code-sign + notarize before distributing to others
 - [ ] Include the full GPL text as `COPYING` in binary distributions
