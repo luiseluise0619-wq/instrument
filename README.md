@@ -138,9 +138,14 @@ no sample at all: a 16-voice, 2-oscillator synth (PolyBLEP saw/square, sine,
 triangle) with a detune control, driven by the same ADSR, filter and FX chain.
 The on-screen keyboard and MIDI both play it (C3-based, velocity-sensitive).
 
-Seven designed **instruments** ship in the Instrument picker (Init Synth, Neon
-Bass, Dream Pad, Crystal Pluck, Retro Lead, Glass Bell, Soft Keys) — picking
-one dials in a full patch. The **Chords** bar suggests progressions by style
+**37 designed instruments** ship in the Instrument picker, grouped by category
+— BASS (Neon Bass, Sub 808, Reese, Wobble Growl, Pluck Bass, Analog Warm,
+FM Knock), LEAD (Supersaw, Retro, Acid, Chip, Scream, Whistle), PAD (Dream,
+Warm Strings, Dark, Glass, Choir Air, Analog Sweep), PLUCK (Crystal, Kalimba,
+Ice, Nylon, Marimba), KEYS (EP, Soft, House Organ, Retro Organ, Funk Clav),
+BELL (Glass Bell, Music Box, Deep Bell) and MISC (Airy Flute, Synth Brass,
+Laser Zap, Noise Riser). Picking one dials in the full engine architecture
+(unison/sub/noise/FM/vibrato/voice-filter) plus knob defaults. The **Chords** bar suggests progressions by style
 (K-Pop, EDM, Lo-Fi, R&B, Ballad, City Pop) from a curated built-in library:
 hit *Generate* for a new progression and click a chord button to hear it
 through the active engine.

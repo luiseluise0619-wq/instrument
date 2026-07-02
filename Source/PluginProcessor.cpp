@@ -446,86 +446,117 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
 }
 
 //==============================================================================
+namespace
+{
+    /** One designed instrument: the synth-engine architecture plus the public
+        knob defaults. Kept as plain data so adding instruments is one line. */
+    struct InstrumentDef
+    {
+        const char* category;
+        const char* name;
+        // Engine patch --------------------------------------------------------
+        int   unison;  float spread, sub, noise, fm, fmRatio, vibHz, vibCents;
+        float fltHz, fltEnvOct, fltEnvMs;
+        // Public knobs --------------------------------------------------------
+        int   wave, octave; float detune;
+        float atk, dec, sus, rel;
+        float drive, reverb, delay, pingpong, width;
+    };
+
+    // wave: 0 Saw, 1 Square, 2 Sine, 3 Triangle
+    static const InstrumentDef kInstruments[] = {
+    // cat      name              uni sprd  sub   noise fm    fmRat vibHz vibC  fltHz  envOct envMs | wav oct det   atk   dec   sus   rel   drv   rev   dly   pp   wid
+    { "INIT",  "Init Synth",       1, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 20000, 0.0f,  200, 0,  0,  7.0f,  5,   120, 0.75f,  60, 0.00f, 0.15f, 0.0f, 0, 1.0f },
+
+    { "BASS",  "Neon Bass",        3, 0.5f, 0.6f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   220, 3.0f,  140, 0, -1, 14.0f,  0,   220, 0.80f,  80, 0.30f, 0.00f, 0.0f, 0, 0.9f },
+    { "BASS",  "Sub 808",          1, 0.0f, 1.0f, 0.03f,0.0f, 2.0f, 0.0f, 0.0f,   900, 2.0f,   60, 2, -2,  0.0f,  0,   900, 0.00f, 300, 0.45f, 0.00f, 0.0f, 0, 0.6f },
+    { "BASS",  "Reese Bass",       5, 0.85f,0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   450, 1.0f,  400, 0, -1, 28.0f, 10,   300, 0.90f, 120, 0.25f, 0.10f, 0.0f, 0, 1.0f },
+    { "BASS",  "Wobble Growl",     3, 0.6f, 0.4f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   300, 2.5f,  500, 1, -1, 18.0f,  5,   350, 0.85f, 120, 0.40f, 0.05f, 0.0f, 0, 1.0f },
+    { "BASS",  "Pluck Bass",       1, 0.0f, 0.4f, 0.05f,0.0f, 2.0f, 0.0f, 0.0f,   250, 3.5f,   90, 0, -1,  5.0f,  0,   160, 0.20f,  80, 0.20f, 0.05f, 0.0f, 0, 0.9f },
+    { "BASS",  "Analog Warm",      1, 0.0f, 0.5f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 1.5f,  250, 3, -1,  4.0f,  2,   250, 0.70f, 120, 0.10f, 0.10f, 0.0f, 0, 0.9f },
+    { "BASS",  "FM Knock",         1, 0.0f, 0.3f, 0.0f, 0.6f, 2.0f, 0.0f, 0.0f,   500, 2.0f,   80, 2, -1,  0.0f,  0,   200, 0.00f, 100, 0.20f, 0.05f, 0.0f, 0, 0.8f },
+
+    { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
+    { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
+    { "LEAD",  "Acid Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 3.0f,  200, 0,  0,  3.0f,  0,   180, 0.55f,  90, 0.35f, 0.10f, 0.15f, 0, 1.0f },
+    { "LEAD",  "Chip Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 6.0f,  8.0f, 20000, 0.0f, 200, 1,  1,  0.0f,  0,    80, 0.60f,  60, 0.00f, 0.10f, 0.15f, 0, 1.0f },
+    { "LEAD",  "Scream Lead",      5, 0.6f, 0.0f, 0.0f, 0.0f, 2.0f, 5.0f, 10.0f, 4000, 1.0f,  800, 0,  0, 20.0f,  5,   200, 0.80f, 200, 0.50f, 0.25f, 0.20f, 0, 1.3f },
+    { "LEAD",  "Whistle",          1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 12.0f, 20000, 0.0f, 200, 2,  2,  0.0f, 30,   150, 0.90f, 200, 0.00f, 0.35f, 0.10f, 0, 1.0f },
+
+    { "PAD",   "Dream Pad",        5, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2600, 0.0f,  200, 0,  0, 18.0f, 450,  800, 0.80f, 1000, 0.00f, 0.60f, 0.00f, 0, 1.6f },
+    { "PAD",   "Warm Strings",     5, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 4.5f,  6.0f, 3400, 0.0f,  200, 0,  0, 12.0f, 220,  500, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.3f },
+    { "PAD",   "Dark Pad",         5, 0.8f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   900, 0.0f,  200, 0, -1, 15.0f, 600, 1000, 0.85f, 1200, 0.00f, 0.70f, 0.00f, 0, 1.4f },
+    { "PAD",   "Glass Pad",        3, 0.8f, 0.0f, 0.0f, 0.35f,2.0f, 0.0f, 0.0f,  5000, 0.0f,  200, 2,  0, 10.0f, 400,  800, 0.75f, 900, 0.00f, 0.65f, 0.10f, 0, 1.5f },
+    { "PAD",   "Choir Air",        5, 0.9f, 0.0f, 0.06f,0.0f, 2.0f, 4.0f,  5.0f, 3000, 0.0f,  200, 2,  0, 14.0f, 350,  700, 0.85f, 800, 0.00f, 0.70f, 0.00f, 0, 1.5f },
+    { "PAD",   "Analog Sweep",     5, 0.8f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   400, 2.5f, 3000, 0,  0, 16.0f, 500,  900, 0.85f, 1200, 0.10f, 0.55f, 0.00f, 0, 1.5f },
+
+    { "PLUCK", "Crystal Pluck",    1, 0.0f, 0.0f, 0.10f,0.0f, 2.0f, 0.0f, 0.0f,   500, 4.0f,  120, 3,  0,  7.0f,  0,   200, 0.00f, 140, 0.00f, 0.25f, 0.30f, 1, 1.2f },
+    { "PLUCK", "Kalimba",          1, 0.0f, 0.0f, 0.02f,0.5f, 4.2f, 0.0f, 0.0f,  3000, 2.0f,  100, 2,  0,  0.0f,  0,   250, 0.00f, 150, 0.00f, 0.30f, 0.10f, 0, 1.1f },
+    { "PLUCK", "Ice Pluck",        1, 0.0f, 0.0f, 0.0f, 0.30f,7.0f, 0.0f, 0.0f,  2000, 3.0f,   80, 2,  1,  0.0f,  0,   150, 0.00f, 120, 0.00f, 0.20f, 0.35f, 1, 1.2f },
+    { "PLUCK", "Nylon Pluck",      1, 0.0f, 0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  140, 3,  0,  3.0f,  0,   300, 0.00f, 180, 0.00f, 0.25f, 0.08f, 0, 1.0f },
+    { "PLUCK", "Marimba",          1, 0.0f, 0.0f, 0.0f, 0.25f,3.0f, 0.0f, 0.0f,  2500, 2.0f,   90, 2,  0,  0.0f,  0,   220, 0.00f, 160, 0.00f, 0.30f, 0.05f, 0, 1.0f },
+
+    { "KEYS",  "EP Keys",          1, 0.0f, 0.0f, 0.0f, 0.45f,1.0f, 0.0f, 0.0f,  6500, 0.0f,  200, 2,  0,  4.0f,  2,   450, 0.40f, 260, 0.00f, 0.30f, 0.12f, 0, 1.1f },
+    { "KEYS",  "Soft Keys",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  5200, 0.0f,  200, 3,  0,  5.0f,  5,   300, 0.60f, 250, 0.00f, 0.30f, 0.00f, 0, 1.0f },
+    { "KEYS",  "House Organ",      1, 0.0f, 0.8f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  20000, 0.0f, 200, 1,  0,  4.0f,  0,    50, 1.00f,  60, 0.05f, 0.15f, 0.10f, 0, 1.1f },
+    { "KEYS",  "Retro Organ",      1, 0.0f, 0.8f, 0.0f, 0.0f, 2.0f, 6.5f,  4.0f, 20000, 0.0f, 200, 1,  0,  5.0f,  2,    50, 1.00f,  90, 0.15f, 0.20f, 0.00f, 0, 1.1f },
+    { "KEYS",  "Funk Clav",        1, 0.0f, 0.0f, 0.03f,0.0f, 2.0f, 0.0f, 0.0f,  1800, 2.5f,   60, 0,  0,  5.0f,  0,   180, 0.30f,  60, 0.30f, 0.10f, 0.05f, 0, 1.0f },
+
+    { "BELL",  "Glass Bell",       1, 0.0f, 0.0f, 0.0f, 0.85f,3.5f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  1,  4.0f,  2,   700, 0.15f, 800, 0.00f, 0.50f, 0.00f, 0, 1.3f },
+    { "BELL",  "Music Box",        1, 0.0f, 0.0f, 0.0f, 0.60f,5.4f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  2,  0.0f,  0,   400, 0.00f, 500, 0.00f, 0.45f, 0.10f, 0, 1.2f },
+    { "BELL",  "Deep Bell",        1, 0.0f, 0.0f, 0.0f, 0.90f,2.76f,0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  3.0f,  3,  1500, 0.00f, 1500, 0.00f, 0.60f, 0.00f, 0, 1.3f },
+
+    { "MISC",  "Airy Flute",       1, 0.0f, 0.0f, 0.12f,0.0f, 2.0f, 5.0f, 10.0f, 4000, 0.0f,  200, 2,  1,  0.0f, 90,   200, 0.80f, 220, 0.00f, 0.35f, 0.00f, 0, 1.0f },
+    { "MISC",  "Synth Brass",      3, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  1500, 1.5f,  300, 0,  0, 10.0f, 40,   200, 0.90f, 150, 0.20f, 0.20f, 0.00f, 0, 1.2f },
+    { "MISC",  "Laser Zap",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  8000, 5.0f,   40, 0,  1,  8.0f,  0,    80, 0.00f,  60, 0.10f, 0.10f, 0.20f, 0, 1.0f },
+    { "MISC",  "Noise Riser",      1, 0.0f, 0.0f, 1.0f, 0.0f, 2.0f, 0.0f, 0.0f,   300, 4.0f, 2500, 2,  1,  0.0f, 500,  500, 1.00f, 500, 0.00f, 0.40f, 0.20f, 0, 1.5f },
+    };
+
+    constexpr int kNumInstruments = (int) (sizeof (kInstruments) / sizeof (kInstruments[0]));
+}
+
 juce::StringArray VocalChopAudioProcessor::getInstrumentNames()
 {
-    return { "Init Synth",
-             "Neon Bass",   "Sub 808",     "Reese Bass",
-             "Supersaw Lead","Retro Lead",
-             "Dream Pad",   "Warm Strings",
-             "Crystal Pluck",
-             "Glass Bell",  "EP Keys",     "Soft Keys",
-             "Airy Flute",  "Retro Organ" };
+    juce::StringArray names;
+    for (const auto& d : kInstruments)
+        names.add (d.name);
+    return names;
+}
+
+juce::StringArray VocalChopAudioProcessor::getInstrumentCategories()
+{
+    juce::StringArray cats;
+    for (const auto& d : kInstruments)
+        cats.add (d.category);
+    return cats;
 }
 
 void VocalChopAudioProcessor::applyEnginePatch (int i)
 {
+    i = juce::jlimit (0, kNumInstruments - 1, i);
+    const auto& d = kInstruments[i];
+
     auto& p = synthEngine.patch();
     p.resetToInit();
+    p.unison        = d.unison;
+    p.stereoSpread  = d.spread;
+    p.subLevel      = d.sub;
+    p.noiseLevel    = d.noise;
+    p.fmAmount      = d.fm;
+    p.fmRatio       = d.fmRatio;
+    p.vibRateHz     = d.vibHz;
+    p.vibDepthCents = d.vibCents;
+    p.filterCutoff  = d.fltHz;
+    p.filterEnvOct  = d.fltEnvOct;
+    p.filterEnvMs   = d.fltEnvMs;
 
-    switch (i)
-    {
-        case 1:  // Neon Bass — 3-osc stack, sub weight, snapping filter env
-            p.unison = 3;  p.subLevel = 0.6f;
-            p.filterCutoff = 220.0f; p.filterEnvOct = 3.0f; p.filterEnvMs = 140.0f;
-            break;
-        case 2:  // Sub 808 — pure sine sub with a click of noise
-            p.subLevel = 1.0f; p.noiseLevel = 0.03f;
-            p.filterCutoff = 900.0f; p.filterEnvOct = 2.0f; p.filterEnvMs = 60.0f;
-            break;
-        case 3:  // Reese Bass — 5 heavily-detuned saws, dark and growling
-            p.unison = 5; p.stereoSpread = 0.85f;
-            p.filterCutoff = 450.0f; p.filterEnvOct = 1.0f; p.filterEnvMs = 400.0f;
-            break;
-        case 4:  // Supersaw Lead — the full 7-osc EDM stack
-            p.unison = 7; p.stereoSpread = 1.0f;
-            p.filterCutoff = 9000.0f;
-            break;
-        case 5:  // Retro Lead — single square with singing vibrato
-            p.vibRateHz = 5.5f; p.vibDepthCents = 14.0f;
-            p.filterCutoff = 7000.0f;
-            break;
-        case 6:  // Dream Pad — wide 5-osc wash
-            p.unison = 5; p.stereoSpread = 1.0f;
-            p.filterCutoff = 2600.0f;
-            break;
-        case 7:  // Warm Strings — unison saws behind a soft lowpass
-            p.unison = 5; p.stereoSpread = 0.7f;
-            p.filterCutoff = 3400.0f; p.vibRateHz = 4.5f; p.vibDepthCents = 6.0f;
-            break;
-        case 8:  // Crystal Pluck — filter-env pluck with air
-            p.noiseLevel = 0.10f;
-            p.filterCutoff = 500.0f; p.filterEnvOct = 4.0f; p.filterEnvMs = 120.0f;
-            break;
-        case 9:  // Glass Bell — inharmonic FM, ratio 3.5
-            p.fmAmount = 0.85f; p.fmRatio = 3.5f;
-            break;
-        case 10: // EP Keys — gentle FM at ratio 1 (tine-piano flavour)
-            p.fmAmount = 0.45f; p.fmRatio = 1.0f;
-            p.filterCutoff = 6500.0f;
-            break;
-        case 11: // Soft Keys — mellow triangle through a warm lowpass
-            p.filterCutoff = 5200.0f;
-            break;
-        case 12: // Airy Flute — sine with breath noise and vibrato
-            p.noiseLevel = 0.12f;
-            p.vibRateHz = 5.0f; p.vibDepthCents = 10.0f;
-            p.filterCutoff = 4000.0f;
-            break;
-        case 13: // Retro Organ — square + strong sub drawbar, steady level
-            p.subLevel = 0.8f;
-            p.vibRateHz = 6.5f; p.vibDepthCents = 4.0f;
-            break;
-        case 0:  // Init Synth
-        default:
-            break;
-    }
-
-    currentInstrument = juce::jlimit (0, getInstrumentNames().size() - 1, i);
+    currentInstrument = i;
 }
 
 void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 {
     applyEnginePatch (instrumentIndex);
+    const auto& d = kInstruments[currentInstrument];
 
     auto set = [this] (const juce::String& id, float value)
     {
@@ -533,120 +564,25 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
             p->setValueNotifyingHost (p->convertTo0to1 (value));
     };
 
-    // Every instrument starts from a clean synth baseline of the public knobs.
+    // Common baseline, then the instrument's knob values.
     set ("engine",       1.0f);          // Synth mode
-    set ("synthWave",    0.0f);          // Saw
-    set ("synthDetune",  7.0f);
-    set ("synthOctave",  0.0f);
-    set ("attack",       5.0f);   set ("decay",   120.0f);
-    set ("sustain",      0.75f);  set ("release", 60.0f);
     set ("filterType",   0.0f);   set ("filterCutoff", 20000.0f);
     set ("filterReso",   0.707f);
-    set ("drive",        0.0f);   set ("reverb", 0.15f);
-    set ("delay",        0.0f);   set ("pingpong", 0.0f);
-    set ("width",        1.0f);   set ("mix", 1.0f);
+    set ("mix",          1.0f);
     set ("pitch",        0.0f);   set ("formant", 0.0f);
 
-    switch (instrumentIndex)
-    {
-        case 1: // Neon Bass
-            set ("synthOctave", -1.0f); set ("synthDetune", 14.0f);
-            set ("attack", 0.0f);  set ("decay", 220.0f);
-            set ("sustain", 0.8f); set ("release", 80.0f);
-            set ("drive", 0.3f);   set ("reverb", 0.0f); set ("width", 0.9f);
-            break;
-
-        case 2: // Sub 808
-            set ("synthWave", 2.0f); set ("synthOctave", -2.0f);
-            set ("synthDetune", 0.0f);
-            set ("attack", 0.0f);  set ("decay", 900.0f);
-            set ("sustain", 0.0f); set ("release", 300.0f);
-            set ("drive", 0.45f);  set ("reverb", 0.0f); set ("width", 0.6f);
-            break;
-
-        case 3: // Reese Bass
-            set ("synthOctave", -1.0f); set ("synthDetune", 28.0f);
-            set ("attack", 10.0f); set ("decay", 300.0f);
-            set ("sustain", 0.9f); set ("release", 120.0f);
-            set ("drive", 0.25f);  set ("reverb", 0.1f);
-            break;
-
-        case 4: // Supersaw Lead
-            set ("synthDetune", 22.0f);
-            set ("attack", 2.0f);  set ("decay", 150.0f);
-            set ("sustain", 0.85f); set ("release", 200.0f);
-            set ("reverb", 0.3f);  set ("delay", 0.2f); set ("width", 1.6f);
-            break;
-
-        case 5: // Retro Lead
-            set ("synthWave", 1.0f); set ("synthDetune", 6.0f);
-            set ("attack", 3.0f);  set ("decay", 100.0f);
-            set ("sustain", 0.7f); set ("release", 150.0f);
-            set ("delay", 0.25f);
-            break;
-
-        case 6: // Dream Pad
-            set ("synthDetune", 18.0f);
-            set ("attack", 450.0f); set ("decay", 800.0f);
-            set ("sustain", 0.8f);  set ("release", 1000.0f);
-            set ("reverb", 0.6f);   set ("width", 1.6f);
-            break;
-
-        case 7: // Warm Strings
-            set ("synthDetune", 12.0f);
-            set ("attack", 220.0f); set ("decay", 500.0f);
-            set ("sustain", 0.85f); set ("release", 500.0f);
-            set ("reverb", 0.45f);  set ("width", 1.3f);
-            break;
-
-        case 8: // Crystal Pluck
-            set ("synthWave", 3.0f);
-            set ("attack", 0.0f);  set ("decay", 200.0f);
-            set ("sustain", 0.0f); set ("release", 140.0f);
-            set ("delay", 0.3f);   set ("pingpong", 1.0f);
-            set ("reverb", 0.25f); set ("width", 1.2f);
-            break;
-
-        case 9: // Glass Bell
-            set ("synthWave", 2.0f); set ("synthOctave", 1.0f);
-            set ("synthDetune", 4.0f);
-            set ("attack", 2.0f);  set ("decay", 700.0f);
-            set ("sustain", 0.15f); set ("release", 800.0f);
-            set ("reverb", 0.5f);  set ("width", 1.3f);
-            break;
-
-        case 10: // EP Keys
-            set ("synthWave", 2.0f);
-            set ("attack", 2.0f);  set ("decay", 450.0f);
-            set ("sustain", 0.4f); set ("release", 260.0f);
-            set ("reverb", 0.3f);  set ("delay", 0.12f);
-            break;
-
-        case 11: // Soft Keys
-            set ("synthWave", 3.0f);
-            set ("attack", 5.0f);  set ("decay", 300.0f);
-            set ("sustain", 0.6f); set ("release", 250.0f);
-            set ("reverb", 0.3f);
-            break;
-
-        case 12: // Airy Flute
-            set ("synthWave", 2.0f); set ("synthOctave", 1.0f);
-            set ("attack", 90.0f);  set ("decay", 200.0f);
-            set ("sustain", 0.8f);  set ("release", 220.0f);
-            set ("reverb", 0.35f);
-            break;
-
-        case 13: // Retro Organ
-            set ("synthWave", 1.0f);
-            set ("attack", 2.0f);  set ("decay", 50.0f);
-            set ("sustain", 1.0f); set ("release", 90.0f);
-            set ("reverb", 0.2f);  set ("drive", 0.15f);
-            break;
-
-        case 0: // Init Synth (baseline already applied)
-        default:
-            break;
-    }
+    set ("synthWave",    (float) d.wave);
+    set ("synthOctave",  (float) d.octave);
+    set ("synthDetune",  d.detune);
+    set ("attack",       d.atk);
+    set ("decay",        d.dec);
+    set ("sustain",      d.sus);
+    set ("release",      d.rel);
+    set ("drive",        d.drive);
+    set ("reverb",       d.reverb);
+    set ("delay",        d.delay);
+    set ("pingpong",     d.pingpong);
+    set ("width",        d.width);
 }
 
 //==============================================================================

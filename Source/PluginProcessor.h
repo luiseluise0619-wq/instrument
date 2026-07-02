@@ -87,6 +87,7 @@ public:
     /** Built-in synth instruments: applying one switches to Synth mode and
         dials in a designed patch (engine architecture + knob defaults). */
     static juce::StringArray getInstrumentNames();
+    static juce::StringArray getInstrumentCategories();   // parallel to names
     void applyInstrument (int instrumentIndex);
     int  getCurrentInstrument() const { return currentInstrument; }
 

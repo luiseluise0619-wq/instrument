@@ -128,10 +128,22 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         processor.getAPVTS(), "synthWave", synthWaveBox));
     addAndMakeVisible (synthWaveBox);
 
-    // --- Instrument picker: designed synth patches (switches to Synth mode) ---
-    int instId = 1;
-    for (const auto& name : VocalChopAudioProcessor::getInstrumentNames())
-        instrumentBox.addItem (name, instId++);
+    // --- Instrument picker: designed synth patches (switches to Synth mode),
+    //     grouped by category with section headings ---
+    {
+        const auto names = VocalChopAudioProcessor::getInstrumentNames();
+        const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
+        juce::String lastCat;
+        for (int i = 0; i < names.size(); ++i)
+        {
+            if (cats[i] != lastCat)
+            {
+                instrumentBox.addSectionHeading (cats[i]);
+                lastCat = cats[i];
+            }
+            instrumentBox.addItem (names[i], i + 1);
+        }
+    }
     instrumentBox.setTextWhenNothingSelected ("Instrument");
     if (processor.getCurrentInstrument() > 0)
         instrumentBox.setSelectedId (processor.getCurrentInstrument() + 1,
