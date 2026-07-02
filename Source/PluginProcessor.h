@@ -58,8 +58,9 @@ public:
 
     double getLoadedSampleRate() const { return loadedSampleRate; }
 
-    /** Message-thread-safe: queues a pad hit that the audio thread plays. */
-    void triggerSlicePad (int sliceIndex);
+    /** Message-thread-safe: queues a key/pad hit that the audio thread plays.
+        Velocity 0..1 (keyboard clicks pass the strike position). */
+    void triggerSlicePad (int sliceIndex, float velocity = 0.9f);
 
     /** Live output level (0..1, peak-ish) for the UI meter. */
     std::atomic<float>& getOutputLevelRef() { return outputLevel; }
@@ -129,9 +130,10 @@ private:
     // MIDI note that maps to the first slice (C3).
     static constexpr int kRootNote = 48;
 
-    // Lock-free queue of pad hits (message thread -> audio thread).
+    // Lock-free queue of key/pad hits (message thread -> audio thread).
     juce::AbstractFifo padFifo { 64 };
-    std::array<int, 64> padQueue {};
+    std::array<int, 64>   padQueue {};
+    std::array<float, 64> padQueueVel {};
 
     // Which voice each held MIDI note started (-1 = none), for note-off routing.
     std::array<int, 128> noteToVoice {};

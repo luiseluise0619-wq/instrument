@@ -229,6 +229,7 @@ void DelayFX::reset()
     for (auto& l : line)
         std::fill (l.begin(), l.end(), 0.0f);
     writePos = 0;
+    dampState[0] = dampState[1] = 0.0f;
 }
 
 void DelayFX::updateDelay()
@@ -271,10 +272,15 @@ void DelayFX::process (juce::AudioBuffer<float>& buffer, float amount)
             const float delayedL = lL[(size_t) readPos];
             const float delayedR = lR[(size_t) readPos];
 
+            // Damped feedback (one-pole lowpass) so repeats get warmer and
+            // darker like an analog echo instead of building up harshness.
+            dampState[0] += kDampCoeff * (delayedR - dampState[0]);
+            dampState[1] += kDampCoeff * (delayedL - dampState[1]);
+
             // Cross-feed the feedback: the left tap feeds the right line and
             // vice-versa, so echoes bounce L<->R.
-            lL[(size_t) writePos] = inL + delayedR * feedback;
-            lR[(size_t) writePos] = inR + delayedL * feedback;
+            lL[(size_t) writePos] = inL + dampState[0] * feedback;
+            lR[(size_t) writePos] = inR + dampState[1] * feedback;
 
             buffer.setSample (0, n, inL + delayedL * wet);
             buffer.setSample (1, n, inR + delayedR * wet);
@@ -287,7 +293,10 @@ void DelayFX::process (juce::AudioBuffer<float>& buffer, float amount)
                 const float in      = buffer.getSample (ch, n);
                 const float delayed = l[(size_t) readPos];
 
-                l[(size_t) writePos] = in + delayed * feedback; // feedback per-block scalar
+                // Damped feedback: each repeat passes a gentle lowpass.
+                dampState[(size_t) ch] += kDampCoeff * (delayed - dampState[(size_t) ch]);
+
+                l[(size_t) writePos] = in + dampState[(size_t) ch] * feedback;
                 buffer.setSample (ch, n, in + delayed * wet);
             }
         }

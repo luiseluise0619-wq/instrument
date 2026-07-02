@@ -286,11 +286,18 @@ void SliceGrid::mouseDown (const juce::MouseEvent& e)
     if (key < 0 || key >= proc.getSliceEngine().getNumSlices())
         return;
 
+    // Velocity from the strike position, like a real keybed: clicking near
+    // the front edge of the key plays louder than up by the felt.
+    const auto  r = keyRect (key, keySpan());
+    const float posInKey = juce::jlimit (0.0f, 1.0f,
+                                         (e.position.y - r.getY()) / juce::jmax (1.0f, r.getHeight()));
+    const float velocity = 0.35f + 0.65f * posInKey;
+
     // Same mapping as MIDI: key semitone offset == slice index.
-    proc.triggerSlicePad (key);
+    proc.triggerSlicePad (key, velocity);
 
     if (key < (int) keyFlash.size())
-        keyFlash[(size_t) key] = 1.0f;
+        keyFlash[(size_t) key] = 0.55f + 0.45f * velocity;   // light follows strength
     repaint();
 }
 

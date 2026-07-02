@@ -236,14 +236,16 @@ int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
     return -1;
 }
 
-void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex)
+void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex, float velocity)
 {
-    // Message thread (pad click). Hand the index to the audio thread lock-free.
+    // Message thread (key click). Hand index+velocity to the audio thread
+    // lock-free.
     int start1, size1, start2, size2;
     padFifo.prepareToWrite (1, start1, size1, start2, size2);
     if (size1 > 0)
     {
-        padQueue[(size_t) start1] = sliceIndex;
+        padQueue[(size_t) start1]    = sliceIndex;
+        padQueueVel[(size_t) start1] = juce::jlimit (0.0f, 1.0f, velocity);
         padFifo.finishedWrite (1);
     }
 }
@@ -254,9 +256,11 @@ void VocalChopAudioProcessor::drainPadQueue()
     padFifo.prepareToRead (padFifo.getNumReady(), start1, size1, start2, size2);
 
     for (int i = 0; i < size1; ++i)
-        triggerSliceIndex (padQueue[(size_t) (start1 + i)], 0.9f);
+        triggerSliceIndex (padQueue[(size_t) (start1 + i)],
+                           padQueueVel[(size_t) (start1 + i)]);
     for (int i = 0; i < size2; ++i)
-        triggerSliceIndex (padQueue[(size_t) (start2 + i)], 0.9f);
+        triggerSliceIndex (padQueue[(size_t) (start2 + i)],
+                           padQueueVel[(size_t) (start2 + i)]);
 
     padFifo.finishedRead (size1 + size2);
 }

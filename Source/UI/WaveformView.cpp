@@ -87,6 +87,7 @@ void WaveformView::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
     const float radius = theme.cornerRadius;
+    const float glow   = juce::jlimit (0.0f, 1.0f, theme.glow);
 
     auto full = getLocalBounds().toFloat();
     // Reserve room for the drop shadow so the card doesn't touch the edges.
@@ -170,30 +171,98 @@ void WaveformView::paint (juce::Graphics& g)
 
         const size_t n = maxEnv.size();
 
+        // --- Grid whisper: three faint horizontal guides ----------------------
+        // Placed at the quarter lines and the top of the waveform band; barely
+        // there, purely for a precision-instrument feel.
+        {
+            g.setColour (theme.separator.withMultipliedAlpha (0.28f));
+            const float guides[3] = { midY - scale * 0.75f,
+                                      midY - scale * 0.375f,
+                                      midY + scale * 0.5f };
+            for (float gy : guides)
+                g.drawLine (inner.getX(), gy, inner.getRight(), gy, 1.0f);
+        }
+
         // Centre line.
         g.setColour (theme.separator.withMultipliedAlpha (0.8f));
         g.drawLine (inner.getX(), midY, inner.getRight(), midY, 1.0f);
 
-        // Build the filled waveform shape (top contour, then back along bottom).
-        juce::Path fill;
-        fill.startNewSubPath (left, midY - maxEnv[0] * scale);
+        // Subtle, near-zero shimmer breathing on the fill (Apple = restrained).
+        const float shimmer = 1.0f + 0.05f * std::sin (phase) * glow;
+
+        // Upper body: top contour down to the centre line.
+        juce::Path upperFill;
+        upperFill.startNewSubPath (left, midY - maxEnv[0] * scale);
         for (size_t x = 1; x < n; ++x)
-            fill.lineTo (left + (float) x, midY - maxEnv[x] * scale);
-        for (size_t x = n; x-- > 0; )
-            fill.lineTo (left + (float) x, midY - minEnv[x] * scale);
-        fill.closeSubPath();
+            upperFill.lineTo (left + (float) x, midY - maxEnv[x] * scale);
+        upperFill.lineTo (left + (float) (n - 1), midY);
+        upperFill.lineTo (left, midY);
+        upperFill.closeSubPath();
 
-        // Subtle, near-zero shimmer on the fill alpha (Apple = restrained).
-        const float shimmer = 0.58f + 0.04f * std::sin (phase) * juce::jmax (0.0f, theme.glow);
-        g.setColour (theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, shimmer)));
-        g.fillPath (fill);
+        // Vertical gradient: bright band at the peaks, melting away to almost
+        // nothing at the centre line.
+        {
+            juce::ColourGradient grad (
+                theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, 0.85f * shimmer)),
+                { left, midY - scale },
+                theme.waveform.withAlpha (0.05f),
+                { left, midY },
+                false);
+            grad.addColour (0.35, theme.waveform.withAlpha (
+                                      juce::jlimit (0.0f, 1.0f, 0.55f * shimmer)));
+            g.setGradientFill (grad);
+            g.fillPath (upperFill);
+        }
 
-        // Crisp 1px top stroke tracing the upper contour.
+        // --- Glassy reflection: mirrored min-envelope below the centre --------
+        juce::Path lowerFill;
+        lowerFill.startNewSubPath (left, midY);
+        lowerFill.lineTo (left, midY - minEnv[0] * scale);
+        for (size_t x = 1; x < n; ++x)
+            lowerFill.lineTo (left + (float) x, midY - minEnv[x] * scale);
+        lowerFill.lineTo (left + (float) (n - 1), midY);
+        lowerFill.closeSubPath();
+
+        {
+            juce::ColourGradient reflGrad (
+                theme.waveform.withAlpha (0.30f),
+                { left, midY },
+                theme.waveform.withAlpha (0.02f),
+                { left, midY + scale },
+                false);
+            g.setGradientFill (reflGrad);
+            g.fillPath (lowerFill);
+        }
+
+        // Faint contour on the reflection so it reads as glass, not fog.
+        juce::Path bottomStroke;
+        bottomStroke.startNewSubPath (left, midY - minEnv[0] * scale);
+        for (size_t x = 1; x < n; ++x)
+            bottomStroke.lineTo (left + (float) x, midY - minEnv[x] * scale);
+        g.setColour (theme.waveform.withAlpha (0.18f));
+        g.strokePath (bottomStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
+
+        // --- Top contour: glow halo + crisp 1px stroke -------------------------
         juce::Path topStroke;
         topStroke.startNewSubPath (left, midY - maxEnv[0] * scale);
         for (size_t x = 1; x < n; ++x)
             topStroke.lineTo (left + (float) x, midY - maxEnv[x] * scale);
-        g.setColour (theme.waveform);
+
+        if (glow > 0.0f)
+        {
+            // Widening, fading passes so the peaks emit light.
+            const float haloW[3]     = { 2.5f, 4.5f, 7.0f };
+            const float haloAlpha[3] = { 0.22f, 0.11f, 0.05f };
+            for (int p = 0; p < 3; ++p)
+            {
+                g.setColour (theme.waveform.withAlpha (haloAlpha[p] * glow * shimmer));
+                g.strokePath (topStroke, juce::PathStrokeType (haloW[p],
+                                                               juce::PathStrokeType::curved,
+                                                               juce::PathStrokeType::rounded));
+            }
+        }
+
+        g.setColour (theme.waveform.brighter (0.35f));
         g.strokePath (topStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
 
         // --- Slice markers ---------------------------------------------------
@@ -210,13 +279,24 @@ void WaveformView::paint (juce::Graphics& g)
                     continue;
 
                 // Thin accent hairline.
-                g.setColour (theme.accent.withAlpha (0.55f));
+                g.setColour (theme.accent.withAlpha (0.5f));
                 g.drawLine (xPos, inner.getY() + 3.0f, xPos, inner.getBottom(), 1.0f);
 
                 // Small rounded handle / nub at the top of the marker.
                 const float nubW = 6.0f;
                 const float nubH = 6.0f;
                 juce::Rectangle<float> nub (xPos - nubW * 0.5f, inner.getY(), nubW, nubH);
+
+                if (glow > 0.0f)
+                {
+                    // Soft glow dot bloom behind the nub.
+                    const auto dot = nub.getCentre();
+                    g.setColour (theme.accent.withAlpha (0.30f * glow));
+                    g.fillEllipse (dot.x - 6.0f, dot.y - 6.0f, 12.0f, 12.0f);
+                    g.setColour (theme.accent.withAlpha (0.12f * glow));
+                    g.fillEllipse (dot.x - 10.0f, dot.y - 10.0f, 20.0f, 20.0f);
+                }
+
                 g.setColour (theme.accent);
                 g.fillRoundedRectangle (nub, 2.0f);
             }
@@ -229,12 +309,21 @@ void WaveformView::paint (juce::Graphics& g)
         {
             const float xPos = inner.getX()
                              + juce::jlimit (0.0f, 1.0f, heads[h]) * inner.getWidth();
-            g.setColour (theme.text.withAlpha (0.9f));
+
+            // Slight glow stroke so playback feels alive; scales with theme glow
+            // but keeps a whisper even on flat themes.
+            const float headGlow = 0.15f + 0.35f * glow;
+            g.setColour (theme.accent.withAlpha (headGlow));
+            g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 4.0f);
+
+            g.setColour (theme.accent.withAlpha (0.95f));
             g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 1.5f);
+
             juce::Path tri;
             tri.addTriangle (xPos - 4.0f, inner.getY(),
                              xPos + 4.0f, inner.getY(),
                              xPos,        inner.getY() + 6.0f);
+            g.setColour (theme.accent);
             g.fillPath (tri);
         }
     }

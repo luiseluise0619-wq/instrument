@@ -42,8 +42,11 @@ void FXRack::paint (juce::Graphics& g)
     g.setGradientFill (fill);
     g.fillRoundedRectangle (card, radius);
 
-    // 1px hairline border.
-    g.setColour (theme.separator);
+    // 1px hairline border, picking up a whisper of accent on glow themes.
+    const juce::Colour borderColour =
+        theme.glow > 0.0f ? theme.separator.interpolatedWith (theme.accentSoft, 0.35f * theme.glow)
+                          : theme.separator;
+    g.setColour (borderColour);
     g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
 
     // Uppercase, tracked title "FX" in the top padding strip.
@@ -51,7 +54,10 @@ void FXRack::paint (juce::Graphics& g)
         const float pad = 16.0f;
         auto titleArea = card.reduced (pad, 0.0f).withTop (card.getY() + 12.0f).withHeight (16.0f);
 
-        g.setColour (theme.textSecondary);
+        const juce::Colour titleColour =
+            theme.glow > 0.0f ? theme.textSecondary.interpolatedWith (theme.accent, 0.30f * theme.glow)
+                              : theme.textSecondary;
+        g.setColour (titleColour);
         g.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Semibold")));
 
         // Draw glyph-by-glyph to add wide letter-spacing (tracking).

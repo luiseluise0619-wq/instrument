@@ -52,6 +52,10 @@ private:
     bool  pingpong     = false;
     double sampleRate  = 44100.0;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedWet { 0.0f };
+
+    // One-pole lowpass in the feedback path: repeats decay warm, not harsh.
+    static constexpr float kDampCoeff = 0.35f;
+    float dampState[2] { 0.0f, 0.0f };
 };
 
 /**

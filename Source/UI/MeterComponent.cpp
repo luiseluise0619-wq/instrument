@@ -84,8 +84,17 @@ void MeterComponent::paint (juce::Graphics& g)
     g.setColour (theme.controlTrack);
     g.fillRoundedRectangle (barArea, barRadius);
 
-    // Warning tint the fill eases toward as it approaches the top.
+    // Warning tint that caps the very top of the scale.
     const juce::Colour warn (0xffff453a);
+
+    // Faint tick marks every 25% of the scale, etched into the track.
+    g.setColour (theme.separator);
+    for (int i = 1; i < 4; ++i)
+    {
+        const float tickY = barArea.getBottom() - barArea.getHeight() * (0.25f * (float) i);
+        g.fillRect (juce::Rectangle<float> (barArea.getX(), tickY - 0.5f,
+                                            barArea.getWidth(), 1.0f));
+    }
 
     // Active fill from the bottom, height proportional to displayed level.
     const float level01 = juce::jlimit (0.0f, 1.0f, displayed);
@@ -94,10 +103,19 @@ void MeterComponent::paint (juce::Graphics& g)
         const float fillH = barArea.getHeight() * level01;
         auto fillRect = barArea.withTop (barArea.getBottom() - fillH);
 
-        // Colour interpolates accent -> warning as the bar climbs.
-        const juce::Colour barColour = theme.accent.interpolatedWith (warn, level01 * level01);
+        // Soft bloom behind the lit portion on glow themes.
+        if (theme.glow > 0.0f)
+        {
+            g.setColour (theme.accent.withAlpha (0.16f * theme.glow));
+            g.fillRoundedRectangle (fillRect.expanded (2.5f), barRadius + 2.5f);
+        }
 
-        g.setColour (barColour);
+        // Vertical gradient pinned to the full scale so the fill "reveals" it:
+        // accent at the bottom, hot (waveform) near the top, red at the peak.
+        juce::ColourGradient grad (theme.accent, barArea.getX(), barArea.getBottom(),
+                                   warn,         barArea.getX(), barArea.getY(), false);
+        grad.addColour (0.80, theme.waveform);
+        g.setGradientFill (grad);
         g.fillRoundedRectangle (fillRect, barRadius);
     }
 
