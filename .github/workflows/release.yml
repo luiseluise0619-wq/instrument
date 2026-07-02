@@ -1,8 +1,15 @@
 name: Release
 
+# Three ways to publish a release:
+#   1. Push a tag `v*` (normal flow).
+#   2. Run the workflow manually from the Actions tab (tag input).
+#   3. Push a change to the `.release-tag` file — the workflow creates the
+#      tag named in that file (for environments that can't push tags).
 on:
   push:
     tags: ["v*"]
+    branches: ["claude/vocalchop-studio-juce-vst3-ii0tcx", "main"]
+    paths: [".release-tag"]
   workflow_dispatch:
     inputs:
       tag:
@@ -28,6 +35,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -e
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            TAG="${INPUT_TAG}"
+          else
+            TAG="$(tr -d '[:space:]' < .release-tag)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Releasing as ${TAG}"
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -48,7 +72,7 @@ jobs:
       - name: Package
         shell: bash
         env:
-          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -e
           ART="build/VocalChopStudio_artefacts/Release"
@@ -66,7 +90,7 @@ jobs:
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
           files: VocalChopStudio-*.zip
           generate_release_notes: true
