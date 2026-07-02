@@ -683,31 +683,41 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     p.filterEnvMs   = d.fltEnvMs;
 
     // --- Lushness settings by category, with a few name-specific accents ----
+    // Chorus is computed into a local: the patch field is param-driven and
+    // rewritten by the audio thread every block, so it can't be read back.
     const juce::String cat (d.category);
     const juce::String name (d.name);
+    float chorus = 0.12f;
 
-    if (cat == "PAD")         { p.chorusMix = 0.50f; p.driftCents = 4.0f;  p.velToFilterOct = 0.4f; }
-    else if (cat == "LEAD")   { p.chorusMix = 0.28f; p.driftCents = 3.0f;  p.velToFilterOct = 0.6f; }
-    else if (cat == "SYNTH")  { p.chorusMix = 0.35f; p.driftCents = 3.5f;  p.velToFilterOct = 0.6f; }
-    else if (cat == "PIANO")  { p.chorusMix = 0.06f; p.driftCents = 1.0f;  p.velToFilterOct = 1.4f; }
-    else if (cat == "GUITAR") { p.chorusMix = 0.08f; p.driftCents = 1.0f;  p.velToFilterOct = 1.3f;
+    if (cat == "PAD")         { chorus = 0.50f; p.driftCents = 4.0f;  p.velToFilterOct = 0.4f; }
+    else if (cat == "LEAD")   { chorus = 0.28f; p.driftCents = 3.0f;  p.velToFilterOct = 0.6f; }
+    else if (cat == "SYNTH")  { chorus = 0.35f; p.driftCents = 3.5f;  p.velToFilterOct = 0.6f; }
+    else if (cat == "PIANO")  { chorus = 0.06f; p.driftCents = 1.0f;  p.velToFilterOct = 1.4f; }
+    else if (cat == "GUITAR") { chorus = 0.08f; p.driftCents = 1.0f;  p.velToFilterOct = 1.3f;
                                 p.filterQ = 1.2f; }
-    else if (cat == "KEYS")   { p.chorusMix = 0.25f; p.driftCents = 2.0f;  p.velToFilterOct = 1.1f; }
-    else if (cat == "BELL")   { p.chorusMix = 0.22f; p.driftCents = 1.5f;  p.velToFilterOct = 0.8f; }
-    else if (cat == "PLUCK")  { p.chorusMix = 0.18f; p.driftCents = 2.0f;  p.velToFilterOct = 1.2f;
+    else if (cat == "KEYS")   { chorus = 0.25f; p.driftCents = 2.0f;  p.velToFilterOct = 1.1f; }
+    else if (cat == "BELL")   { chorus = 0.22f; p.driftCents = 1.5f;  p.velToFilterOct = 0.8f; }
+    else if (cat == "PLUCK")  { chorus = 0.18f; p.driftCents = 2.0f;  p.velToFilterOct = 1.2f;
                                 p.filterQ = 1.5f; }
-    else if (cat == "BASS")   { p.chorusMix = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
+    else if (cat == "BASS")   { chorus = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
                                 p.satAmount = 0.30f; }
-    else /* MISC / INIT */    { p.chorusMix = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
+    else /* MISC / INIT */    { chorus = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
 
     if (name == "Acid Lead")     { p.filterQ = 5.5f; p.satAmount = 0.35f; }
     if (name == "Wobble Growl")  p.filterQ = 2.2f;
     if (name == "Neon Bass")     p.filterQ = 1.4f;
-    if (name == "Supersaw Lead") p.chorusMix = 0.40f;
-    if (name == "Chip Lead")     { p.chorusMix = 0.0f; p.driftCents = 0.0f; }
-    if (name == "Sub 808")       { p.driftCents = 0.5f; p.chorusMix = 0.0f; }
-    if (name == "Synth Brass")   p.chorusMix = 0.30f;
-    if (name == "Airy Flute")    p.chorusMix = 0.20f;
+    if (name == "Supersaw Lead") chorus = 0.40f;
+    if (name == "Chip Lead")     { chorus = 0.0f; p.driftCents = 0.0f; }
+    if (name == "Sub 808")       { p.driftCents = 0.5f; chorus = 0.0f; }
+    if (name == "Synth Brass")   chorus = 0.30f;
+    if (name == "Airy Flute")    chorus = 0.20f;
+
+    p.chorusMix = chorus;
+
+    // Publish the resolved module values for applyInstrument to mirror into
+    // the knobs (race-free snapshot; see ModuleDefaults in the header).
+    moduleDefaults = { d.unison, d.spread, d.sub, d.noise, d.fm,
+                       d.vibCents, chorus };
 
     currentInstrument = i;
 }
@@ -734,19 +744,15 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     set ("synthOctave",  (float) d.octave);
     set ("synthDetune",  d.detune);
 
-    // Mirror the engine architecture into the module knobs (applyEnginePatch
-    // just computed the category-flavoured patch — the knobs take over from
-    // here, so every module stays hand-adjustable).
-    {
-        const auto& pt = synthEngine.patch();
-        set ("synthUnison",  (float) pt.unison.load());
-        set ("synthSpread",  pt.stereoSpread.load());
-        set ("synthSub",     pt.subLevel.load());
-        set ("synthNoise",   pt.noiseLevel.load());
-        set ("synthFM",      pt.fmAmount.load());
-        set ("synthVibrato", juce::jlimit (0.0f, 1.0f, pt.vibDepthCents.load() / 30.0f));
-        set ("synthChorus",  pt.chorusMix.load());
-    }
+    // Mirror the resolved architecture into the module knobs (the knobs take
+    // over from here, so every module stays hand-adjustable).
+    set ("synthUnison",  (float) moduleDefaults.unison);
+    set ("synthSpread",  moduleDefaults.spread);
+    set ("synthSub",     moduleDefaults.sub);
+    set ("synthNoise",   moduleDefaults.noise);
+    set ("synthFM",      moduleDefaults.fm);
+    set ("synthVibrato", juce::jlimit (0.0f, 1.0f, moduleDefaults.vibCents / 30.0f));
+    set ("synthChorus",  moduleDefaults.chorus);
     set ("attack",       d.atk);
     set ("decay",        d.dec);
     set ("sustain",      d.sus);

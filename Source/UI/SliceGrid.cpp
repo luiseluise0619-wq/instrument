@@ -2,6 +2,7 @@
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -284,6 +285,33 @@ void SliceGrid::paint (juce::Graphics& g)
     for (int s = 0; s < span; ++s)
         if (isBlackKey (s))
             drawBlack (s);
+
+    // --- Water-drop splashes on top of the keybed ---------------------------
+    for (const auto& d : drops)
+    {
+        const float a = juce::jlimit (0.0f, 1.0f, d.life);
+
+        if (d.ring)
+        {
+            // Expanding ripple: soft outer glow + crisp ring.
+            g.setColour (theme.accent.withAlpha (0.18f * a));
+            g.drawEllipse (d.x - d.size, d.y - d.size * 0.55f,
+                           d.size * 2.0f, d.size * 1.1f, 4.0f);
+            g.setColour (theme.accent.withAlpha (0.65f * a));
+            g.drawEllipse (d.x - d.size, d.y - d.size * 0.55f,
+                           d.size * 2.0f, d.size * 1.1f, 1.4f);
+        }
+        else
+        {
+            // Droplet: glow halo + bright core.
+            g.setColour (theme.accent.withAlpha (0.25f * a));
+            g.fillEllipse (d.x - d.size, d.y - d.size,
+                           d.size * 2.0f, d.size * 2.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.80f * a));
+            g.fillEllipse (d.x - d.size * 0.45f, d.y - d.size * 0.45f,
+                           d.size * 0.9f, d.size * 0.9f);
+        }
+    }
 }
 
 //==============================================================================
@@ -308,6 +336,8 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
 
     if (key < (int) keyFlash.size())
         keyFlash[(size_t) key] = 0.55f + 0.45f * velocity;   // light follows strength
+
+    spawnSplash (key, position);   // water-drop splash where the key was struck
     repaint();
 }
 
@@ -345,8 +375,36 @@ void SliceGrid::flashKey (int semitone, float strength)
     if (juce::isPositiveAndBelow (semitone, (int) keyFlash.size()))
     {
         keyFlash[(size_t) semitone] = juce::jlimit (0.0f, 1.0f, strength);
+
+        const auto r = keyRect (semitone, keySpan());
+        spawnSplash (semitone, { r.getCentreX(), r.getY() + r.getHeight() * 0.30f });
         repaint();
     }
+}
+
+void SliceGrid::spawnSplash (int /*semitone*/, juce::Point<float> at)
+{
+    auto rnd = [this]
+    {
+        splashSeed = splashSeed * 1664525u + 1013904223u;
+        return (float) ((splashSeed >> 8) & 0xffff) / 65535.0f;
+    };
+
+    // One expanding ripple ring...
+    drops.push_back ({ at.x, at.y, 0.0f, 0.0f, 1.0f, 5.0f, true });
+
+    // ...and a burst of droplets that arc up and fall under gravity.
+    for (int i = 0; i < 6; ++i)
+        drops.push_back ({ at.x, at.y,
+                           (rnd() - 0.5f) * 4.0f,
+                           -(2.0f + 3.0f * rnd()),
+                           1.0f,
+                           1.6f + 2.2f * rnd(),
+                           false });
+
+    // Hard cap so mashing the keyboard can't grow the list unbounded.
+    if (drops.size() > 140)
+        drops.erase (drops.begin(), drops.begin() + (long) (drops.size() - 140));
 }
 
 void SliceGrid::mouseMove (const juce::MouseEvent& e)
@@ -383,6 +441,31 @@ void SliceGrid::timerCallback()
             any = true;
         }
     }
+
+    // Advance the water-splash particles.
+    if (! drops.empty())
+    {
+        for (auto& d : drops)
+        {
+            if (d.ring)
+            {
+                d.size += 2.2f;           // ripple expands
+                d.life -= 0.055f;
+            }
+            else
+            {
+                d.x += d.vx;
+                d.y += d.vy;
+                d.vy += 0.38f;            // gravity pulls the droplet back down
+                d.life -= 0.035f;
+            }
+        }
+        drops.erase (std::remove_if (drops.begin(), drops.end(),
+                                     [] (const Drop& d) { return d.life <= 0.0f; }),
+                     drops.end());
+        any = true;
+    }
+
     if (any)
         repaint();
 }

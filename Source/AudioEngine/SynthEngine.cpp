@@ -104,7 +104,24 @@ SynthEngine::Voice* SynthEngine::findFreeVoice()
     for (auto& v : voices)
         if (! v.isActive())
             return &v;
-    return &voices[0];
+
+    // All voices busy: steal the least audible one — prefer voices already
+    // in release, then the lowest envelope. Stealing voices[0] blindly cut
+    // off held notes.
+    Voice* best     = &voices[0];
+    float  bestCost = 1.0e9f;
+
+    for (auto& v : voices)
+    {
+        const float cost = v.envelope()
+                         + (v.stage == Voice::Stage::release ? 0.0f : 10.0f);
+        if (cost < bestCost)
+        {
+            bestCost = cost;
+            best     = &v;
+        }
+    }
+    return best;
 }
 
 void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOffSamples)

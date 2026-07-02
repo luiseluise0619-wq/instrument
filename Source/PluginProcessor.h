@@ -186,6 +186,18 @@ private:
     void applyEnginePatch (int instrumentIndex);
     int  currentInstrument = 0;
 
+    // Module values applyEnginePatch resolved for the current instrument.
+    // applyInstrument mirrors THESE into the knob params — reading them back
+    // from synthEngine.patch() would race the audio thread, which rewrites
+    // the param-driven patch fields every block.
+    struct ModuleDefaults
+    {
+        int   unison = 1;
+        float spread = 0.5f, sub = 0.0f, noise = 0.0f,
+              fm = 0.0f, vibCents = 0.0f, chorus = 0.0f;
+    };
+    ModuleDefaults moduleDefaults;
+
     // Smoothed stereo width to avoid zipper noise when the knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed { 1.0f };
 
