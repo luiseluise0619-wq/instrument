@@ -88,6 +88,8 @@ void WaveformView::paint (juce::Graphics& g)
     const auto& theme = ThemeManager::active();
     const float radius = theme.cornerRadius;
     const float glow   = juce::jlimit (0.0f, 1.0f, theme.glow);
+    // High-glow themes ("Neon Ocean") get the full cyberpunk treatment.
+    const bool  cyber  = theme.glow >= 0.9f;
 
     auto full = getLocalBounds().toFloat();
     // Reserve room for the drop shadow so the card doesn't touch the edges.
@@ -101,19 +103,71 @@ void WaveformView::paint (juce::Graphics& g)
     }
 
     // --- Material card fill + hairline border --------------------------------
-    g.setColour (theme.materialStrong);
-    g.fillRoundedRectangle (card, radius);
+    if (cyber)
+    {
+        // Dark-glass fill + cyan neon rim, matching the editor cards.
+        g.setColour (juce::Colour (0xc008102a));
+        g.fillRoundedRectangle (card, radius);
 
-    // Border tints toward accent while a file is dragged over the view.
-    const juce::Colour border = fileHover ? theme.accent
-                                          : theme.separator;
-    g.setColour (border);
-    g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+        g.setColour (theme.accent.withAlpha (0.10f));
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 3.0f);
+        g.setColour (theme.accent.withAlpha (fileHover ? 0.9f : 0.55f));
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+
+        if (fileHover)
+        {
+            // Neon dashed border marks the drop target; a slow alpha pulse
+            // gives it an animated feel without moving the dashes.
+            juce::Path outline;
+            outline.addRoundedRectangle (card.reduced (4.0f), radius - 3.0f);
+            juce::Path dashed;
+            const float dashPattern[2] = { 7.0f, 5.0f };
+            juce::PathStrokeType (1.5f).createDashedStroke (dashed, outline,
+                                                            dashPattern, 2);
+            g.setColour (theme.accent.withAlpha (0.7f + 0.2f * std::sin (phase * 3.0f)));
+            g.fillPath (dashed);
+        }
+    }
+    else
+    {
+        g.setColour (theme.materialStrong);
+        g.fillRoundedRectangle (card, radius);
+
+        // Border tints toward accent while a file is dragged over the view.
+        const juce::Colour border = fileHover ? theme.accent
+                                              : theme.separator;
+        g.setColour (border);
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+    }
 
     // --- Empty state ---------------------------------------------------------
     if (maxEnv.empty())
     {
         auto centre = card.getCentre();
+
+        if (cyber)
+        {
+            // Faint HUD-style corner brackets: four L-shapes in cyan.
+            const float arm = 14.0f;
+            auto b = card.reduced (10.0f);
+
+            juce::Path hud;
+            hud.startNewSubPath (b.getX(),         b.getY() + arm);       // top-left
+            hud.lineTo          (b.getX(),         b.getY());
+            hud.lineTo          (b.getX() + arm,   b.getY());
+            hud.startNewSubPath (b.getRight() - arm, b.getY());           // top-right
+            hud.lineTo          (b.getRight(),       b.getY());
+            hud.lineTo          (b.getRight(),       b.getY() + arm);
+            hud.startNewSubPath (b.getRight(),     b.getBottom() - arm);  // bottom-right
+            hud.lineTo          (b.getRight(),     b.getBottom());
+            hud.lineTo          (b.getRight() - arm, b.getBottom());
+            hud.startNewSubPath (b.getX() + arm,   b.getBottom());        // bottom-left
+            hud.lineTo          (b.getX(),         b.getBottom());
+            hud.lineTo          (b.getX(),         b.getBottom() - arm);
+
+            g.setColour (theme.accent.withAlpha (0.3f));
+            g.strokePath (hud, juce::PathStrokeType (1.5f));
+        }
 
         // SF-symbol-style glyph: a downward arrow into an open tray/box.
         const float gs = 22.0f;                      // glyph size
@@ -201,6 +255,22 @@ void WaveformView::paint (juce::Graphics& g)
 
         // Vertical gradient: bright band at the peaks, melting away to almost
         // nothing at the centre line.
+        if (cyber)
+        {
+            // Hot pink core at the peaks -> purple mid -> transparent centre.
+            const juce::Colour purple (0xffb026ff);
+            juce::ColourGradient grad (
+                theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, 0.95f * shimmer)),
+                { left, midY - scale },
+                purple.withAlpha (0.0f),
+                { left, midY },
+                false);
+            grad.addColour (0.45, purple.withAlpha (
+                                      juce::jlimit (0.0f, 1.0f, 0.55f * shimmer)));
+            g.setGradientFill (grad);
+            g.fillPath (upperFill);
+        }
+        else
         {
             juce::ColourGradient grad (
                 theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, 0.85f * shimmer)),
@@ -242,6 +312,10 @@ void WaveformView::paint (juce::Graphics& g)
         g.setColour (theme.waveform.withAlpha (0.18f));
         g.strokePath (bottomStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
 
+        // Live playhead positions, read once; the top contour reacts to them.
+        float heads[VoicePool::kMaxVoices];
+        const int nHeads = proc.getVoicePool().copyPlayheads (heads, VoicePool::kMaxVoices);
+
         // --- Top contour: glow halo + crisp 1px stroke -------------------------
         juce::Path topStroke;
         topStroke.startNewSubPath (left, midY - maxEnv[0] * scale);
@@ -265,6 +339,34 @@ void WaveformView::paint (juce::Graphics& g)
         g.setColour (theme.waveform.brighter (0.35f));
         g.strokePath (topStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
 
+        if (cyber)
+        {
+            // Thin cyan contour riding the peaks...
+            g.setColour (theme.accent.withAlpha (0.28f));
+            g.strokePath (topStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
+
+            // ...that heats up around each live playhead.
+            for (int h = 0; h < nHeads; ++h)
+            {
+                const float hx = juce::jlimit (0.0f, 1.0f, heads[h]) * inner.getWidth();
+                const int c0 = juce::jlimit (0, (int) n - 1, (int) hx - 24);
+                const int c1 = juce::jlimit (0, (int) n - 1, (int) hx + 24);
+                if (c1 <= c0)
+                    continue;
+
+                juce::Path seg;
+                seg.startNewSubPath (left + (float) c0, midY - maxEnv[(size_t) c0] * scale);
+                for (int x = c0 + 1; x <= c1; ++x)
+                    seg.lineTo (left + (float) x, midY - maxEnv[(size_t) x] * scale);
+
+                g.setColour (theme.accent.withAlpha (0.22f));
+                g.strokePath (seg, juce::PathStrokeType (3.5f, juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+                g.setColour (theme.accent.withAlpha (0.85f));
+                g.strokePath (seg, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved));
+            }
+        }
+
         // --- Slice markers ---------------------------------------------------
         auto sample = proc.getLoadedSample();
         if (sample != nullptr && sample->getNumSamples() > 0)
@@ -282,49 +384,105 @@ void WaveformView::paint (juce::Graphics& g)
                 g.setColour (theme.accent.withAlpha (0.5f));
                 g.drawLine (xPos, inner.getY() + 3.0f, xPos, inner.getBottom(), 1.0f);
 
-                // Small rounded handle / nub at the top of the marker.
-                const float nubW = 6.0f;
-                const float nubH = 6.0f;
-                juce::Rectangle<float> nub (xPos - nubW * 0.5f, inner.getY(), nubW, nubH);
-
-                if (glow > 0.0f)
+                if (cyber)
                 {
-                    // Soft glow dot bloom behind the nub.
-                    const auto dot = nub.getCentre();
-                    g.setColour (theme.accent.withAlpha (0.30f * glow));
-                    g.fillEllipse (dot.x - 6.0f, dot.y - 6.0f, 12.0f, 12.0f);
-                    g.setColour (theme.accent.withAlpha (0.12f * glow));
-                    g.fillEllipse (dot.x - 10.0f, dot.y - 10.0f, 20.0f, 20.0f);
-                }
+                    // Small glowing diamond nub at the top of the marker.
+                    const float cx = xPos;
+                    const float cy = inner.getY() + 4.0f;
+                    const float r  = 3.5f;
 
-                g.setColour (theme.accent);
-                g.fillRoundedRectangle (nub, 2.0f);
+                    g.setColour (theme.accent.withAlpha (0.30f));
+                    g.fillEllipse (cx - 7.0f, cy - 7.0f, 14.0f, 14.0f);
+                    g.setColour (theme.accent.withAlpha (0.12f));
+                    g.fillEllipse (cx - 11.0f, cy - 11.0f, 22.0f, 22.0f);
+
+                    juce::Path diamond;
+                    diamond.addQuadrilateral (cx,     cy - r,
+                                              cx + r, cy,
+                                              cx,     cy + r,
+                                              cx - r, cy);
+                    g.setColour (theme.accent);
+                    g.fillPath (diamond);
+                }
+                else
+                {
+                    // Small rounded handle / nub at the top of the marker.
+                    const float nubW = 6.0f;
+                    const float nubH = 6.0f;
+                    juce::Rectangle<float> nub (xPos - nubW * 0.5f, inner.getY(), nubW, nubH);
+
+                    if (glow > 0.0f)
+                    {
+                        // Soft glow dot bloom behind the nub.
+                        const auto dot = nub.getCentre();
+                        g.setColour (theme.accent.withAlpha (0.30f * glow));
+                        g.fillEllipse (dot.x - 6.0f, dot.y - 6.0f, 12.0f, 12.0f);
+                        g.setColour (theme.accent.withAlpha (0.12f * glow));
+                        g.fillEllipse (dot.x - 10.0f, dot.y - 10.0f, 20.0f, 20.0f);
+                    }
+
+                    g.setColour (theme.accent);
+                    g.fillRoundedRectangle (nub, 2.0f);
+                }
             }
         }
 
         // --- Playheads (active voices) --------------------------------------
-        float heads[VoicePool::kMaxVoices];
-        const int nHeads = proc.getVoicePool().copyPlayheads (heads, VoicePool::kMaxVoices);
         for (int h = 0; h < nHeads; ++h)
         {
             const float xPos = inner.getX()
                              + juce::jlimit (0.0f, 1.0f, heads[h]) * inner.getWidth();
 
-            // Slight glow stroke so playback feels alive; scales with theme glow
-            // but keeps a whisper even on flat themes.
-            const float headGlow = 0.15f + 0.35f * glow;
-            g.setColour (theme.accent.withAlpha (headGlow));
-            g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 4.0f);
+            if (cyber)
+            {
+                // Short fading trail: a leftward gradient wash behind the head.
+                const float trailW = juce::jmin (26.0f, xPos - inner.getX());
+                if (trailW > 1.0f)
+                {
+                    juce::ColourGradient trail (theme.accent.withAlpha (0.0f),
+                                                { xPos - trailW, midY },
+                                                theme.accent.withAlpha (0.25f),
+                                                { xPos, midY },
+                                                false);
+                    g.setGradientFill (trail);
+                    g.fillRect (juce::Rectangle<float> (xPos - trailW, inner.getY(),
+                                                        trailW, inner.getHeight()));
+                }
 
-            g.setColour (theme.accent.withAlpha (0.95f));
-            g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 1.5f);
+                // Neon vertical line: wide halo + crisp core.
+                g.setColour (theme.accent.withAlpha (0.35f));
+                g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 4.0f);
+                g.setColour (theme.accent.withAlpha (0.95f));
+                g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 1.5f);
 
-            juce::Path tri;
-            tri.addTriangle (xPos - 4.0f, inner.getY(),
-                             xPos + 4.0f, inner.getY(),
-                             xPos,        inner.getY() + 6.0f);
-            g.setColour (theme.accent);
-            g.fillPath (tri);
+                // Glowing head dot where the line crosses the top contour.
+                const int col = juce::jlimit (0, (int) n - 1, (int) (xPos - left));
+                const float dotY = midY - maxEnv[(size_t) col] * scale;
+                g.setColour (theme.accent.withAlpha (0.25f));
+                g.fillEllipse (xPos - 6.0f, dotY - 6.0f, 12.0f, 12.0f);
+                g.setColour (theme.accent);
+                g.fillEllipse (xPos - 2.5f, dotY - 2.5f, 5.0f, 5.0f);
+                g.setColour (juce::Colours::white.withAlpha (0.9f));
+                g.fillEllipse (xPos - 1.0f, dotY - 1.0f, 2.0f, 2.0f);
+            }
+            else
+            {
+                // Slight glow stroke so playback feels alive; scales with theme
+                // glow but keeps a whisper even on flat themes.
+                const float headGlow = 0.15f + 0.35f * glow;
+                g.setColour (theme.accent.withAlpha (headGlow));
+                g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 4.0f);
+
+                g.setColour (theme.accent.withAlpha (0.95f));
+                g.drawLine (xPos, inner.getY(), xPos, inner.getBottom(), 1.5f);
+
+                juce::Path tri;
+                tri.addTriangle (xPos - 4.0f, inner.getY(),
+                                 xPos + 4.0f, inner.getY(),
+                                 xPos,        inner.getY() + 6.0f);
+                g.setColour (theme.accent);
+                g.fillPath (tri);
+            }
         }
     }
 }
