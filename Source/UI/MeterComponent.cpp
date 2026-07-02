@@ -53,15 +53,31 @@ void MeterComponent::paint (juce::Graphics& g)
         juce::DropShadow (theme.shadow, 10, { 0, 2 }).drawForPath (g, shadowPath);
     }
 
-    // Material fill with a gentle top-to-bottom vibrancy gradient.
-    juce::ColourGradient fill (theme.materialStrong, card.getX(), card.getY(),
-                               theme.material,       card.getX(), card.getBottom(), false);
-    g.setGradientFill (fill);
-    g.fillRoundedRectangle (card, radius);
+    const bool glowTheme = theme.glow >= 0.9f;
 
-    // 1px hairline border.
-    g.setColour (theme.separator);
-    g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+    if (glowTheme)
+    {
+        // Dark glass fill + neon rim, matching the editor's cards.
+        g.setColour (juce::Colour (0xc008102a));
+        g.fillRoundedRectangle (card, radius);
+
+        g.setColour (theme.accent.withAlpha (0.10f));
+        g.drawRoundedRectangle (card.expanded (1.0f), radius + 1.0f, 2.5f);
+        g.setColour (theme.accent.withAlpha (0.28f));
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+    }
+    else
+    {
+        // Material fill with a gentle top-to-bottom vibrancy gradient.
+        juce::ColourGradient fill (theme.materialStrong, card.getX(), card.getY(),
+                                   theme.material,       card.getX(), card.getBottom(), false);
+        g.setGradientFill (fill);
+        g.fillRoundedRectangle (card, radius);
+
+        // 1px hairline border.
+        g.setColour (theme.separator);
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+    }
 
     // Interior padding for the bar + caption strip.
     const float pad = 12.0f;
@@ -110,6 +126,23 @@ void MeterComponent::paint (juce::Graphics& g)
             g.fillRoundedRectangle (fillRect.expanded (2.5f), barRadius + 2.5f);
         }
 
+        // When levels run hot, the bar radiates a faint wider neon halo
+        // shifting from cyan toward hot pink.
+        if (glowTheme)
+        {
+            const float heat = juce::jlimit (0.0f, 1.0f, (level01 - 0.55f) / 0.35f);
+            if (heat > 0.0f)
+            {
+                const juce::Colour hot = theme.accent.interpolatedWith (theme.waveform, heat);
+                for (int layer = 3; layer >= 1; --layer)
+                {
+                    g.setColour (hot.withAlpha (heat * 0.07f * (float) (4 - layer)));
+                    g.fillRoundedRectangle (fillRect.expanded (2.0f + 2.5f * (float) layer),
+                                            barRadius + 2.0f + 2.5f * (float) layer);
+                }
+            }
+        }
+
         // Vertical gradient pinned to the full scale so the fill "reveals" it:
         // accent at the bottom, hot (waveform) near the top, red at the peak.
         juce::ColourGradient grad (theme.accent, barArea.getX(), barArea.getBottom(),
@@ -123,10 +156,27 @@ void MeterComponent::paint (juce::Graphics& g)
     if (peakHold > 0.0f)
     {
         const float peakY = barArea.getBottom() - barArea.getHeight() * juce::jlimit (0.0f, 1.0f, peakHold);
-        const juce::Colour peakColour = theme.accent.interpolatedWith (warn, peakHold * peakHold);
 
-        g.setColour (peakColour.withAlpha (0.9f));
-        g.fillRect (juce::Rectangle<float> (barArea.getX(), peakY - 1.0f, barArea.getWidth(), 2.0f));
+        if (glowTheme)
+        {
+            // Neon pink peak-hold tick with a soft bloom.
+            g.setColour (theme.waveform.withAlpha (0.18f));
+            g.fillRect (juce::Rectangle<float> (barArea.getX() - 1.0f, peakY - 3.5f,
+                                                barArea.getWidth() + 2.0f, 7.0f));
+            g.setColour (theme.waveform.withAlpha (0.45f));
+            g.fillRect (juce::Rectangle<float> (barArea.getX(), peakY - 2.0f,
+                                                barArea.getWidth(), 4.0f));
+            g.setColour (theme.waveform.brighter (0.25f));
+            g.fillRect (juce::Rectangle<float> (barArea.getX(), peakY - 1.0f,
+                                                barArea.getWidth(), 2.0f));
+        }
+        else
+        {
+            const juce::Colour peakColour = theme.accent.interpolatedWith (warn, peakHold * peakHold);
+
+            g.setColour (peakColour.withAlpha (0.9f));
+            g.fillRect (juce::Rectangle<float> (barArea.getX(), peakY - 1.0f, barArea.getWidth(), 2.0f));
+        }
     }
 
     // "OUT" caption in the secondary text colour.

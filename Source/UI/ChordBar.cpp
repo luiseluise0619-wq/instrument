@@ -107,6 +107,11 @@ ChordBar::ChordBar (VocalChopAudioProcessor& processor)
     regenerate();
 }
 
+ChordBar::~ChordBar()
+{
+    stopTimer();
+}
+
 void ChordBar::regenerate()
 {
     const auto& style = styles()[(size_t) juce::jmax (0, styleBox.getSelectedId() - 1)];
@@ -132,6 +137,40 @@ void ChordBar::playChord (int buttonIndex)
     // Each chord tone goes through the same lock-free path as a key press.
     for (int semi : current[(size_t) buttonIndex].semis)
         proc.triggerSlicePad (semi, 0.85f);
+
+    // Kick off the neon flash pulse on the clicked button (glow themes only;
+    // the shared look-and-feel reads the "neonFlash" property when drawing).
+    if (ThemeManager::active().glow >= 0.9f)
+    {
+        flashLevels[(size_t) buttonIndex] = 1.0f;
+        chordButtons[(size_t) buttonIndex].getProperties().set ("neonFlash", 1.0f);
+        chordButtons[(size_t) buttonIndex].repaint();
+
+        if (! isTimerRunning())
+            startTimerHz (30);
+    }
+}
+
+void ChordBar::timerCallback()
+{
+    // Decay each active flash and repaint just that button.
+    bool anyActive = false;
+
+    for (size_t i = 0; i < chordButtons.size(); ++i)
+    {
+        if (flashLevels[i] <= 0.0f)
+            continue;
+
+        flashLevels[i] = juce::jmax (0.0f, flashLevels[i] - 0.08f);
+        chordButtons[i].getProperties().set ("neonFlash", flashLevels[i]);
+        chordButtons[i].repaint();
+
+        if (flashLevels[i] > 0.0f)
+            anyActive = true;
+    }
+
+    if (! anyActive)
+        stopTimer();
 }
 
 //==============================================================================

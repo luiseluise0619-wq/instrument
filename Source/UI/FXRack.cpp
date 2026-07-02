@@ -16,12 +16,23 @@ void FXRack::addModule (juce::AudioProcessorValueTreeState& apvts,
     m.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         apvts, paramID, m.knob->getSlider());
     addAndMakeVisible (*m.knob);
+
+    // Keep the rack's neon value tracks in sync while the knob moves.
+    // (KnobComponent leaves onValueChange free for clients; attachments use
+    // Slider::Listener, so this callback is ours.)
+    m.knob->getSlider().onValueChange = [this]
+    {
+        if (ThemeManager::active().glow >= 0.9f)
+            repaint();
+    };
+
     modules.push_back (std::move (m));
 }
 
 void FXRack::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
+    const bool  glowTheme = theme.glow >= 0.9f;
 
     const auto  bounds = getLocalBounds().toFloat();
     const float radius = theme.cornerRadius;
@@ -36,18 +47,32 @@ void FXRack::paint (juce::Graphics& g)
         juce::DropShadow (theme.shadow, 10, { 0, 2 }).drawForPath (g, shadowPath);
     }
 
-    // Material fill with a gentle top-to-bottom vibrancy gradient.
-    juce::ColourGradient fill (theme.materialStrong, card.getX(), card.getY(),
-                               theme.material,       card.getX(), card.getBottom(), false);
-    g.setGradientFill (fill);
-    g.fillRoundedRectangle (card, radius);
+    if (glowTheme)
+    {
+        // Dark glass fill + neon rim, matching the editor's cards.
+        g.setColour (juce::Colour (0xc008102a));
+        g.fillRoundedRectangle (card, radius);
 
-    // 1px hairline border, picking up a whisper of accent on glow themes.
-    const juce::Colour borderColour =
-        theme.glow > 0.0f ? theme.separator.interpolatedWith (theme.accentSoft, 0.35f * theme.glow)
-                          : theme.separator;
-    g.setColour (borderColour);
-    g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+        g.setColour (theme.accent.withAlpha (0.10f));
+        g.drawRoundedRectangle (card.expanded (1.0f), radius + 1.0f, 2.5f);
+        g.setColour (theme.accent.withAlpha (0.28f));
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+    }
+    else
+    {
+        // Material fill with a gentle top-to-bottom vibrancy gradient.
+        juce::ColourGradient fill (theme.materialStrong, card.getX(), card.getY(),
+                                   theme.material,       card.getX(), card.getBottom(), false);
+        g.setGradientFill (fill);
+        g.fillRoundedRectangle (card, radius);
+
+        // 1px hairline border, picking up a whisper of accent on glow themes.
+        const juce::Colour borderColour =
+            theme.glow > 0.0f ? theme.separator.interpolatedWith (theme.accentSoft, 0.35f * theme.glow)
+                              : theme.separator;
+        g.setColour (borderColour);
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+    }
 
     // Uppercase, tracked title "FX" in the top padding strip.
     {
@@ -55,14 +80,14 @@ void FXRack::paint (juce::Graphics& g)
         auto titleArea = card.reduced (pad, 0.0f).withTop (card.getY() + 12.0f).withHeight (16.0f);
 
         const juce::Colour titleColour =
-            theme.glow > 0.0f ? theme.textSecondary.interpolatedWith (theme.accent, 0.30f * theme.glow)
+            glowTheme       ? theme.accent
+          : theme.glow > 0.0f ? theme.textSecondary.interpolatedWith (theme.accent, 0.30f * theme.glow)
                               : theme.textSecondary;
-        g.setColour (titleColour);
         g.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Semibold")));
 
         // Draw glyph-by-glyph to add wide letter-spacing (tracking).
         const juce::String title ("FX");
-        const float tracking = 3.0f;
+        const float tracking = glowTheme ? 3.5f : 3.0f;
         const auto& font = g.getCurrentFont();
 
         float x = titleArea.getX();
@@ -71,16 +96,72 @@ void FXRack::paint (juce::Graphics& g)
         {
             const juce::String s = juce::String::charToString (ch);
             const float w = font.getStringWidthFloat (s);
-            g.drawText (s,
-                        juce::Rectangle<float> (x, cy - 8.0f, w + tracking, 16.0f),
-                        juce::Justification::centredLeft, false);
+            const juce::Rectangle<float> glyphBox (x, cy - 8.0f, w + tracking, 16.0f);
+
+            // Soft neon halo behind each glyph on the cyberpunk theme.
+            if (glowTheme)
+            {
+                static const float dx[] = { -1.2f, 1.2f,  0.0f, 0.0f };
+                static const float dy[] = {  0.0f, 0.0f, -1.2f, 1.2f };
+
+                g.setColour (theme.accent.withAlpha (0.22f));
+                for (int o = 0; o < 4; ++o)
+                    g.drawText (s, glyphBox.translated (dx[o], dy[o]),
+                                juce::Justification::centredLeft, false);
+            }
+
+            g.setColour (titleColour);
+            g.drawText (s, glyphBox, juce::Justification::centredLeft, false);
             x += w + tracking;
         }
     }
 
-    // Hairline dividers between the stacked modules.
-    if (modules.size() > 1)
+    if (glowTheme)
     {
+        // Each module gets a slim cyan->purple value track with a small
+        // glowing dot at its current position, drawn in the gap below it.
+        const float pad = 16.0f;
+        const juce::Colour purple (0xffb026ff);
+
+        for (const auto& m : modules)
+        {
+            const auto kb = m.knob->getBounds().toFloat();
+            if (kb.isEmpty())
+                continue;
+
+            auto& s = m.knob->getSlider();
+            const float pos = juce::jlimit (0.0f, 1.0f,
+                                            (float) s.valueToProportionOfLength (s.getValue()));
+
+            const float y = kb.getBottom() + moduleGap * 0.5f;
+            const juce::Rectangle<float> track (card.getX() + pad, y - 1.5f,
+                                                card.getWidth() - pad * 2.0f, 3.0f);
+
+            // Inactive track base.
+            g.setColour (theme.controlTrack);
+            g.fillRoundedRectangle (track, 1.5f);
+
+            // Lit portion sweeps cyan -> electric purple, like the knob arcs.
+            juce::ColourGradient grad (theme.accent.withAlpha (0.60f), track.getX(),     y,
+                                       purple.withAlpha (0.60f),       track.getRight(), y, false);
+            g.setGradientFill (grad);
+            g.fillRoundedRectangle (track.withWidth (juce::jmax (3.0f, track.getWidth() * pos)), 1.5f);
+
+            // Small glowing value dot at the current position.
+            const juce::Point<float> dot (track.getX() + track.getWidth() * pos, y);
+            const juce::Colour dotCol = theme.accent.interpolatedWith (purple, pos);
+
+            g.setColour (dotCol.withAlpha (0.25f));
+            g.fillEllipse (juce::Rectangle<float> (13.0f, 13.0f).withCentre (dot));
+            g.setColour (dotCol.withAlpha (0.60f));
+            g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre (dot));
+            g.setColour (juce::Colours::white.interpolatedWith (dotCol, 0.25f));
+            g.fillEllipse (juce::Rectangle<float> (3.5f, 3.5f).withCentre (dot));
+        }
+    }
+    else if (modules.size() > 1)
+    {
+        // Hairline dividers between the stacked modules.
         const float pad = 16.0f;
         g.setColour (theme.separator);
 

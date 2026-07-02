@@ -18,7 +18,12 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
                                              bool highlighted, bool down)
 {
     const auto& theme = ThemeManager::active();
+    const bool  glowTheme = theme.glow >= 0.9f;
+
     auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
+    if (glowTheme)
+        bounds = bounds.reduced (2.5f);   // margin inside the clip for the under-glow
+
     const float radius = juce::jmin (theme.cornerRadius, bounds.getHeight() * 0.5f);
 
     juce::Colour fill = theme.materialStrong;
@@ -27,20 +32,50 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     else if (highlighted)                 fill = theme.material.brighter (0.06f);
 
     // Soft shadow.
-    juce::DropShadow (theme.shadow, 8, { 0, 2 }).drawForRectangle (g, button.getLocalBounds());
+    juce::DropShadow (theme.shadow, 8, { 0, 2 })
+        .drawForRectangle (g, bounds.getSmallestIntegerContainer());
 
-    // On glow themes, toggled / pressed buttons bloom softly outward.
-    const bool glowTheme = theme.glow >= 0.9f;
-    if (glowTheme && (button.getToggleState() || down))
+    // Optional click-flash pulse (0..1) that owners drive via the "neonFlash"
+    // component property (see ChordBar). Glow themes only.
+    const float flash = glowTheme
+        ? juce::jlimit (0.0f, 1.0f,
+                        (float) button.getProperties().getWithDefault ("neonFlash", 0.0f))
+        : 0.0f;
+
+    // On glow themes, buttons sit on a neon under-glow: soft on hover,
+    // strong when pressed / toggled, flaring cyan -> purple with the flash.
+    if (glowTheme)
     {
-        g.setColour (theme.accent.withAlpha (0.22f));
-        g.drawRoundedRectangle (bounds.expanded (1.5f), radius + 1.5f, 1.5f);
-        g.setColour (theme.accent.withAlpha (0.10f));
-        g.drawRoundedRectangle (bounds.expanded (3.0f), radius + 3.0f, 2.0f);
+        float glowAmt = highlighted ? 0.45f : 0.0f;
+        if (down || button.getToggleState())
+            glowAmt = 1.0f;
+        glowAmt = juce::jmax (glowAmt, flash);
+
+        if (glowAmt > 0.0f)
+        {
+            const juce::Colour glowCol =
+                theme.accent.interpolatedWith (juce::Colour (0xffb026ff), 0.6f * flash);
+
+            juce::Path halo;
+            halo.addRoundedRectangle (bounds, radius);
+            juce::DropShadow (glowCol.withAlpha (juce::jlimit (0.0f, 1.0f, 0.55f * glowAmt)),
+                              7, { 0, 1 }).drawForPath (g, halo);
+
+            g.setColour (glowCol.withAlpha (0.30f * glowAmt));
+            g.drawRoundedRectangle (bounds.expanded (1.0f), radius + 1.0f, 1.5f);
+        }
     }
 
     g.setColour (fill);
     g.fillRoundedRectangle (bounds, radius);
+
+    // The click flash also brightens the face with an accent wash.
+    if (glowTheme && flash > 0.0f && ! button.getToggleState())
+    {
+        g.setColour (theme.accentSoft.withMultipliedAlpha (
+            juce::jlimit (0.0f, 1.0f, 1.4f * flash)));
+        g.fillRoundedRectangle (bounds, radius);
+    }
 
     // Hovered buttons pick up a faint accent wash on glow themes.
     if (glowTheme && highlighted && ! down && ! button.getToggleState())
@@ -49,7 +84,10 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
         g.fillRoundedRectangle (bounds, radius);
     }
 
-    g.setColour (theme.separator);
+    if (glowTheme && (down || highlighted || button.getToggleState() || flash > 0.0f))
+        g.setColour (theme.accent.withAlpha (0.55f));
+    else
+        g.setColour (theme.separator);
     g.drawRoundedRectangle (bounds, radius, 1.0f);
 }
 
@@ -76,18 +114,27 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
     auto bounds = juce::Rectangle<int> (0, 0, width, height).toFloat().reduced (0.5f);
     const float radius = juce::jmin (theme.cornerRadius, bounds.getHeight() * 0.5f);
 
-    const bool focused = box.hasKeyboardFocus (false);
+    const bool glowTheme = theme.glow >= 0.9f;
+    const bool focused   = box.hasKeyboardFocus (false);
+
+    // Hover lights the rim on glow themes; make sure the box repaints on
+    // mouse activity so the rim tracks the cursor.
+    if (glowTheme)
+        box.setRepaintsOnMouseActivity (true);
+    const bool hovered = glowTheme && box.isMouseOver (true);
 
     g.setColour (theme.materialStrong);
     g.fillRoundedRectangle (bounds, radius);
-    g.setColour (focused ? theme.accent : theme.separator);
+    g.setColour (focused || hovered ? theme.accent : theme.separator);
     g.drawRoundedRectangle (bounds, radius, 1.0f);
 
-    // Faint accent halo around the focused border on glow themes.
-    if (focused && theme.glow >= 0.9f)
+    // Faint accent halo just inside the lit rim on glow themes.
+    if ((focused || hovered) && glowTheme)
     {
         g.setColour (theme.accent.withAlpha (0.18f));
-        g.drawRoundedRectangle (bounds.expanded (1.5f), radius + 1.5f, 2.0f);
+        g.drawRoundedRectangle (bounds.reduced (1.5f), radius - 1.5f, 2.0f);
+        g.setColour (theme.accent.withAlpha (0.10f));
+        g.drawRoundedRectangle (bounds.expanded (1.0f), radius + 1.0f, 1.5f);
     }
 
     // Chevron (two short strokes forming a downward "v").
@@ -142,23 +189,34 @@ void AppleLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectang
         return;
     }
 
+    const bool glowTheme = theme.glow >= 0.9f;
+
     auto r = area.reduced (4, 1);
     if (isHighlighted && isActive)
     {
         const auto rf = r.toFloat();
 
-        // Subtle rounded glow around the highlight on glow themes.
-        if (theme.glow >= 0.9f)
+        if (glowTheme)
         {
-            g.setColour (theme.accent.withAlpha (0.20f));
-            g.drawRoundedRectangle (rf.expanded (1.5f), 8.5f, 1.5f);
-        }
+            // Neon treatment: translucent accent wash + thin glowing left bar.
+            g.setColour (theme.accentSoft);
+            g.fillRoundedRectangle (rf, 7.0f);
 
-        g.setColour (theme.accent);
-        g.fillRoundedRectangle (rf, 7.0f);
+            const juce::Rectangle<float> bar (rf.getX() + 1.5f, rf.getY() + 3.0f,
+                                              2.5f, rf.getHeight() - 6.0f);
+            g.setColour (theme.accent.withAlpha (0.30f));
+            g.fillRoundedRectangle (bar.expanded (2.0f), 3.5f);
+            g.setColour (theme.accent);
+            g.fillRoundedRectangle (bar, 1.25f);
+        }
+        else
+        {
+            g.setColour (theme.accent);
+            g.fillRoundedRectangle (rf, 7.0f);
+        }
     }
 
-    g.setColour (isHighlighted && isActive ? juce::Colours::white
+    g.setColour (isHighlighted && isActive ? (glowTheme ? theme.text : juce::Colours::white)
                                            : (isActive ? theme.text
                                                        : theme.textSecondary));
     g.setFont (getPopupMenuFont());

@@ -16,11 +16,17 @@ class VocalChopAudioProcessor;
     through the active engine: in Synth mode the notes sound as synth voices,
     in Chop mode each chord tone triggers the matching slice (C3-based, the
     same mapping as the keyboard and MIDI).
+
+    On glow themes, clicking a chord button kicks off a short neon flash that
+    decays on a timer (the shared look-and-feel reads it from the button's
+    "neonFlash" component property).
 */
-class ChordBar : public juce::Component
+class ChordBar : public juce::Component,
+                 private juce::Timer
 {
 public:
     explicit ChordBar (VocalChopAudioProcessor& processor);
+    ~ChordBar() override;
 
     void resized() override;
     void paint (juce::Graphics&) override;
@@ -43,6 +49,7 @@ private:
 
     void regenerate();
     void playChord (int buttonIndex);
+    void timerCallback() override;   // decays the click-flash pulses
 
     VocalChopAudioProcessor& proc;
 
@@ -54,6 +61,8 @@ private:
     Progression current;
     int lastPick = -1;
     juce::Random rng;
+
+    std::array<float, 4> flashLevels {};   // per-chord-button neon flash (0..1)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChordBar)
 };
