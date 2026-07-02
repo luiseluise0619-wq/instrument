@@ -49,7 +49,7 @@ private:
     int   srcNumSamples = 0;
 
     double pos = 0.0;          // fractional read position (source samples)
-    double start = 0.0;        // slice start (source samples)
+    double sliceStart = 0.0;   // slice start (source samples)
     double length = 0.0;       // slice length (source samples)
     double ratio = 1.0;        // srcSampleRate / hostSampleRate
 

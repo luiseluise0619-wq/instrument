@@ -22,8 +22,8 @@ void Voice::start (double hostSampleRate,
     const double hostSR = hostSampleRate > 0.0 ? hostSampleRate : 44100.0;
     ratio = (srcSampleRate > 0.0 ? srcSampleRate : hostSR) / hostSR;
 
-    start  = (double) juce::jlimit (0, srcNumSamples - 1, startSample);
-    length = (double) juce::jmin (lengthSamples, srcNumSamples - (int) start);
+    sliceStart = (double) juce::jlimit (0, srcNumSamples - 1, startSample);
+    length     = (double) juce::jmin (lengthSamples, srcNumSamples - (int) sliceStart);
 
     reversePlay = reverse;
     oneShotMode = oneShot;
@@ -31,9 +31,9 @@ void Voice::start (double hostSampleRate,
     // Reverse reads from the slice end backwards; forward reads from the start.
     // Keep pos strictly inside the slice for bounds safety.
     if (reversePlay)
-        pos = (start + length) - 1.0;
+        pos = (sliceStart + length) - 1.0;
     else
-        pos = start;
+        pos = sliceStart;
 
     velocity = juce::jlimit (0.0f, 1.0f, vel);
 
@@ -82,8 +82,8 @@ float Voice::envelope() const
 
     // End-of-slice fade: remaining output samples until the slice ends. Applies
     // in both directions so playback never clicks at the boundary.
-    const double srcRemaining = reversePlay ? (pos - start)
-                                            : ((start + length) - pos);
+    const double srcRemaining = reversePlay ? (pos - sliceStart)
+                                            : ((sliceStart + length) - pos);
     const double outRemaining = srcRemaining / juce::jmax (1.0e-9, ratio);
     if (outRemaining < (double) endFadeSamples)
         env *= (float) juce::jmax (0.0, outRemaining / (double) endFadeSamples);
@@ -100,12 +100,12 @@ void Voice::render (juce::AudioBuffer<float>& out, int numSamples)
     float* outL = out.getWritePointer (0);
     float* outR = outChannels > 1 ? out.getWritePointer (1) : nullptr;
 
-    const double sliceEnd = start + length;
+    const double sliceEnd = sliceStart + length;
 
     for (int n = 0; n < numSamples; ++n)
     {
         // Bounds / slice-end check (direction aware).
-        if (reversePlay ? (pos < start) : (pos >= sliceEnd))
+        if (reversePlay ? (pos < sliceStart) : (pos >= sliceEnd))
         {
             active = false;
             return;

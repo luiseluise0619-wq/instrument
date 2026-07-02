@@ -39,14 +39,28 @@ set(SIGNALSMITH_STRETCH_TAG "main" CACHE STRING "signalsmith-stretch git tag/com
 
 # Header-only: SOURCE_SUBDIR points at a non-existent dir so
 # FetchContent_MakeAvailable only downloads the sources without calling
-# add_subdirectory (we just need the include path). This also avoids the
+# add_subdirectory (we just need the include paths). This also avoids the
 # FetchContent_Populate deprecation error on CMake >= 3.30.
+#
+# signalsmith-stretch depends on the separate signalsmith-linear library via
+# #include "signalsmith-linear/stft.h", so we fetch that too and check it out
+# into a directory literally named "signalsmith-linear" whose PARENT we put on
+# the include path.
+set(SIGNALSMITH_LINEAR_TAG "main" CACHE STRING "signalsmith linear git tag/commit")
+set(SIGNALSMITH_INCLUDE_ROOT ${CMAKE_BINARY_DIR}/_deps/signalsmith-include)
+
 FetchContent_Declare(
     signalsmith_stretch
     GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
     GIT_TAG        ${SIGNALSMITH_STRETCH_TAG}
     SOURCE_SUBDIR  cmake_subdir_intentionally_unused)
-FetchContent_MakeAvailable(signalsmith_stretch)
+FetchContent_Declare(
+    signalsmith_linear
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+    GIT_TAG        ${SIGNALSMITH_LINEAR_TAG}
+    SOURCE_DIR     ${SIGNALSMITH_INCLUDE_ROOT}/signalsmith-linear
+    SOURCE_SUBDIR  cmake_subdir_intentionally_unused)
+FetchContent_MakeAvailable(signalsmith_stretch signalsmith_linear)
 
 # It's a MIDI-triggered sampler, so it must be an INSTRUMENT (generator), not an
 # audio effect — otherwise FL Studio / Ableton load it on the mixer and never
@@ -54,6 +68,7 @@ FetchContent_MakeAvailable(signalsmith_stretch)
 # category and the AU 'aumu' type.
 juce_add_plugin(VocalChopStudio
     COMPANY_NAME "VocalChop Labs"
+    BUNDLE_ID com.vocalchoplabs.vocalchopstudio
     PLUGIN_MANUFACTURER_CODE VCSL
     PLUGIN_CODE VCS0
     FORMATS VST3 AU Standalone
@@ -85,7 +100,9 @@ target_sources(VocalChopStudio PRIVATE
 
 target_include_directories(VocalChopStudio PRIVATE
     Source
-    ${signalsmith_stretch_SOURCE_DIR})
+    ${signalsmith_stretch_SOURCE_DIR}
+    ${SIGNALSMITH_INCLUDE_ROOT}
+    ${signalsmith_linear_SOURCE_DIR})
 
 target_compile_definitions(VocalChopStudio PRIVATE
     JUCE_WEB_BROWSER=0
