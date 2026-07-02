@@ -25,6 +25,8 @@ public:
 
     void paint (juce::Graphics&) override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     /** Call after slices change to refresh the keyboard. */
     void refresh() { repaint(); }
@@ -34,12 +36,13 @@ private:
 
     static bool isBlackKey (int semitone);
     int  keySpan() const;                 // how many semitones we draw
-    juce::Rectangle<float> keyboardArea() const;
+    juce::Rectangle<float> keysArea() const;
     juce::Rectangle<float> keyRect (int semitone, int span) const;
     int  keyAt (juce::Point<float> position) const;
 
     VocalChopAudioProcessor& proc;
     std::vector<float> keyFlash;          // per-key decay level
+    int hoveredKey = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceGrid)
 };

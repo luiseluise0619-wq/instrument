@@ -4,6 +4,11 @@
 
 #include <cmath>
 
+namespace
+{
+    constexpr float kFeltHeight = 5.0f;   // classic felt strip above the keys
+}
+
 SliceGrid::SliceGrid (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
@@ -30,14 +35,15 @@ int SliceGrid::keySpan() const
     return octaves * 12;
 }
 
-juce::Rectangle<float> SliceGrid::keyboardArea() const
+juce::Rectangle<float> SliceGrid::keysArea() const
 {
-    return getLocalBounds().toFloat().reduced (6.0f, 6.0f);
+    return getLocalBounds().toFloat().reduced (8.0f, 8.0f)
+                           .withTrimmedTop (kFeltHeight + 2.0f);
 }
 
 juce::Rectangle<float> SliceGrid::keyRect (int semitone, int span) const
 {
-    const auto area = keyboardArea();
+    const auto area = keysArea();
 
     // Count white keys in the span and this key's white index.
     int whitesTotal = 0, whitesBefore = 0;
@@ -57,9 +63,9 @@ juce::Rectangle<float> SliceGrid::keyRect (int semitone, int span) const
                  whiteW, area.getHeight() };
 
     // Black key: centred on the boundary after the previous white key.
-    const float blackW = whiteW * 0.62f;
+    const float blackW = whiteW * 0.60f;
     const float x = area.getX() + whitesBefore * whiteW - blackW * 0.5f;
-    return { x, area.getY(), blackW, area.getHeight() * 0.62f };
+    return { x, area.getY(), blackW, area.getHeight() * 0.615f };
 }
 
 int SliceGrid::keyAt (juce::Point<float> p) const
@@ -86,7 +92,7 @@ void SliceGrid::paint (juce::Graphics& g)
     if ((int) keyFlash.size() != span)
         keyFlash.assign ((size_t) span, 0.0f);
 
-    // Card behind the keyboard.
+    // --- Card behind the keybed -------------------------------------------
     const auto card = getLocalBounds().toFloat().reduced (2.0f);
     juce::DropShadow (theme.shadow, 10, { 0, 2 })
         .drawForRectangle (g, card.getSmallestIntegerContainer());
@@ -104,59 +110,173 @@ void SliceGrid::paint (juce::Graphics& g)
         return;
     }
 
-    const juce::Colour whiteFill = theme.dark ? juce::Colour (0xffe9edf6)
-                                              : juce::Colours::white;
-    const juce::Colour blackFill = theme.dark ? juce::Colour (0xff141628)
-                                              : juce::Colour (0xff2a2a2e);
+    const auto keys = keysArea();
 
-    auto drawKey = [&] (int s)
+    // --- Felt strip above the keys (real-piano detail) ----------------------
     {
-        const auto  r        = keyRect (s, span).reduced (1.0f, 0.0f);
-        const bool  black    = isBlackKey (s);
-        const bool  enabled  = s < numSlices;
-        const float flash    = keyFlash[(size_t) s];
-        const float cornerR  = black ? 3.5f : 4.5f;
+        auto felt = keys.withY (keys.getY() - kFeltHeight - 2.0f)
+                        .withHeight (kFeltHeight);
+        g.setColour (theme.waveform.darker (0.25f).withAlpha (0.90f));
+        g.fillRoundedRectangle (felt, 2.0f);
+        // Thin highlight so the felt reads as fabric, not a flat bar.
+        g.setColour (juce::Colours::white.withAlpha (0.10f));
+        g.fillRect (felt.withHeight (1.0f));
+    }
 
-        juce::Colour fill = black ? blackFill : whiteFill;
-        if (! enabled)
-            fill = fill.withAlpha (black ? 0.35f : 0.18f);
-        fill = fill.interpolatedWith (theme.accent, flash * 0.85f);
+    const bool dark = theme.dark;
 
-        // Rounded at the bottom only, like a real keybed.
+    // --- Key renderers -------------------------------------------------------
+    auto drawWhite = [&] (int s)
+    {
+        auto r = keyRect (s, span).reduced (1.2f, 0.0f);
+        const bool  enabled = s < numSlices;
+        const float flash   = keyFlash[(size_t) s];
+        const bool  hover   = (s == hoveredKey && enabled);
+        const float pressed = flash;   // 0..1 visual press amount
+
         juce::Path key;
         key.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(),
-                                 cornerR, cornerR, false, false, true, true);
+                                 5.0f, 5.0f, false, false, true, true);
 
-        // Accent glow while the key is lit.
-        if (flash > 0.0f && theme.glow > 0.0f)
+        // Accent under-glow while lit.
+        if (flash > 0.02f && theme.glow > 0.0f)
         {
-            g.setColour (theme.accent.withAlpha (0.5f * flash * theme.glow));
-            g.strokePath (key, juce::PathStrokeType (4.0f));
+            g.setColour (theme.accent.withAlpha (0.45f * flash * theme.glow));
+            g.strokePath (key, juce::PathStrokeType (5.0f));
         }
 
-        g.setColour (fill);
-        g.fillPath (key);
-        g.setColour (theme.separator.withAlpha (black ? 0.9f : 0.55f));
-        g.strokePath (key, juce::PathStrokeType (1.0f));
+        // Ivory body: slightly shaded at the top (fallboard shadow), bright
+        // toward the front edge. Pressing tilts the gradient darker.
+        const juce::Colour ivoryTop = dark ? juce::Colour (0xffc9cfdd)
+                                           : juce::Colour (0xffe9e9ee);
+        const juce::Colour ivoryBot = dark ? juce::Colour (0xfff4f7ff)
+                                           : juce::Colours::white;
 
-        // Octave labels on Cs.
-        if (! black && s % 12 == 0 && enabled)
+        juce::Colour top = ivoryTop.darker (0.10f * pressed);
+        juce::Colour bot = ivoryBot.darker (0.14f * pressed);
+        if (! enabled) { top = top.withAlpha (0.16f); bot = bot.withAlpha (0.16f); }
+
+        juce::ColourGradient body (top, r.getX(), r.getY(),
+                                   bot, r.getX(), r.getBottom(), false);
+        if (flash > 0.0f)
         {
-            g.setColour (juce::Colour (0xff5a5f73).withAlpha (0.8f));
-            g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Medium")));
+            body.multiplyOpacity (1.0f);
+            top = top.interpolatedWith (theme.accent, flash * 0.75f);
+            bot = bot.interpolatedWith (theme.accent.brighter (0.2f), flash * 0.75f);
+            body = juce::ColourGradient (top, r.getX(), r.getY(),
+                                         bot, r.getX(), r.getBottom(), false);
+        }
+        g.setGradientFill (body);
+        g.fillPath (key);
+
+        // Hover: a whisper of accent.
+        if (hover && flash < 0.3f)
+        {
+            g.setColour (theme.accent.withAlpha (0.10f));
+            g.fillPath (key);
+        }
+
+        // Recessed shadow where the key meets the felt.
+        juce::ColourGradient recess (juce::Colours::black.withAlpha (enabled ? 0.22f : 0.08f),
+                                     r.getX(), r.getY(),
+                                     juce::Colours::transparentBlack,
+                                     r.getX(), r.getY() + 9.0f, false);
+        g.setGradientFill (recess);
+        g.fillRect (r.withHeight (9.0f));
+
+        // Side separation: soft dark line on the right edge.
+        g.setColour (juce::Colours::black.withAlpha (dark ? 0.35f : 0.15f));
+        g.fillRect (juce::Rectangle<float> (r.getRight() - 0.75f, r.getY(),
+                                            0.75f, r.getHeight()));
+
+        // Front-edge lip highlight.
+        g.setColour (juce::Colours::white.withAlpha (enabled ? 0.35f : 0.08f));
+        g.fillRect (juce::Rectangle<float> (r.getX() + 2.0f, r.getBottom() - 2.5f,
+                                            r.getWidth() - 4.0f, 1.2f));
+
+        // Octave labels on the Cs.
+        if (s % 12 == 0 && enabled)
+        {
+            g.setColour (juce::Colour (0xff6a7086).withAlpha (0.9f));
+            g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold")));
             g.drawText ("C" + juce::String (3 + s / 12),
-                        r.reduced (2.0f).removeFromBottom (14.0f),
+                        r.reduced (2.0f).removeFromBottom (16.0f),
                         juce::Justification::centred);
+        }
+    };
+
+    auto drawBlack = [&] (int s)
+    {
+        auto r = keyRect (s, span);
+        const bool  enabled = s < numSlices;
+        const float flash   = keyFlash[(size_t) s];
+        const bool  hover   = (s == hoveredKey && enabled);
+
+        // Drop shadow cast onto the white keys.
+        g.setColour (juce::Colours::black.withAlpha (enabled ? 0.35f : 0.15f));
+        g.fillRoundedRectangle (r.translated (0.0f, 2.0f).expanded (1.2f, 0.0f), 4.5f);
+
+        juce::Path key;
+        key.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(),
+                                 4.0f, 4.0f, false, false, true, true);
+
+        // Accent glow while lit.
+        if (flash > 0.02f && theme.glow > 0.0f)
+        {
+            g.setColour (theme.accent.withAlpha (0.55f * flash * theme.glow));
+            g.strokePath (key, juce::PathStrokeType (5.0f));
+        }
+
+        // Glossy lacquer body.
+        juce::Colour top (0xff262a44);
+        juce::Colour bot (0xff0b0d1c);
+        if (flash > 0.0f)
+        {
+            top = top.interpolatedWith (theme.accent, flash * 0.9f);
+            bot = bot.interpolatedWith (theme.accent.darker (0.2f), flash * 0.9f);
+        }
+        if (! enabled) { top = top.withAlpha (0.35f); bot = bot.withAlpha (0.35f); }
+
+        juce::ColourGradient body (top, r.getX(), r.getY(),
+                                   bot, r.getX(), r.getBottom(), false);
+        g.setGradientFill (body);
+        g.fillPath (key);
+
+        if (hover && flash < 0.3f)
+        {
+            g.setColour (theme.accent.withAlpha (0.16f));
+            g.fillPath (key);
+        }
+
+        // Glossy highlight down the centre-top of the lacquer.
+        {
+            auto gloss = r.reduced (r.getWidth() * 0.22f, 0.0f)
+                          .withTrimmedTop (3.0f)
+                          .withHeight (r.getHeight() * 0.45f);
+            juce::ColourGradient sheen (juce::Colours::white.withAlpha (enabled ? 0.16f : 0.05f),
+                                        gloss.getX(), gloss.getY(),
+                                        juce::Colours::transparentWhite,
+                                        gloss.getX(), gloss.getBottom(), false);
+            g.setGradientFill (sheen);
+            g.fillRoundedRectangle (gloss, 2.5f);
+        }
+
+        // Front face: the lighter lip at the bottom of a real black key.
+        {
+            auto lip = r.withTrimmedTop (r.getHeight() - 7.0f).reduced (1.0f, 0.0f);
+            g.setColour (juce::Colour (0xff353a5c).withAlpha (enabled ? 1.0f : 0.35f)
+                             .interpolatedWith (theme.accent, flash * 0.6f));
+            g.fillRoundedRectangle (lip, 3.0f);
         }
     };
 
     // Whites first, then blacks on top.
     for (int s = 0; s < span; ++s)
         if (! isBlackKey (s))
-            drawKey (s);
+            drawWhite (s);
     for (int s = 0; s < span; ++s)
         if (isBlackKey (s))
-            drawKey (s);
+            drawBlack (s);
 }
 
 //==============================================================================
@@ -172,6 +292,25 @@ void SliceGrid::mouseDown (const juce::MouseEvent& e)
     if (key < (int) keyFlash.size())
         keyFlash[(size_t) key] = 1.0f;
     repaint();
+}
+
+void SliceGrid::mouseMove (const juce::MouseEvent& e)
+{
+    const int key = keyAt (e.position);
+    if (key != hoveredKey)
+    {
+        hoveredKey = key;
+        repaint();
+    }
+}
+
+void SliceGrid::mouseExit (const juce::MouseEvent&)
+{
+    if (hoveredKey != -1)
+    {
+        hoveredKey = -1;
+        repaint();
+    }
 }
 
 void SliceGrid::timerCallback()
