@@ -157,14 +157,17 @@ no sample at all: a 16-voice, 2-oscillator synth (PolyBLEP saw/square, sine,
 triangle) with a detune control, driven by the same ADSR, filter and FX chain.
 The on-screen keyboard and MIDI both play it (C3-based, velocity-sensitive).
 
-**37 designed instruments** ship in the Instrument picker, grouped by category
+**46 designed instruments** ship in the Instrument picker, grouped by category
 — BASS (Neon Bass, Sub 808, Reese, Wobble Growl, Pluck Bass, Analog Warm,
-FM Knock), LEAD (Supersaw, Retro, Acid, Chip, Scream, Whistle), PAD (Dream,
+FM Knock), LEAD (Supersaw, Retro, Acid, Chip, Scream), SYNTH (Analog Poly,
+PWM Strings, Hoover, 80s Poly, FM Digital), PIANO (Grand, Bright, Soft,
+House), GUITAR (Nylon, Steel String, Clean, Muted, Funk), PAD (Dream,
 Warm Strings, Dark, Glass, Choir Air, Analog Sweep), PLUCK (Crystal, Kalimba,
-Ice, Nylon, Marimba), KEYS (EP, Soft, House Organ, Retro Organ, Funk Clav),
-BELL (Glass Bell, Music Box, Deep Bell) and MISC (Airy Flute, Synth Brass,
-Laser Zap, Noise Riser). Picking one dials in the full engine architecture
-(unison/sub/noise/FM/vibrato/voice-filter) plus knob defaults. The **Chords** bar suggests progressions by style
+Marimba), KEYS (EP, Soft, House Organ, Retro Organ, Funk Clav), BELL
+(Glass Bell, Deep Bell) and MISC (Airy Flute, Synth Brass, Noise Riser).
+Picking one dials in the full engine architecture plus knob defaults, and the
+**Synth card** exposes the modules as live knobs — Unison, Spread, Sub, Noise,
+FM, Vibrato and Chorus — so every patch is hand-tweakable, Serum-style. The **Chords** bar suggests progressions by style
 (K-Pop, EDM, Lo-Fi, R&B, Ballad, City Pop) from a curated built-in library:
 hit *Generate* for a new progression and click a chord button to hear it
 through the active engine.

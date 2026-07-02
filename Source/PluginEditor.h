@@ -58,8 +58,6 @@ private:
     juce::ComboBox   themeBox;
     juce::TextButton loadButton   { "Load Sample" };
     juce::TextButton demoButton   { "Demo" };
-    juce::TextButton abButton     { "A/B" };
-    juce::TextButton randomButton { "RND" };
 
     // Slicing controls.
     juce::ComboBox engineBox;      // Chop / Synth
@@ -73,6 +71,10 @@ private:
                                    grainKnob, attackKnob, detuneKnob;
     std::unique_ptr<KnobComponent> decayKnob, sustainKnob, releaseKnob,
                                    filterCutoffKnob, filterResoKnob, outputGainKnob;
+
+    // Synth module knobs (Serum-style architecture controls).
+    std::unique_ptr<KnobComponent> unisonKnob, spreadKnob, subKnob, noiseKnob,
+                                   fmKnob, vibratoKnob, chorusKnob;
 
     // Grouped choice / bool controls.
     juce::ComboBox   filterTypeBox;
@@ -97,6 +99,7 @@ private:
     juce::Rectangle<int> sliceCardBounds;
     juce::Rectangle<int> envCardBounds;
     juce::Rectangle<int> toneCardBounds;
+    juce::Rectangle<int> synthCardBounds;
     juce::Rectangle<int> filterCardBounds;
     juce::Rectangle<int> playbackCardBounds;
 

@@ -341,18 +341,6 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     };
     addAndMakeVisible (demoButton);
 
-    // --- A/B compare + randomise ---
-    abButton.onClick = [this]
-    {
-        processor.toggleAB();
-        abButton.setButtonText (processor.isSlotB() ? "B" : "A");
-        repaint();
-    };
-    addAndMakeVisible (abButton);
-
-    randomButton.onClick = [this] { processor.randomizeParams(); };
-    addAndMakeVisible (randomButton);
-
     // --- Engine mode: sample chopping vs. built-in synth ---
     engineBox.addItem ("Chop",  1);
     engineBox.addItem ("Synth", 2);
@@ -440,6 +428,15 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (grainKnob,   "grainSize",   "Grain");
     addKnob (detuneKnob,  "synthDetune", "Detune");
 
+    // --- Synth module knobs ---
+    addKnob (unisonKnob,  "synthUnison",  "Unison");
+    addKnob (spreadKnob,  "synthSpread",  "Spread");
+    addKnob (subKnob,     "synthSub",     "Sub");
+    addKnob (noiseKnob,   "synthNoise",   "Noise");
+    addKnob (fmKnob,      "synthFM",      "FM");
+    addKnob (vibratoKnob, "synthVibrato", "Vibrato");
+    addKnob (chorusKnob,  "synthChorus",  "Chorus");
+
     // --- Filter knobs + combo ---
     addKnob (filterCutoffKnob, "filterCutoff", "Cutoff");
     addKnob (filterResoKnob,   "filterReso",   "Reso");
@@ -484,8 +481,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (fxRack);
 
     setResizable (true, true);
-    setResizeLimits (940, 680, 1800, 1400);
-    setSize (1080, 800);
+    setResizeLimits (940, 760, 1800, 1400);
+    setSize (1080, 900);
 
     refreshChildren();
 }
@@ -710,12 +707,14 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     drawCard (g, sliceCardBounds.toFloat());
     drawCard (g, envCardBounds.toFloat());
     drawCard (g, toneCardBounds.toFloat());
+    drawCard (g, synthCardBounds.toFloat());
     drawCard (g, filterCardBounds.toFloat());
     drawCard (g, playbackCardBounds.toFloat());
 
     // Section captions.
     drawCaption (g, "Envelope",   envCardBounds);
     drawCaption (g, "Pitch / Tone", toneCardBounds);
+    drawCaption (g, "Synth",      synthCardBounds);
     drawCaption (g, "Filter",     filterCardBounds);
     drawCaption (g, "Playback",   playbackCardBounds);
 
@@ -736,16 +735,12 @@ void VocalChopAudioProcessorEditor::resized()
     auto top = area.removeFromTop (kToolbarH);
     titleLabel.setBounds (top.removeFromLeft (300));
 
-    // Right-aligned: theme, load, RND, A/B, preset combo, preset label.
+    // Right-aligned: theme, load, demo, preset combo, preset label.
     themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
     top.removeFromRight (kGap / 2);
     loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 30));
     top.removeFromRight (kGap / 2);
     demoButton.setBounds (top.removeFromRight (70).withSizeKeepingCentre (70, 30));
-    top.removeFromRight (kGap / 2);
-    randomButton.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
-    top.removeFromRight (kGap / 2);
-    abButton.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
     top.removeFromRight (kGap / 2);
     presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 30));
     presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
@@ -798,12 +793,16 @@ void VocalChopAudioProcessorEditor::resized()
     fxRack.setBounds (fxCol);
     controls.removeFromRight (kGap);
 
-    // Remaining width split into four labelled cards.
-    // Layout: [Envelope | Pitch/Tone] top row, [Filter | Playback] bottom row.
+    // Remaining width split into labelled cards over three rows:
+    // [Envelope | Pitch/Tone], [Synth modules], [Filter | Playback].
     const int rowGap = kGap;
-    auto topCards    = controls.removeFromTop ((controls.getHeight() - rowGap) / 2);
+    const int rowH   = (controls.getHeight() - rowGap * 2) / 3;
+    auto topCards   = controls.removeFromTop (rowH);
+    controls.removeFromTop (rowGap);
+    auto synthCard  = controls.removeFromTop (rowH);
     controls.removeFromTop (rowGap);
     auto bottomCards = controls;
+    synthCardBounds  = synthCard;
 
     auto layoutKnobRow = [] (juce::Rectangle<int> card, std::vector<KnobComponent*> knobs)
     {
@@ -833,6 +832,11 @@ void VocalChopAudioProcessorEditor::resized()
         layoutKnobRow (toneCard, { pitchKnob.get(), formantKnob.get(), mixKnob.get(),
                                    widthKnob.get(), grainKnob.get(), detuneKnob.get() });
     }
+
+    // Middle row: the synth architecture modules.
+    layoutKnobRow (synthCard, { unisonKnob.get(), spreadKnob.get(), subKnob.get(),
+                                noiseKnob.get(), fmKnob.get(), vibratoKnob.get(),
+                                chorusKnob.get() });
 
     // Bottom row: Filter | Playback.
     {

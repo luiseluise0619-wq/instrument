@@ -183,7 +183,8 @@ void SynthEngine::noteOn (int midiNote, float velocity)
 
 void SynthEngine::tapNote (int midiNote, float velocity)
 {
-    startVoice (*findFreeVoice(), midiNote, velocity, (int) (0.3 * sampleRate));
+    // Long enough for chord previews to ring musically before releasing.
+    startVoice (*findFreeVoice(), midiNote, velocity, (int) (1.0 * sampleRate));
 }
 
 void SynthEngine::noteOff (int midiNote)

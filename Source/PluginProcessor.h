@@ -148,6 +148,13 @@ private:
     std::atomic<float>* synthWaveParam   = nullptr;
     std::atomic<float>* synthDetuneParam = nullptr;
     std::atomic<float>* synthOctaveParam = nullptr;
+    std::atomic<float>* synthUnisonParam  = nullptr;
+    std::atomic<float>* synthSpreadParam  = nullptr;
+    std::atomic<float>* synthSubParam     = nullptr;
+    std::atomic<float>* synthNoiseParam   = nullptr;
+    std::atomic<float>* synthFMParam      = nullptr;
+    std::atomic<float>* synthVibratoParam = nullptr;
+    std::atomic<float>* synthChorusParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
 

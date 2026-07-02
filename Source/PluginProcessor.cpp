@@ -33,6 +33,13 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     synthWaveParam   = apvts.getRawParameterValue ("synthWave");
     synthDetuneParam = apvts.getRawParameterValue ("synthDetune");
     synthOctaveParam = apvts.getRawParameterValue ("synthOctave");
+    synthUnisonParam  = apvts.getRawParameterValue ("synthUnison");
+    synthSpreadParam  = apvts.getRawParameterValue ("synthSpread");
+    synthSubParam     = apvts.getRawParameterValue ("synthSub");
+    synthNoiseParam   = apvts.getRawParameterValue ("synthNoise");
+    synthFMParam      = apvts.getRawParameterValue ("synthFM");
+    synthVibratoParam = apvts.getRawParameterValue ("synthVibrato");
+    synthChorusParam  = apvts.getRawParameterValue ("synthChorus");
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
@@ -114,6 +121,23 @@ VocalChopAudioProcessor::createParameterLayout()
         "synthDetune", "Detune", Range (0.0f, 50.0f, 0.1f), 7.0f));
     params.push_back (std::make_unique<juce::AudioParameterInt> (
         "synthOctave", "Octave", -2, 2, 0));
+
+    // Synth architecture modules, adjustable like a proper wavetable synth.
+    // Defaults match the boot patch (Supersaw Lead).
+    params.push_back (std::make_unique<juce::AudioParameterInt> (
+        "synthUnison", "Unison", 1, 7, 7));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthSpread", "Spread", Range (0.0f, 1.0f, 0.001f), 1.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthSub", "Sub Osc", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthNoise", "Noise", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthFM", "FM Amount", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthVibrato", "Vibrato", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthChorus", "Chorus", Range (0.0f, 1.0f, 0.001f), 0.4f));
 
     return { params.begin(), params.end() };
 }
@@ -203,6 +227,19 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     synthEngine.setWave ((int) synthWaveParam->load());
     synthEngine.setDetuneCents (synthDetuneParam->load());
     synthEngine.setOctave ((int) synthOctaveParam->load());
+
+    // Adjustable synth modules: the knobs drive the patch every block, so
+    // tweaking Unison / Sub / FM / Chorus reshapes the sound live.
+    {
+        auto& pt = synthEngine.patch();
+        pt.unison        = juce::jlimit (1, 7, (int) synthUnisonParam->load());
+        pt.stereoSpread  = synthSpreadParam->load();
+        pt.subLevel      = synthSubParam->load();
+        pt.noiseLevel    = synthNoiseParam->load();
+        pt.fmAmount      = synthFMParam->load();
+        pt.vibDepthCents = synthVibratoParam->load() * 30.0f;
+        pt.chorusMix     = synthChorusParam->load();
+    }
 
     // 1) MIDI + pad-queue → slice / synth triggers.
     handleMidi (midi, numSamples);
@@ -560,9 +597,25 @@ namespace
     { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
     { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
     { "LEAD",  "Acid Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 3.0f,  200, 0,  0,  3.0f,  0,   180, 0.55f,  90, 0.35f, 0.10f, 0.15f, 0, 1.0f },
-    { "LEAD",  "Chip Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 6.0f,  8.0f, 20000, 0.0f, 200, 1,  1,  0.0f,  0,    80, 0.60f,  60, 0.00f, 0.10f, 0.15f, 0, 1.0f },
+    { "LEAD",  "Chip Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 6.0f,  8.0f, 20000, 0.0f, 200, 1,  0,  0.0f,  0,    80, 0.60f,  60, 0.00f, 0.10f, 0.15f, 0, 1.0f },
     { "LEAD",  "Scream Lead",      5, 0.6f, 0.0f, 0.0f, 0.0f, 2.0f, 5.0f, 10.0f, 4000, 1.0f,  800, 0,  0, 20.0f,  5,   200, 0.80f, 200, 0.50f, 0.25f, 0.20f, 0, 1.3f },
-    { "LEAD",  "Whistle",          1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 12.0f, 20000, 0.0f, 200, 2,  2,  0.0f, 30,   150, 0.90f, 200, 0.00f, 0.35f, 0.10f, 0, 1.0f },
+
+    { "SYNTH", "Analog Poly",      3, 0.6f, 0.2f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  1800, 1.2f,  300, 0,  0, 12.0f,  8,   300, 0.65f, 300, 0.05f, 0.25f, 0.10f, 0, 1.2f },
+    { "SYNTH", "PWM Strings",      5, 0.8f, 0.0f, 0.0f, 0.0f, 2.0f, 4.0f,  4.0f, 3000, 0.0f,  200, 1,  0, 18.0f, 120,  400, 0.80f, 600, 0.00f, 0.35f, 0.00f, 0, 1.4f },
+    { "SYNTH", "Hoover",           5, 0.9f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2500, 1.0f,  500, 0, -1, 35.0f, 15,   250, 0.75f, 350, 0.15f, 0.25f, 0.10f, 0, 1.4f },
+    { "SYNTH", "80s Poly",         3, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2200, 1.5f,  250, 1,  0, 14.0f, 10,   350, 0.60f, 400, 0.05f, 0.30f, 0.12f, 0, 1.3f },
+    { "SYNTH", "FM Digital",       1, 0.0f, 0.0f, 0.0f, 0.45f,3.0f, 0.0f, 0.0f,  8000, 0.0f,  200, 2,  0,  4.0f,  3,   500, 0.35f, 350, 0.00f, 0.30f, 0.10f, 0, 1.1f },
+
+    { "PIANO", "Grand Piano",      1, 0.0f, 0.05f,0.02f,0.0f, 2.0f, 0.0f, 0.0f,  3200, 1.2f,  700, 3,  0,  3.0f,  1,   900, 0.22f, 260, 0.00f, 0.20f, 0.00f, 0, 1.0f },
+    { "PIANO", "Bright Piano",     1, 0.0f, 0.0f, 0.03f,0.12f,1.0f, 0.0f, 0.0f,  5200, 1.0f,  500, 3,  0,  4.0f,  1,   750, 0.28f, 220, 0.05f, 0.18f, 0.00f, 0, 1.05f },
+    { "PIANO", "Soft Piano",       1, 0.0f, 0.08f,0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2000, 0.8f,  900, 2,  0,  2.0f,  2,  1100, 0.18f, 350, 0.00f, 0.30f, 0.00f, 0, 1.0f },
+    { "PIANO", "House Piano",      3, 0.4f, 0.0f, 0.0f, 0.10f,2.0f, 0.0f, 0.0f,  4500, 1.0f,  300, 0,  0,  8.0f,  1,   500, 0.40f, 180, 0.08f, 0.20f, 0.10f, 0, 1.15f },
+
+    { "GUITAR","Nylon Guitar",     1, 0.0f, 0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  140, 3,  0,  3.0f,  0,   380, 0.10f, 200, 0.00f, 0.25f, 0.08f, 0, 1.0f },
+    { "GUITAR","Steel String",     1, 0.0f, 0.0f, 0.05f,0.15f,2.0f, 0.0f, 0.0f,  2600, 1.8f,  160, 0,  0,  5.0f,  0,   420, 0.12f, 220, 0.05f, 0.22f, 0.06f, 0, 1.05f },
+    { "GUITAR","Clean Guitar",     1, 0.0f, 0.0f, 0.0f, 0.08f,1.0f, 0.0f, 0.0f,  2400, 1.2f,  250, 3,  0,  2.0f,  1,   550, 0.30f, 250, 0.06f, 0.18f, 0.10f, 0, 1.1f },
+    { "GUITAR","Muted Guitar",     1, 0.0f, 0.10f,0.02f,0.0f, 2.0f, 0.0f, 0.0f,   900, 1.5f,   60, 3,  0,  0.0f,  0,   140, 0.05f,  90, 0.10f, 0.08f, 0.00f, 0, 0.95f },
+    { "GUITAR","Funk Guitar",      1, 0.0f, 0.0f, 0.02f,0.0f, 2.0f, 0.0f, 0.0f,  1600, 2.2f,   80, 1,  0,  2.0f,  0,   160, 0.08f, 100, 0.12f, 0.10f, 0.05f, 0, 1.0f },
 
     { "PAD",   "Dream Pad",        5, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2600, 0.0f,  200, 0,  0, 18.0f, 450,  800, 0.80f, 1000, 0.00f, 0.60f, 0.00f, 0, 1.6f },
     { "PAD",   "Warm Strings",     5, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 4.5f,  6.0f, 3400, 0.0f,  200, 0,  0, 12.0f, 220,  500, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.3f },
@@ -573,8 +626,6 @@ namespace
 
     { "PLUCK", "Crystal Pluck",    1, 0.0f, 0.0f, 0.10f,0.0f, 2.0f, 0.0f, 0.0f,   500, 4.0f,  120, 3,  0,  7.0f,  0,   200, 0.00f, 140, 0.00f, 0.25f, 0.30f, 1, 1.2f },
     { "PLUCK", "Kalimba",          1, 0.0f, 0.0f, 0.02f,0.5f, 4.2f, 0.0f, 0.0f,  3000, 2.0f,  100, 2,  0,  0.0f,  0,   250, 0.00f, 150, 0.00f, 0.30f, 0.10f, 0, 1.1f },
-    { "PLUCK", "Ice Pluck",        1, 0.0f, 0.0f, 0.0f, 0.30f,7.0f, 0.0f, 0.0f,  2000, 3.0f,   80, 2,  1,  0.0f,  0,   150, 0.00f, 120, 0.00f, 0.20f, 0.35f, 1, 1.2f },
-    { "PLUCK", "Nylon Pluck",      1, 0.0f, 0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  140, 3,  0,  3.0f,  0,   300, 0.00f, 180, 0.00f, 0.25f, 0.08f, 0, 1.0f },
     { "PLUCK", "Marimba",          1, 0.0f, 0.0f, 0.0f, 0.25f,3.0f, 0.0f, 0.0f,  2500, 2.0f,   90, 2,  0,  0.0f,  0,   220, 0.00f, 160, 0.00f, 0.30f, 0.05f, 0, 1.0f },
 
     { "KEYS",  "EP Keys",          1, 0.0f, 0.0f, 0.0f, 0.45f,1.0f, 0.0f, 0.0f,  6500, 0.0f,  200, 2,  0,  4.0f,  2,   450, 0.40f, 260, 0.00f, 0.30f, 0.12f, 0, 1.1f },
@@ -583,13 +634,11 @@ namespace
     { "KEYS",  "Retro Organ",      1, 0.0f, 0.8f, 0.0f, 0.0f, 2.0f, 6.5f,  4.0f, 20000, 0.0f, 200, 1,  0,  5.0f,  2,    50, 1.00f,  90, 0.15f, 0.20f, 0.00f, 0, 1.1f },
     { "KEYS",  "Funk Clav",        1, 0.0f, 0.0f, 0.03f,0.0f, 2.0f, 0.0f, 0.0f,  1800, 2.5f,   60, 0,  0,  5.0f,  0,   180, 0.30f,  60, 0.30f, 0.10f, 0.05f, 0, 1.0f },
 
-    { "BELL",  "Glass Bell",       1, 0.0f, 0.0f, 0.0f, 0.85f,3.5f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  1,  4.0f,  2,   700, 0.15f, 800, 0.00f, 0.50f, 0.00f, 0, 1.3f },
-    { "BELL",  "Music Box",        1, 0.0f, 0.0f, 0.0f, 0.60f,5.4f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  2,  0.0f,  0,   400, 0.00f, 500, 0.00f, 0.45f, 0.10f, 0, 1.2f },
+    { "BELL",  "Glass Bell",       1, 0.0f, 0.0f, 0.0f, 0.85f,3.5f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  4.0f,  2,   700, 0.15f, 800, 0.00f, 0.50f, 0.00f, 0, 1.3f },
     { "BELL",  "Deep Bell",        1, 0.0f, 0.0f, 0.0f, 0.90f,2.76f,0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  3.0f,  3,  1500, 0.00f, 1500, 0.00f, 0.60f, 0.00f, 0, 1.3f },
 
     { "MISC",  "Airy Flute",       1, 0.0f, 0.0f, 0.12f,0.0f, 2.0f, 5.0f, 10.0f, 4000, 0.0f,  200, 2,  1,  0.0f, 90,   200, 0.80f, 220, 0.00f, 0.35f, 0.00f, 0, 1.0f },
     { "MISC",  "Synth Brass",      3, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  1500, 1.5f,  300, 0,  0, 10.0f, 40,   200, 0.90f, 150, 0.20f, 0.20f, 0.00f, 0, 1.2f },
-    { "MISC",  "Laser Zap",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  8000, 5.0f,   40, 0,  1,  8.0f,  0,    80, 0.00f,  60, 0.10f, 0.10f, 0.20f, 0, 1.0f },
     { "MISC",  "Noise Riser",      1, 0.0f, 0.0f, 1.0f, 0.0f, 2.0f, 0.0f, 0.0f,   300, 4.0f, 2500, 2,  1,  0.0f, 500,  500, 1.00f, 500, 0.00f, 0.40f, 0.20f, 0, 1.5f },
     };
 
@@ -625,7 +674,9 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     p.noiseLevel    = d.noise;
     p.fmAmount      = d.fm;
     p.fmRatio       = d.fmRatio;
-    p.vibRateHz     = d.vibHz;
+    // Keep a musical LFO rate even when the patch ships without vibrato, so
+    // raising the Vibrato knob always does something.
+    p.vibRateHz     = d.vibHz > 0.01f ? d.vibHz : 5.0f;
     p.vibDepthCents = d.vibCents;
     p.filterCutoff  = d.fltHz;
     p.filterEnvOct  = d.fltEnvOct;
@@ -635,15 +686,19 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     const juce::String cat (d.category);
     const juce::String name (d.name);
 
-    if (cat == "PAD")        { p.chorusMix = 0.50f; p.driftCents = 4.0f;  p.velToFilterOct = 0.4f; }
-    else if (cat == "LEAD")  { p.chorusMix = 0.28f; p.driftCents = 3.0f;  p.velToFilterOct = 0.6f; }
-    else if (cat == "KEYS")  { p.chorusMix = 0.25f; p.driftCents = 2.0f;  p.velToFilterOct = 1.1f; }
-    else if (cat == "BELL")  { p.chorusMix = 0.22f; p.driftCents = 1.5f;  p.velToFilterOct = 0.8f; }
-    else if (cat == "PLUCK") { p.chorusMix = 0.18f; p.driftCents = 2.0f;  p.velToFilterOct = 1.2f;
-                               p.filterQ = 1.5f; }
-    else if (cat == "BASS")  { p.chorusMix = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
-                               p.satAmount = 0.30f; }
-    else /* MISC / INIT */   { p.chorusMix = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
+    if (cat == "PAD")         { p.chorusMix = 0.50f; p.driftCents = 4.0f;  p.velToFilterOct = 0.4f; }
+    else if (cat == "LEAD")   { p.chorusMix = 0.28f; p.driftCents = 3.0f;  p.velToFilterOct = 0.6f; }
+    else if (cat == "SYNTH")  { p.chorusMix = 0.35f; p.driftCents = 3.5f;  p.velToFilterOct = 0.6f; }
+    else if (cat == "PIANO")  { p.chorusMix = 0.06f; p.driftCents = 1.0f;  p.velToFilterOct = 1.4f; }
+    else if (cat == "GUITAR") { p.chorusMix = 0.08f; p.driftCents = 1.0f;  p.velToFilterOct = 1.3f;
+                                p.filterQ = 1.2f; }
+    else if (cat == "KEYS")   { p.chorusMix = 0.25f; p.driftCents = 2.0f;  p.velToFilterOct = 1.1f; }
+    else if (cat == "BELL")   { p.chorusMix = 0.22f; p.driftCents = 1.5f;  p.velToFilterOct = 0.8f; }
+    else if (cat == "PLUCK")  { p.chorusMix = 0.18f; p.driftCents = 2.0f;  p.velToFilterOct = 1.2f;
+                                p.filterQ = 1.5f; }
+    else if (cat == "BASS")   { p.chorusMix = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
+                                p.satAmount = 0.30f; }
+    else /* MISC / INIT */    { p.chorusMix = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
 
     if (name == "Acid Lead")     { p.filterQ = 5.5f; p.satAmount = 0.35f; }
     if (name == "Wobble Growl")  p.filterQ = 2.2f;
@@ -678,6 +733,20 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     set ("synthWave",    (float) d.wave);
     set ("synthOctave",  (float) d.octave);
     set ("synthDetune",  d.detune);
+
+    // Mirror the engine architecture into the module knobs (applyEnginePatch
+    // just computed the category-flavoured patch — the knobs take over from
+    // here, so every module stays hand-adjustable).
+    {
+        const auto& pt = synthEngine.patch();
+        set ("synthUnison",  (float) pt.unison.load());
+        set ("synthSpread",  pt.stereoSpread.load());
+        set ("synthSub",     pt.subLevel.load());
+        set ("synthNoise",   pt.noiseLevel.load());
+        set ("synthFM",      pt.fmAmount.load());
+        set ("synthVibrato", juce::jlimit (0.0f, 1.0f, pt.vibDepthCents.load() / 30.0f));
+        set ("synthChorus",  pt.chorusMix.load());
+    }
     set ("attack",       d.atk);
     set ("decay",        d.dec);
     set ("sustain",      d.sus);
