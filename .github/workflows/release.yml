@@ -93,4 +93,5 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
           files: VocalChopStudio-*.zip
-          generate_release_notes: true
+          # Only one matrix job generates notes, or the body gets duplicated.
+          generate_release_notes: ${{ matrix.name == 'Linux' }}
