@@ -448,19 +448,92 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
 //==============================================================================
 juce::StringArray VocalChopAudioProcessor::getInstrumentNames()
 {
-    return { "Init Synth", "Neon Bass", "Dream Pad", "Crystal Pluck",
-             "Retro Lead", "Glass Bell", "Soft Keys" };
+    return { "Init Synth",
+             "Neon Bass",   "Sub 808",     "Reese Bass",
+             "Supersaw Lead","Retro Lead",
+             "Dream Pad",   "Warm Strings",
+             "Crystal Pluck",
+             "Glass Bell",  "EP Keys",     "Soft Keys",
+             "Airy Flute",  "Retro Organ" };
+}
+
+void VocalChopAudioProcessor::applyEnginePatch (int i)
+{
+    auto& p = synthEngine.patch();
+    p.resetToInit();
+
+    switch (i)
+    {
+        case 1:  // Neon Bass — 3-osc stack, sub weight, snapping filter env
+            p.unison = 3;  p.subLevel = 0.6f;
+            p.filterCutoff = 220.0f; p.filterEnvOct = 3.0f; p.filterEnvMs = 140.0f;
+            break;
+        case 2:  // Sub 808 — pure sine sub with a click of noise
+            p.subLevel = 1.0f; p.noiseLevel = 0.03f;
+            p.filterCutoff = 900.0f; p.filterEnvOct = 2.0f; p.filterEnvMs = 60.0f;
+            break;
+        case 3:  // Reese Bass — 5 heavily-detuned saws, dark and growling
+            p.unison = 5; p.stereoSpread = 0.85f;
+            p.filterCutoff = 450.0f; p.filterEnvOct = 1.0f; p.filterEnvMs = 400.0f;
+            break;
+        case 4:  // Supersaw Lead — the full 7-osc EDM stack
+            p.unison = 7; p.stereoSpread = 1.0f;
+            p.filterCutoff = 9000.0f;
+            break;
+        case 5:  // Retro Lead — single square with singing vibrato
+            p.vibRateHz = 5.5f; p.vibDepthCents = 14.0f;
+            p.filterCutoff = 7000.0f;
+            break;
+        case 6:  // Dream Pad — wide 5-osc wash
+            p.unison = 5; p.stereoSpread = 1.0f;
+            p.filterCutoff = 2600.0f;
+            break;
+        case 7:  // Warm Strings — unison saws behind a soft lowpass
+            p.unison = 5; p.stereoSpread = 0.7f;
+            p.filterCutoff = 3400.0f; p.vibRateHz = 4.5f; p.vibDepthCents = 6.0f;
+            break;
+        case 8:  // Crystal Pluck — filter-env pluck with air
+            p.noiseLevel = 0.10f;
+            p.filterCutoff = 500.0f; p.filterEnvOct = 4.0f; p.filterEnvMs = 120.0f;
+            break;
+        case 9:  // Glass Bell — inharmonic FM, ratio 3.5
+            p.fmAmount = 0.85f; p.fmRatio = 3.5f;
+            break;
+        case 10: // EP Keys — gentle FM at ratio 1 (tine-piano flavour)
+            p.fmAmount = 0.45f; p.fmRatio = 1.0f;
+            p.filterCutoff = 6500.0f;
+            break;
+        case 11: // Soft Keys — mellow triangle through a warm lowpass
+            p.filterCutoff = 5200.0f;
+            break;
+        case 12: // Airy Flute — sine with breath noise and vibrato
+            p.noiseLevel = 0.12f;
+            p.vibRateHz = 5.0f; p.vibDepthCents = 10.0f;
+            p.filterCutoff = 4000.0f;
+            break;
+        case 13: // Retro Organ — square + strong sub drawbar, steady level
+            p.subLevel = 0.8f;
+            p.vibRateHz = 6.5f; p.vibDepthCents = 4.0f;
+            break;
+        case 0:  // Init Synth
+        default:
+            break;
+    }
+
+    currentInstrument = juce::jlimit (0, getInstrumentNames().size() - 1, i);
 }
 
 void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 {
+    applyEnginePatch (instrumentIndex);
+
     auto set = [this] (const juce::String& id, float value)
     {
         if (auto* p = apvts.getParameter (id))
             p->setValueNotifyingHost (p->convertTo0to1 (value));
     };
 
-    // Every instrument starts from a clean synth baseline.
+    // Every instrument starts from a clean synth baseline of the public knobs.
     set ("engine",       1.0f);          // Synth mode
     set ("synthWave",    0.0f);          // Saw
     set ("synthDetune",  7.0f);
@@ -476,55 +549,98 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 
     switch (instrumentIndex)
     {
-        case 1: // Neon Bass — fat detuned saw an octave down, dark filter
-            set ("synthOctave", -1.0f); set ("synthDetune", 12.0f);
-            set ("filterType", 1.0f);   set ("filterCutoff", 500.0f);
-            set ("filterReso", 1.2f);   set ("drive", 0.3f);
-            set ("attack", 0.0f); set ("decay", 200.0f);
+        case 1: // Neon Bass
+            set ("synthOctave", -1.0f); set ("synthDetune", 14.0f);
+            set ("attack", 0.0f);  set ("decay", 220.0f);
             set ("sustain", 0.8f); set ("release", 80.0f);
-            set ("reverb", 0.0f); set ("width", 0.9f);
+            set ("drive", 0.3f);   set ("reverb", 0.0f); set ("width", 0.9f);
             break;
 
-        case 2: // Dream Pad — wide slow saw wash
-            set ("synthDetune", 18.0f);
-            set ("attack", 400.0f); set ("decay", 800.0f);
-            set ("sustain", 0.8f);  set ("release", 900.0f);
-            set ("filterType", 1.0f); set ("filterCutoff", 3200.0f);
-            set ("reverb", 0.6f); set ("width", 1.5f);
+        case 2: // Sub 808
+            set ("synthWave", 2.0f); set ("synthOctave", -2.0f);
+            set ("synthDetune", 0.0f);
+            set ("attack", 0.0f);  set ("decay", 900.0f);
+            set ("sustain", 0.0f); set ("release", 300.0f);
+            set ("drive", 0.45f);  set ("reverb", 0.0f); set ("width", 0.6f);
             break;
 
-        case 3: // Crystal Pluck — snappy triangle with echo
-            set ("synthWave", 3.0f);
-            set ("attack", 0.0f);  set ("decay", 180.0f);
-            set ("sustain", 0.0f); set ("release", 120.0f);
-            set ("filterType", 1.0f); set ("filterCutoff", 6000.0f);
-            set ("filterReso", 1.8f);
-            set ("delay", 0.3f); set ("pingpong", 1.0f);
-            set ("reverb", 0.25f);
+        case 3: // Reese Bass
+            set ("synthOctave", -1.0f); set ("synthDetune", 28.0f);
+            set ("attack", 10.0f); set ("decay", 300.0f);
+            set ("sustain", 0.9f); set ("release", 120.0f);
+            set ("drive", 0.25f);  set ("reverb", 0.1f);
             break;
 
-        case 4: // Retro Lead — square with slap-back
-            set ("synthWave", 1.0f); set ("synthDetune", 10.0f);
+        case 4: // Supersaw Lead
+            set ("synthDetune", 22.0f);
+            set ("attack", 2.0f);  set ("decay", 150.0f);
+            set ("sustain", 0.85f); set ("release", 200.0f);
+            set ("reverb", 0.3f);  set ("delay", 0.2f); set ("width", 1.6f);
+            break;
+
+        case 5: // Retro Lead
+            set ("synthWave", 1.0f); set ("synthDetune", 6.0f);
             set ("attack", 3.0f);  set ("decay", 100.0f);
             set ("sustain", 0.7f); set ("release", 150.0f);
-            set ("filterType", 1.0f); set ("filterCutoff", 8000.0f);
             set ("delay", 0.25f);
             break;
 
-        case 5: // Glass Bell — pure sine an octave up, long shimmer
+        case 6: // Dream Pad
+            set ("synthDetune", 18.0f);
+            set ("attack", 450.0f); set ("decay", 800.0f);
+            set ("sustain", 0.8f);  set ("release", 1000.0f);
+            set ("reverb", 0.6f);   set ("width", 1.6f);
+            break;
+
+        case 7: // Warm Strings
+            set ("synthDetune", 12.0f);
+            set ("attack", 220.0f); set ("decay", 500.0f);
+            set ("sustain", 0.85f); set ("release", 500.0f);
+            set ("reverb", 0.45f);  set ("width", 1.3f);
+            break;
+
+        case 8: // Crystal Pluck
+            set ("synthWave", 3.0f);
+            set ("attack", 0.0f);  set ("decay", 200.0f);
+            set ("sustain", 0.0f); set ("release", 140.0f);
+            set ("delay", 0.3f);   set ("pingpong", 1.0f);
+            set ("reverb", 0.25f); set ("width", 1.2f);
+            break;
+
+        case 9: // Glass Bell
             set ("synthWave", 2.0f); set ("synthOctave", 1.0f);
             set ("synthDetune", 4.0f);
-            set ("attack", 2.0f);  set ("decay", 600.0f);
-            set ("sustain", 0.2f); set ("release", 700.0f);
+            set ("attack", 2.0f);  set ("decay", 700.0f);
+            set ("sustain", 0.15f); set ("release", 800.0f);
             set ("reverb", 0.5f);  set ("width", 1.3f);
             break;
 
-        case 6: // Soft Keys — mellow triangle EP feel
+        case 10: // EP Keys
+            set ("synthWave", 2.0f);
+            set ("attack", 2.0f);  set ("decay", 450.0f);
+            set ("sustain", 0.4f); set ("release", 260.0f);
+            set ("reverb", 0.3f);  set ("delay", 0.12f);
+            break;
+
+        case 11: // Soft Keys
             set ("synthWave", 3.0f);
             set ("attack", 5.0f);  set ("decay", 300.0f);
             set ("sustain", 0.6f); set ("release", 250.0f);
-            set ("filterType", 1.0f); set ("filterCutoff", 5500.0f);
             set ("reverb", 0.3f);
+            break;
+
+        case 12: // Airy Flute
+            set ("synthWave", 2.0f); set ("synthOctave", 1.0f);
+            set ("attack", 90.0f);  set ("decay", 200.0f);
+            set ("sustain", 0.8f);  set ("release", 220.0f);
+            set ("reverb", 0.35f);
+            break;
+
+        case 13: // Retro Organ
+            set ("synthWave", 1.0f);
+            set ("attack", 2.0f);  set ("decay", 50.0f);
+            set ("sustain", 1.0f); set ("release", 90.0f);
+            set ("reverb", 0.2f);  set ("drive", 0.15f);
             break;
 
         case 0: // Init Synth (baseline already applied)
@@ -600,6 +716,7 @@ void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     root.setAttribute ("gridDiv",     sliceEngine.getGridDivision());
     root.setAttribute ("sensitivity", (double) sliceEngine.getSensitivity());
     root.setAttribute ("theme",       ThemeManager::current());
+    root.setAttribute ("instrument",  currentInstrument);
 
     if (auto params = apvts.copyState().createXml())
         root.addChildElement (params.release());
@@ -627,6 +744,10 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         apvts.replaceState (juce::ValueTree::fromXml (*params));
 
     ThemeManager::setIndex (xml->getIntAttribute ("theme", ThemeManager::current()));
+
+    // Restore the instrument's engine architecture only — the knob values come
+    // from the restored parameter tree above, not the instrument defaults.
+    applyEnginePatch (xml->getIntAttribute ("instrument", 0));
 
     sliceEngine.setMode ((SliceEngine::Mode) xml->getIntAttribute ("sliceMode",
                                                                    (int) SliceEngine::Transient));

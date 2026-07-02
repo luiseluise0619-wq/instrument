@@ -133,6 +133,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     for (const auto& name : VocalChopAudioProcessor::getInstrumentNames())
         instrumentBox.addItem (name, instId++);
     instrumentBox.setTextWhenNothingSelected ("Instrument");
+    if (processor.getCurrentInstrument() > 0)
+        instrumentBox.setSelectedId (processor.getCurrentInstrument() + 1,
+                                     juce::dontSendNotification);
     instrumentBox.onChange = [this]
     {
         if (instrumentBox.getSelectedId() > 0)

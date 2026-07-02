@@ -85,9 +85,10 @@ public:
     void randomizeParams();
 
     /** Built-in synth instruments: applying one switches to Synth mode and
-        dials in a designed patch (wave/detune/octave/ADSR/filter/FX). */
+        dials in a designed patch (engine architecture + knob defaults). */
     static juce::StringArray getInstrumentNames();
     void applyInstrument (int instrumentIndex);
+    int  getCurrentInstrument() const { return currentInstrument; }
 
 private:
     //==========================================================================
@@ -158,6 +159,10 @@ private:
     // A/B compare snapshots of the parameter tree.
     juce::ValueTree snapshotA, snapshotB;
     bool abIsB = false;
+
+    // Engine-architecture half of an instrument (non-APVTS synth settings).
+    void applyEnginePatch (int instrumentIndex);
+    int  currentInstrument = 0;
 
     // Smoothed stereo width to avoid zipper noise when the knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed { 1.0f };
