@@ -23,79 +23,93 @@ namespace
         return (float) (u & 0x7fffffffu) / (float) 0x7fffffff;
     }
 
-    // A stylised leaping dolphin in unit space (0..1, facing right, y down).
-    juce::Path makeDolphinPath()
+    // Neon megacity skyline rising from the horizon: dark towers, lit window
+    // grids, rooftop antennas with warning lights, the occasional neon edge.
+    void drawCitySkyline (juce::Graphics& g, float w, float horizonY,
+                          int seed, float maxH, float alpha)
     {
-        juce::Path p;
-
-        // Body: tail joint -> back -> nose -> belly -> tail joint.
-        p.startNewSubPath (0.10f, 0.64f);
-        p.cubicTo (0.14f, 0.30f, 0.34f, 0.02f, 0.62f, 0.02f);   // back rising
-        p.cubicTo (0.76f, 0.02f, 0.90f, 0.16f, 0.97f, 0.30f);   // head to nose
-        p.cubicTo (0.88f, 0.38f, 0.74f, 0.46f, 0.58f, 0.50f);   // jaw / chest
-        p.cubicTo (0.42f, 0.55f, 0.24f, 0.62f, 0.14f, 0.70f);   // belly to tail
-        p.closeSubPath();
-
-        // Tail flukes.
-        p.startNewSubPath (0.12f, 0.62f);
-        p.cubicTo (0.06f, 0.68f, 0.02f, 0.78f, 0.00f, 0.90f);   // lower fluke
-        p.cubicTo (0.06f, 0.82f, 0.09f, 0.78f, 0.13f, 0.76f);   // notch
-        p.cubicTo (0.16f, 0.82f, 0.20f, 0.86f, 0.26f, 0.88f);   // upper fluke
-        p.cubicTo (0.22f, 0.78f, 0.18f, 0.70f, 0.16f, 0.64f);
-        p.closeSubPath();
-
-        // Dorsal fin.
-        p.startNewSubPath (0.48f, 0.06f);
-        p.cubicTo (0.50f, -0.08f, 0.56f, -0.14f, 0.64f, -0.16f);
-        p.cubicTo (0.60f, -0.06f, 0.60f, 0.00f, 0.62f, 0.03f);
-        p.closeSubPath();
-
-        // Pectoral fin.
-        p.startNewSubPath (0.56f, 0.40f);
-        p.cubicTo (0.52f, 0.50f, 0.50f, 0.58f, 0.50f, 0.66f);
-        p.cubicTo (0.56f, 0.58f, 0.62f, 0.50f, 0.66f, 0.44f);
-        p.closeSubPath();
-
-        return p;
-    }
-
-    void drawNeonDolphin (juce::Graphics& g, juce::Rectangle<float> box,
-                          float angleRadians, bool flipped)
-    {
-        auto p = makeDolphinPath();
-
-        auto t = juce::AffineTransform::translation (-0.5f, -0.5f)
-                     .scaled (flipped ? -box.getWidth() : box.getWidth(),
-                              box.getHeight())
-                     .rotated (angleRadians)
-                     .translated (box.getCentreX(), box.getCentreY());
-        p.applyTransform (t);
-
         const juce::Colour cyan    (0xff00f5ff);
         const juce::Colour magenta (0xffff2daa);
-        const auto pb = p.getBounds();
+        const juce::Colour purple  (0xffb026ff);
 
-        // Dark glass body so the neon edge pops.
+        float x = -10.0f;
+        int   b = 0;
+
+        while (x < w + 10.0f)
         {
-            juce::ColourGradient body (juce::Colour (0xff141a3e), pb.getX(), pb.getY(),
-                                       juce::Colour (0xff2a1050), pb.getRight(), pb.getBottom(),
-                                       false);
-            g.setGradientFill (body);
-            g.fillPath (p);
+            const float bw = 26.0f + 46.0f * hash01 (seed + b * 13 + 1);
+            const float bh = maxH * (0.25f + 0.75f * hash01 (seed + b * 13 + 2));
+            const float top = horizonY - bh;
+
+            // Tower body.
+            g.setColour (juce::Colour (0xff0a0c24).withAlpha (alpha));
+            g.fillRect (x, top, bw, bh + 2.0f);
+
+            // Occasional neon roof edge (cyan or pink).
+            if (hash01 (seed + b * 13 + 3) > 0.55f)
+            {
+                const auto edge = hash01 (seed + b * 13 + 4) > 0.5f ? cyan : magenta;
+                g.setColour (edge.withAlpha (0.10f * alpha));
+                g.fillRect (x, top - 2.5f, bw, 5.0f);
+                g.setColour (edge.withAlpha (0.75f * alpha));
+                g.fillRect (x, top - 0.8f, bw, 1.6f);
+            }
+
+            // Lit windows: a sparse grid of tiny dots.
+            const int cols = juce::jmax (2, (int) (bw / 8.0f));
+            const int rows = juce::jmax (3, (int) (bh / 10.0f));
+            for (int cy = 0; cy < rows; ++cy)
+                for (int cx = 0; cx < cols; ++cx)
+                {
+                    const float lit = hash01 (seed + b * 977 + cy * 31 + cx * 7);
+                    if (lit < 0.72f)
+                        continue;
+
+                    const auto wc = lit > 0.93f ? magenta
+                                  : lit > 0.85f ? cyan
+                                                : juce::Colour (0xffcfe8ff);
+                    g.setColour (wc.withAlpha ((0.25f + 0.45f * hash01 (seed + b + cx + cy * 5))
+                                               * alpha));
+                    g.fillRect (x + 3.0f + (float) cx * (bw - 6.0f) / (float) cols,
+                                top + 4.0f + (float) cy * (bh - 8.0f) / (float) rows,
+                                2.0f, 2.6f);
+                }
+
+            // Antenna spire with a warning light on the tallest towers.
+            if (bh > maxH * 0.7f)
+            {
+                const float ax = x + bw * 0.5f;
+                const float ah = 10.0f + 14.0f * hash01 (seed + b * 13 + 5);
+                g.setColour (juce::Colour (0xff20264a).withAlpha (alpha));
+                g.fillRect (ax - 0.7f, top - ah, 1.4f, ah);
+                g.setColour (magenta.withAlpha (0.30f * alpha));
+                g.fillEllipse (ax - 3.2f, top - ah - 3.2f, 6.4f, 6.4f);
+                g.setColour (magenta.withAlpha (0.95f * alpha));
+                g.fillEllipse (ax - 1.2f, top - ah - 1.2f, 2.4f, 2.4f);
+            }
+
+            x += bw + 2.0f;
+            ++b;
         }
+    }
 
-        // Neon rim: wide soft glow passes, then a crisp gradient edge.
-        juce::ColourGradient rim (cyan, pb.getX(), pb.getY(),
-                                  magenta, pb.getRight(), pb.getBottom(), false);
+    // A hover-car light streak: bright head dot with a fading tail.
+    void drawLightStreak (juce::Graphics& g, juce::Point<float> head,
+                          float length, float angleRadians, juce::Colour c)
+    {
+        const juce::Point<float> tail (
+            head.x - length * std::cos (angleRadians),
+            head.y - length * std::sin (angleRadians));
 
-        g.setGradientFill (rim);
-        g.setOpacity (0.08f);
-        g.strokePath (p, juce::PathStrokeType (10.0f, juce::PathStrokeType::curved));
-        g.setOpacity (0.16f);
-        g.strokePath (p, juce::PathStrokeType (5.5f, juce::PathStrokeType::curved));
-        g.setOpacity (0.90f);
-        g.strokePath (p, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved));
-        g.setOpacity (1.0f);
+        juce::ColourGradient grad (c.withAlpha (0.85f), head.x, head.y,
+                                   c.withAlpha (0.0f),  tail.x, tail.y, false);
+        g.setGradientFill (grad);
+        g.drawLine ({ head, tail }, 2.2f);
+
+        g.setColour (c.withAlpha (0.25f));
+        g.fillEllipse (head.x - 4.0f, head.y - 4.0f, 8.0f, 8.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillEllipse (head.x - 1.4f, head.y - 1.4f, 2.8f, 2.8f);
     }
 
     // The full-bleed "Ocean Pluck" scene for the default glow theme: night
@@ -133,17 +147,41 @@ namespace
             g.fillEllipse (sx, sy, sr, sr);
         }
 
-        // --- Sun ring (top right) --------------------------------------------
+        // --- Holographic HUD ring (top right): segmented arcs + tick marks ----
         {
             const float r  = juce::jmin (w, h) * 0.16f;
             const float ox = w * 0.82f, oy = h * 0.14f;
 
             g.setColour (purple.withAlpha (0.07f));
             g.drawEllipse (ox - r, oy - r, r * 2.0f, r * 2.0f, 9.0f);
-            g.setColour (cyan.withAlpha (0.35f));
-            g.drawEllipse (ox - r, oy - r, r * 2.0f, r * 2.0f, 1.6f);
-            g.setColour (purple.withAlpha (0.30f));
-            g.drawEllipse (ox - r * 0.82f, oy - r * 0.82f, r * 1.64f, r * 1.64f, 1.0f);
+
+            // Outer ring in broken segments, like a rotating interface.
+            for (int s = 0; s < 6; ++s)
+            {
+                const float a0 = (float) s * juce::MathConstants<float>::twoPi / 6.0f
+                               + 0.12f;
+                const float a1 = a0 + juce::MathConstants<float>::twoPi / 6.0f - 0.24f;
+                juce::Path seg;
+                seg.addCentredArc (ox, oy, r, r, 0.0f, a0, a1, true);
+                g.setColour ((s % 2 == 0 ? cyan : purple).withAlpha (0.40f));
+                g.strokePath (seg, juce::PathStrokeType (1.6f));
+            }
+
+            // Tick marks around an inner ring.
+            g.setColour (cyan.withAlpha (0.30f));
+            for (int t = 0; t < 24; ++t)
+            {
+                const float a  = (float) t * juce::MathConstants<float>::twoPi / 24.0f;
+                const float r0 = r * 0.80f, r1 = (t % 6 == 0 ? r * 0.70f : r * 0.75f);
+                g.drawLine (ox + r0 * std::cos (a), oy + r0 * std::sin (a),
+                            ox + r1 * std::cos (a), oy + r1 * std::sin (a), 1.0f);
+            }
+
+            g.setColour (magenta.withAlpha (0.35f));
+            g.drawEllipse (ox - r * 0.52f, oy - r * 0.52f, r * 1.04f, r * 1.04f, 1.0f);
+            g.setColour (cyan.withAlpha (0.55f));
+            g.drawLine (ox - r * 0.10f, oy, ox + r * 0.10f, oy, 1.0f);
+            g.drawLine (ox, oy - r * 0.10f, ox, oy + r * 0.10f, 1.0f);
         }
 
         // --- Horizon glow ----------------------------------------------------
@@ -179,10 +217,12 @@ namespace
             g.strokePath (m, juce::PathStrokeType (1.2f));
         };
 
-        ridge (91, horizonY + 1.0f, h * 0.11f, juce::Colour (0xff0a0c26),
-               purple, 0.45f);
-        ridge (47, horizonY + 1.0f, h * 0.055f, juce::Colour (0xff060818),
-               magenta, 0.40f);
+        ridge (91, horizonY + 1.0f, h * 0.10f, juce::Colour (0xff0a0c26),
+               purple, 0.35f);
+
+        // Megacity in front of the far ridge: two depth layers of towers.
+        drawCitySkyline (g, w, horizonY + 1.0f, 401, h * 0.14f, 0.55f);
+        drawCitySkyline (g, w, horizonY + 1.0f, 733, h * 0.085f, 1.0f);
 
         // --- Sea: base + perspective grid -------------------------------------
         {
@@ -218,22 +258,25 @@ namespace
             g.drawLine (0.0f, y, w, y, t > 0.6f ? 1.4f : 1.0f);
         }
 
-        // --- Dolphins ----------------------------------------------------------
-        {
-            const float s = juce::jmin (w, h);
-            drawNeonDolphin (g, { w * 0.13f, h * 0.075f, s * 0.30f, s * 0.21f },
-                             -0.32f, false);
-            drawNeonDolphin (g, { w * 0.60f, h * 0.16f, s * 0.20f, s * 0.14f },
-                             -0.15f, true);
+        // --- Hover-car light streaks crossing the sky ---------------------------
+        drawLightStreak (g, { w * 0.30f, h * 0.10f }, w * 0.13f,  0.06f, cyan);
+        drawLightStreak (g, { w * 0.58f, h * 0.20f }, w * 0.10f, -0.05f, magenta);
+        drawLightStreak (g, { w * 0.14f, h * 0.27f }, w * 0.08f,  0.10f, purple);
 
-            // Splash sparks where the big dolphin left the water.
-            for (int i = 0; i < 14; ++i)
-            {
-                const float sx = w * 0.16f + hash01 (i * 5 + 3) * w * 0.14f;
-                const float sy = horizonY - h * 0.02f - hash01 (i * 5 + 4) * h * 0.05f;
-                g.setColour (cyan.withAlpha (0.12f + 0.30f * hash01 (i * 5 + 6)));
-                g.fillEllipse (sx, sy, 2.0f, 2.0f);
-            }
+        // --- CRT scanlines + glitch slices (subtle, over the whole scene) -----
+        g.setColour (juce::Colours::black.withAlpha (0.055f));
+        for (float sy = 0.0f; sy < h; sy += 3.0f)
+            g.fillRect (0.0f, sy, w, 1.0f);
+
+        for (int i = 0; i < 3; ++i)
+        {
+            const float gy = h * (0.12f + 0.75f * hash01 (i * 7 + 300));
+            const float gw = w * (0.10f + 0.22f * hash01 (i * 7 + 301));
+            const float gx = w * hash01 (i * 7 + 302) - gw * 0.5f;
+            g.setColour (cyan.withAlpha (0.05f));
+            g.fillRect (gx + 3.0f, gy, gw, 2.0f);
+            g.setColour (magenta.withAlpha (0.05f));
+            g.fillRect (gx - 3.0f, gy + 2.0f, gw, 2.0f);
         }
 
         // --- Soft blooms + corner vignette so panels stay readable -------------
