@@ -88,6 +88,43 @@ namespace
                 g.fillEllipse (ax - 1.2f, top - ah - 1.2f, 2.4f, 2.4f);
             }
 
+            // Vertical neon sign strip down the tower face (stacked glyphs).
+            if (hash01 (seed + b * 13 + 6) > 0.62f && bh > maxH * 0.4f)
+            {
+                const auto sc = hash01 (seed + b * 13 + 7) > 0.5f ? magenta : cyan;
+                const float sx = x + bw * (0.18f + 0.5f * hash01 (seed + b * 13 + 8));
+                const int   glyphs = 3 + (int) (3.9f * hash01 (seed + b * 13 + 9));
+
+                g.setColour (sc.withAlpha (0.12f * alpha));
+                g.fillRect (sx - 2.5f, top + 6.0f, 8.0f, (float) glyphs * 8.0f + 4.0f);
+                for (int k = 0; k < glyphs; ++k)
+                {
+                    g.setColour (sc.withAlpha ((0.55f + 0.40f * hash01 (seed + b + k * 3))
+                                               * alpha));
+                    g.fillRect (sx, top + 9.0f + (float) k * 8.0f, 3.0f, 4.5f);
+                }
+            }
+
+            // Holographic billboard floating beside a few mega-towers.
+            if (hash01 (seed + b * 13 + 10) > 0.86f && bh > maxH * 0.55f)
+            {
+                const float hw = bw * 0.9f, hh = 14.0f;
+                const float hx = x + bw * 0.2f, hy = top - hh - 14.0f;
+                const auto hc = hash01 (seed + b * 13 + 11) > 0.5f ? cyan : purple;
+
+                g.setColour (hc.withAlpha (0.08f * alpha));
+                g.fillRect (hx - 3.0f, hy - 3.0f, hw + 6.0f, hh + 6.0f);
+                g.setColour (hc.withAlpha (0.16f * alpha));
+                g.fillRect (hx, hy, hw, hh);
+                g.setColour (hc.withAlpha (0.60f * alpha));
+                g.drawRect (hx, hy, hw, hh, 1.0f);
+                for (int k = 1; k <= 2; ++k)   // holo scan stripes
+                {
+                    g.setColour (hc.withAlpha (0.35f * alpha));
+                    g.fillRect (hx + 2.0f, hy + hh * (float) k / 3.0f, hw - 4.0f, 1.0f);
+                }
+            }
+
             x += bw + 2.0f;
             ++b;
         }
@@ -220,9 +257,31 @@ namespace
         ridge (91, horizonY + 1.0f, h * 0.10f, juce::Colour (0xff0a0c26),
                purple, 0.35f);
 
-        // Megacity in front of the far ridge: two depth layers of towers.
-        drawCitySkyline (g, w, horizonY + 1.0f, 401, h * 0.14f, 0.55f);
-        drawCitySkyline (g, w, horizonY + 1.0f, 733, h * 0.085f, 1.0f);
+        // Searchlight beams sweeping up from the city into the sky.
+        {
+            auto beam = [&] (float baseX, float tipX, float tipW, juce::Colour c)
+            {
+                juce::Path p;
+                p.startNewSubPath (baseX - 3.0f, horizonY);
+                p.lineTo (tipX - tipW, horizonY - h * 0.30f);
+                p.lineTo (tipX + tipW, horizonY - h * 0.30f);
+                p.lineTo (baseX + 3.0f, horizonY);
+                p.closeSubPath();
+
+                juce::ColourGradient grad (c.withAlpha (0.10f), baseX, horizonY,
+                                           c.withAlpha (0.0f), tipX,
+                                           horizonY - h * 0.30f, false);
+                g.setGradientFill (grad);
+                g.fillPath (p);
+            };
+            beam (w * 0.22f, w * 0.16f, w * 0.035f, cyan);
+            beam (w * 0.68f, w * 0.76f, w * 0.045f, magenta);
+        }
+
+        // Megacity: three depth layers of towers (far -> near).
+        drawCitySkyline (g, w, horizonY + 1.0f, 577, h * 0.18f, 0.35f);
+        drawCitySkyline (g, w, horizonY + 1.0f, 401, h * 0.14f, 0.60f);
+        drawCitySkyline (g, w, horizonY + 1.0f, 733, h * 0.09f, 1.0f);
 
         // --- Sea: base + perspective grid -------------------------------------
         {
@@ -262,21 +321,61 @@ namespace
         drawLightStreak (g, { w * 0.30f, h * 0.10f }, w * 0.13f,  0.06f, cyan);
         drawLightStreak (g, { w * 0.58f, h * 0.20f }, w * 0.10f, -0.05f, magenta);
         drawLightStreak (g, { w * 0.14f, h * 0.27f }, w * 0.08f,  0.10f, purple);
+        drawLightStreak (g, { w * 0.86f, h * 0.32f }, w * 0.09f, -0.12f, cyan);
+        drawLightStreak (g, { w * 0.44f, h * 0.055f }, w * 0.07f,  0.03f, magenta);
+
+        // --- Digital data-rain columns (Matrix-style falling dashes) ------------
+        for (int col = 0; col < 5; ++col)
+        {
+            const float dx = w * (0.06f + 0.9f * hash01 (col * 11 + 500));
+            const float startY = h * 0.02f + h * 0.06f * hash01 (col * 11 + 501);
+            const int   n = 7 + (int) (6.9f * hash01 (col * 11 + 502));
+
+            for (int k = 0; k < n; ++k)
+            {
+                const float dy = startY + (float) k * 7.0f;
+                if (dy > horizonY - h * 0.14f) break;
+                const float fade = 1.0f - (float) k / (float) n;
+                g.setColour (cyan.withAlpha ((0.05f + 0.22f * fade)
+                                             * (0.5f + 0.5f * hash01 (col * 97 + k))));
+                g.fillRect (dx, dy, 1.6f, 4.0f);
+            }
+        }
+
+        // --- Cyber rain: sparse diagonal streaks over the whole scene -----------
+        for (int i = 0; i < 46; ++i)
+        {
+            const float rx = w * hash01 (i * 13 + 700);
+            const float ry = h * hash01 (i * 13 + 701);
+            const float rl = 8.0f + 14.0f * hash01 (i * 13 + 702);
+            g.setColour (juce::Colour (0xffaee7ff)
+                             .withAlpha (0.03f + 0.05f * hash01 (i * 13 + 703)));
+            g.drawLine (rx, ry, rx - rl * 0.18f, ry + rl, 1.0f);
+        }
 
         // --- CRT scanlines + glitch slices (subtle, over the whole scene) -----
-        g.setColour (juce::Colours::black.withAlpha (0.055f));
+        g.setColour (juce::Colours::black.withAlpha (0.065f));
         for (float sy = 0.0f; sy < h; sy += 3.0f)
             g.fillRect (0.0f, sy, w, 1.0f);
 
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 5; ++i)
         {
-            const float gy = h * (0.12f + 0.75f * hash01 (i * 7 + 300));
-            const float gw = w * (0.10f + 0.22f * hash01 (i * 7 + 301));
+            const float gy = h * (0.08f + 0.82f * hash01 (i * 7 + 300));
+            const float gw = w * (0.10f + 0.24f * hash01 (i * 7 + 301));
             const float gx = w * hash01 (i * 7 + 302) - gw * 0.5f;
-            g.setColour (cyan.withAlpha (0.05f));
+            g.setColour (cyan.withAlpha (0.06f));
             g.fillRect (gx + 3.0f, gy, gw, 2.0f);
-            g.setColour (magenta.withAlpha (0.05f));
+            g.setColour (magenta.withAlpha (0.06f));
             g.fillRect (gx - 3.0f, gy + 2.0f, gw, 2.0f);
+        }
+
+        // --- Purple haze rising from the horizon (city light pollution) --------
+        {
+            juce::ColourGradient haze (purple.withAlpha (0.10f), cx, horizonY,
+                                       juce::Colours::transparentBlack, cx,
+                                       horizonY - h * 0.24f, false);
+            g.setGradientFill (haze);
+            g.fillRect (0.0f, horizonY - h * 0.24f, w, h * 0.24f);
         }
 
         // --- Soft blooms + corner vignette so panels stay readable -------------

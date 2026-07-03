@@ -120,15 +120,32 @@ void SliceGrid::paint (juce::Graphics& g)
 
     const auto keys = keysArea();
 
-    // --- Felt strip above the keys (real-piano detail) ----------------------
+    // --- Strip above the keys: neon light bar on glow themes, felt otherwise
     {
         auto felt = keys.withY (keys.getY() - kFeltHeight - 2.0f)
                         .withHeight (kFeltHeight);
-        g.setColour (theme.waveform.darker (0.25f).withAlpha (0.90f));
-        g.fillRoundedRectangle (felt, 2.0f);
-        // Thin highlight so the felt reads as fabric, not a flat bar.
-        g.setColour (juce::Colours::white.withAlpha (0.10f));
-        g.fillRect (felt.withHeight (1.0f));
+
+        if (theme.glow >= 0.9f)
+        {
+            // Cyan -> pink neon tube with a soft upward glow.
+            juce::ColourGradient tube (theme.accent, felt.getX(), felt.getY(),
+                                       theme.waveform, felt.getRight(), felt.getY(),
+                                       false);
+            g.setColour (theme.accent.withAlpha (0.16f));
+            g.fillRoundedRectangle (felt.expanded (2.0f, 3.0f), 3.0f);
+            g.setGradientFill (tube);
+            g.fillRoundedRectangle (felt, 2.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.35f));
+            g.fillRect (felt.withHeight (1.0f));
+        }
+        else
+        {
+            g.setColour (theme.waveform.darker (0.25f).withAlpha (0.90f));
+            g.fillRoundedRectangle (felt, 2.0f);
+            // Thin highlight so the felt reads as fabric, not a flat bar.
+            g.setColour (juce::Colours::white.withAlpha (0.10f));
+            g.fillRect (felt.withHeight (1.0f));
+        }
     }
 
     const bool dark = theme.dark;
