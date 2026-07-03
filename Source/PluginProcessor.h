@@ -185,6 +185,7 @@ private:
 
     // Engine-architecture half of an instrument (non-APVTS synth settings).
     void applyEnginePatch (int instrumentIndex);
+    static int defaultInstrumentIndex();   // boot patch, found by name
     int  currentInstrument = 0;
 
     // Module values applyEnginePatch resolved for the current instrument.
