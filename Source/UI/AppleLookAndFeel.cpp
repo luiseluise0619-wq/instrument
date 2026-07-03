@@ -84,11 +84,14 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
         g.fillRoundedRectangle (bounds, radius);
     }
 
-    if (glowTheme && (down || highlighted || button.getToggleState() || flash > 0.0f))
-        g.setColour (theme.accent.withAlpha (0.55f));
+    // Buttons must read as buttons even at rest: glow themes always get an
+    // accent rim (brighter when active), other themes a clear hairline.
+    if (glowTheme)
+        g.setColour (theme.accent.withAlpha (
+            (down || highlighted || button.getToggleState() || flash > 0.0f) ? 0.75f : 0.40f));
     else
         g.setColour (theme.separator);
-    g.drawRoundedRectangle (bounds, radius, 1.0f);
+    g.drawRoundedRectangle (bounds, radius, glowTheme ? 1.2f : 1.0f);
 }
 
 void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
@@ -96,7 +99,15 @@ void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& butt
 {
     const auto& theme = ThemeManager::active();
     g.setFont (getTextButtonFont (button, button.getHeight()));
-    g.setColour (button.getToggleState() ? juce::Colours::white : theme.text);
+
+    // Toggled buttons are filled with the accent — on the neon-cyan theme
+    // white text vanishes into it, so use deep navy there instead.
+    if (button.getToggleState())
+        g.setColour (theme.glow >= 0.9f ? juce::Colour (0xff041022)
+                                        : juce::Colours::white);
+    else
+        g.setColour (theme.text);
+
     g.drawText (button.getButtonText(), button.getLocalBounds(),
                 juce::Justification::centred, true);
 }
@@ -125,8 +136,14 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
 
     g.setColour (theme.materialStrong);
     g.fillRoundedRectangle (bounds, radius);
-    g.setColour (focused || hovered ? theme.accent : theme.separator);
-    g.drawRoundedRectangle (bounds, radius, 1.0f);
+
+    // Combos always show an accent rim on glow themes so they can't sink
+    // into the dark cards; brighter when hovered/focused.
+    if (glowTheme)
+        g.setColour (theme.accent.withAlpha (focused || hovered ? 0.9f : 0.40f));
+    else
+        g.setColour (focused || hovered ? theme.accent : theme.separator);
+    g.drawRoundedRectangle (bounds, radius, glowTheme ? 1.2f : 1.0f);
 
     // Faint accent halo just inside the lit rim on glow themes.
     if ((focused || hovered) && glowTheme)

@@ -157,7 +157,7 @@ no sample at all: a 16-voice, 2-oscillator synth (PolyBLEP saw/square, sine,
 triangle) with a detune control, driven by the same ADSR, filter and FX chain.
 The on-screen keyboard and MIDI both play it (C3-based, velocity-sensitive).
 
-**100 designed instruments** ship in the Instrument picker, grouped by category
+**200 designed instruments** ship in the Instrument picker, grouped by category
 — BASS (Neon Bass, Sub 808, Reese, Wobble Growl, Pluck Bass, Analog Warm,
 FM Knock), LEAD (Supersaw, Retro, Acid, Chip, Scream), SYNTH (Analog Poly,
 PWM Strings, Hoover, 80s Poly, FM Digital), PIANO (Grand, Bright, Soft,
