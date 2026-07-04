@@ -78,7 +78,7 @@ jobs:
           set -e
           ART="build/VocalChopStudio_artefacts/Release"
           mkdir -p dist
-          cp -r "$ART/VST3/VocalChop Studio.vst3" dist/
+          cp -r "$ART"/VST3/*.vst3 dist/   # product renamed to Slyce.vst3; glob survives future renames
           if [ -d "$ART/Standalone" ]; then cp -r "$ART/Standalone/." dist/; fi
           if [ -d "$ART/AU" ]; then cp -r "$ART/AU/." dist/; fi
           # GPL-3.0 requires the full licence text alongside binaries.
