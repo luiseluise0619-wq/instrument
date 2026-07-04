@@ -13,7 +13,8 @@
 
 //==============================================================================
 class VocalChopAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                      private juce::Timer
+                                      private juce::Timer,
+                                      private juce::ChangeListener
 {
 public:
     explicit VocalChopAudioProcessorEditor (VocalChopAudioProcessor&);
@@ -46,6 +47,10 @@ private:
         stuck on. */
     bool scanTypingKeys (bool forceReleaseAll = false);
     void timerCallback() override;
+
+    /** Host restored our state (project revert, preset switch): re-sync the
+        combos, theme and cached waveform that attachments don't cover. */
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     // Draws a rounded "material" card with hairline border and soft shadow.
     void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;
@@ -84,7 +89,8 @@ private:
     std::unique_ptr<KnobComponent> pitchKnob, formantKnob, mixKnob, widthKnob,
                                    grainKnob, attackKnob, detuneKnob;
     std::unique_ptr<KnobComponent> decayKnob, sustainKnob, releaseKnob,
-                                   filterCutoffKnob, filterResoKnob, outputGainKnob;
+                                   filterCutoffKnob, filterResoKnob, outputGainKnob,
+                                   grainMixKnob;
 
     // Synth module knobs (Serum-style architecture controls).
     std::unique_ptr<KnobComponent> unisonKnob, spreadKnob, subKnob, noiseKnob,

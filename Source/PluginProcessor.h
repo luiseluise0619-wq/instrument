@@ -12,7 +12,8 @@
 
 //==============================================================================
 class VocalChopAudioProcessor : public juce::AudioProcessor,
-                                public juce::AudioProcessorValueTreeState::Listener
+                                public juce::AudioProcessorValueTreeState::Listener,
+                                public juce::ChangeBroadcaster
 {
 public:
     VocalChopAudioProcessor();
@@ -82,14 +83,6 @@ public:
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
 
-    /** A/B compare: stores the current knobs into the active slot and swaps
-        to the other one. Message thread only. */
-    void toggleAB();
-    bool isSlotB() const { return abIsB; }
-
-    /** Randomises the sound-design parameters (message thread only). */
-    void randomizeParams();
-
     /** Built-in synth instruments: applying one switches to Synth mode and
         dials in a designed patch (engine architecture + knob defaults). */
     static juce::StringArray getInstrumentNames();
@@ -130,6 +123,7 @@ private:
     std::atomic<float>* mixParam     = nullptr;
     std::atomic<float>* widthParam   = nullptr;
     std::atomic<float>* grainSizeParam = nullptr;
+    std::atomic<float>* grainMixParam  = nullptr;
     std::atomic<float>* driveParam   = nullptr;
     std::atomic<float>* reverbParam  = nullptr;
     std::atomic<float>* delayParam   = nullptr;
@@ -178,10 +172,6 @@ private:
 
     // Same, for held on-screen / computer-keyboard pads (audio thread only).
     std::array<int, 128> padKeyToVoice {};
-
-    // A/B compare snapshots of the parameter tree.
-    juce::ValueTree snapshotA, snapshotB;
-    bool abIsB = false;
 
     // Engine-architecture half of an instrument (non-APVTS synth settings).
     void applyEnginePatch (int instrumentIndex);

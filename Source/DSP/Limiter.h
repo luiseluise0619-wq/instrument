@@ -8,8 +8,9 @@
     Look-ahead brick-wall limiter.
 
     A short look-ahead delay lets the gain-reduction envelope ramp down before
-    a peak arrives, so transients are caught without audible clipping. The
-    release smooths the recovery. Header-only.
+    a peak arrives. The gain tracks the MINIMUM target over the whole
+    look-ahead window — releasing only from targets that have already left the
+    delay line — so no delayed peak can exit above the ceiling. Header-only.
 */
 class Limiter
 {
@@ -21,14 +22,22 @@ public:
         releaseCoeff = std::exp (-1.0f / (float) (releaseMs * 0.001 * sr));
 
         for (auto& d : delayLines)
-        {
             d.assign ((size_t) lookaheadSamples, 0.0f);
-        }
-        writePos = 0;
-        gain = 1.0f;
+
+        // One extra slot so a sample's target is still inside the window on
+        // the step that sample leaves the delay line.
+        targetWindow.assign ((size_t) lookaheadSamples + 1, 1.0f);
+
+        writePos  = 0;
+        winPos    = 0;
+        windowMin = 1.0f;
+        gain      = 1.0f;
     }
 
     void setCeiling (float linear) noexcept { ceiling = juce::jlimit (0.001f, 1.0f, linear); }
+
+    /** Latency this limiter adds (report it to the host). */
+    int getLatencySamples() const noexcept { return lookaheadSamples; }
 
     void process (juce::AudioBuffer<float>& buffer)
     {
@@ -36,6 +45,8 @@ public:
         const int numSamples = buffer.getNumSamples();
         if (numCh == 0 || lookaheadSamples <= 0)
             return;
+
+        const int windowLen = (int) targetWindow.size();
 
         for (int n = 0; n < numSamples; ++n)
         {
@@ -47,9 +58,28 @@ public:
             // Target gain needed to keep this peak under the ceiling.
             const float target = peak > ceiling ? ceiling / peak : 1.0f;
 
-            // Attack instantly, release smoothly.
-            if (target < gain) gain = target;
-            else               gain = target + (gain - target) * releaseCoeff;
+            // Sliding-window minimum of targets across the look-ahead span.
+            const float expiring = targetWindow[(size_t) winPos];
+            targetWindow[(size_t) winPos] = target;
+            winPos = (winPos + 1) % windowLen;
+
+            if (target <= windowMin)
+            {
+                windowMin = target;
+            }
+            else if (expiring <= windowMin)
+            {
+                // The window's minimum just fell out — rescan (rare, and the
+                // window is only a couple of hundred entries).
+                windowMin = 1.0f;
+                for (const float t : targetWindow)
+                    windowMin = juce::jmin (windowMin, t);
+            }
+
+            // Attack instantly to the windowed minimum; release toward it
+            // only once every lower target has left the look-ahead window.
+            if (windowMin < gain) gain = windowMin;
+            else                  gain = windowMin + (gain - windowMin) * releaseCoeff;
 
             for (int ch = 0; ch < numCh; ++ch)
             {
@@ -74,4 +104,9 @@ private:
     float  gain = 1.0f;
     float  releaseCoeff = 0.0f;
     std::vector<float> delayLines[2];
+
+    // Sliding-minimum state for the look-ahead gain hold.
+    std::vector<float> targetWindow;
+    int    winPos    = 0;
+    float  windowMin = 1.0f;
 };

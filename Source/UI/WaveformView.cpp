@@ -38,8 +38,11 @@ void WaveformView::rebuildEnvelope()
     if (sample == nullptr || sample->getNumSamples() == 0)
         return;
 
-    // Resolve envelope over the drawable area inside the card padding.
-    const int drawWidth = juce::jmax (1, (int) std::floor (getWidth() - 2.0f * kCardPadding));
+    // Resolve envelope over the drawable area paint() actually uses: the
+    // card is the local bounds reduced by 4 (shadow margin) and then by the
+    // card padding — mismatched widths here skew slice markers/playheads.
+    const int drawWidth = juce::jmax (1, (int) std::floor (
+        (float) getWidth() - 8.0f - 2.0f * kCardPadding));
     const int numColumns = juce::jmax (1, drawWidth);
     const int numSamples  = sample->getNumSamples();
     const int numChannels = sample->getNumChannels();

@@ -638,6 +638,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         processor.getAPVTS(), "playMode", playModeBox));
 
     addKnob (outputGainKnob, "outputGain", "Output");
+    addKnob (grainMixKnob,   "grainMix",   "Texture");
 
     // --- Views ---
     waveform.onSampleDropped = [this]
@@ -652,15 +653,20 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (fxRack);
 
     setResizable (true, true);
-    setResizeLimits (940, 760, 1800, 1400);
+    // Minimum width must fit the fixed slice-control row (engine + slicing
+    // combos + wave + instrument + octave buttons) without clipping.
+    setResizeLimits (1020, 760, 1800, 1400);
     setSize (1080, 900);
 
     refreshChildren();
     startTimerHz (30);   // typing-key watchdog (stuck-note guard)
+
+    processor.addChangeListener (this);
 }
 
 VocalChopAudioProcessorEditor::~VocalChopAudioProcessorEditor()
 {
+    processor.removeChangeListener (this);
     stopTimer();
     scanTypingKeys (true);   // closing the editor must not leave notes held
     setLookAndFeel (nullptr);
@@ -760,9 +766,13 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
     bool handled = false;
 
     // New presses require our keyboard focus — otherwise typing in the
-    // host's own text fields would play notes. Releases are always honoured
-    // (that's the watchdog's whole job).
-    const bool focused = hasKeyboardFocus (true);
+    // host's own text fields would play notes. hasKeyboardFocus(true) also
+    // counts our own children though, so exclude text editors (knob value
+    // boxes): typing "25" into Attack must not play C#4/F#4. Releases are
+    // always honoured (that's the watchdog's whole job).
+    auto* focusOwner = juce::Component::getCurrentlyFocusedComponent();
+    const bool focused = hasKeyboardFocus (true)
+                      && dynamic_cast<juce::TextEditor*> (focusOwner) == nullptr;
 
     for (int i = 0; i < kTypingKeys.length(); ++i)
     {
@@ -793,6 +803,19 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
 bool VocalChopAudioProcessorEditor::keyStateChanged (bool)
 {
     return scanTypingKeys();
+}
+
+void VocalChopAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    // The processor restored its state behind our back (project revert,
+    // generic preset switch). Attachments already updated the knobs; sync
+    // everything else: slice combos, theme, instrument, cached waveform.
+    syncSliceControls();
+    themeBox.setSelectedId (ThemeManager::current() + 1, juce::dontSendNotification);
+    instrumentBox.setSelectedId (processor.getCurrentInstrument() + 1,
+                                 juce::dontSendNotification);
+    backdropTheme = -1;   // force the scene cache to re-render
+    refreshChildren();
 }
 
 void VocalChopAudioProcessorEditor::timerCallback()
@@ -1068,7 +1091,10 @@ void VocalChopAudioProcessorEditor::resized()
             auto inner = playbackCard.reduced (kPadding, kPadding - 4);
             inner.removeFromTop (kCaptionH);
 
-            auto knobCol = inner.removeFromRight (juce::jmin (96, inner.getWidth() / 3));
+            auto knobCol = inner.removeFromRight (juce::jmin (192, inner.getWidth() / 2));
+            const int kw = knobCol.getWidth() / 2;
+            if (grainMixKnob != nullptr)
+                grainMixKnob->setBounds (knobCol.removeFromLeft (kw).reduced (6, 0));
             if (outputGainKnob != nullptr)
                 outputGainKnob->setBounds (knobCol.reduced (6, 0));
             inner.removeFromRight (kGap);

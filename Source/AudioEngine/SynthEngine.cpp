@@ -168,7 +168,8 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     // --- Resonant filter (velocity opens/closes the base cutoff) -------------
     const float velOct = patchSettings.velToFilterOct.load();
     const float velFactor = std::pow (2.0f, velOct * (v.velocity - 1.0f));
-    v.fltBaseHz = juce::jlimit (40.0f, 20000.0f,
+    v.fltBaseHz = juce::jlimit (40.0f,
+                                juce::jmin (20000.0f, 0.45f * (float) sampleRate),
                                 patchSettings.filterCutoff.load() * velFactor);
     v.fltEnvOct = juce::jlimit (0.0f, 6.0f, patchSettings.filterEnvOct.load());
     v.fltK      = 1.0f / juce::jlimit (0.5f, 8.0f, patchSettings.filterQ.load());
@@ -407,8 +408,12 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 if (--v.fltUpdateCounter <= 0)
                 {
                     v.fltUpdateCounter = 32;
-                    const float hz = juce::jmin (18000.0f,
-                        v.fltBaseHz * std::pow (2.0f, v.fltEnvOct * v.fenv));
+                    // Clamp relative to Nyquist, not just an absolute 18 kHz:
+                    // past fs/2 the tan() warp goes negative and the SVF poles
+                    // leave the unit circle (inf/NaN at 32 kHz hosts).
+                    const float hz = juce::jmin (0.45f * (float) sampleRate,
+                                                 juce::jmin (18000.0f,
+                        v.fltBaseHz * std::pow (2.0f, v.fltEnvOct * v.fenv)));
                     const float g  = std::tan (juce::MathConstants<float>::pi
                                                * hz / (float) sampleRate);
                     v.svfA1 = 1.0f / (1.0f + g * (g + v.fltK));

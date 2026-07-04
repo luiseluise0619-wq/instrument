@@ -14,6 +14,7 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     mixParam       = apvts.getRawParameterValue ("mix");
     widthParam     = apvts.getRawParameterValue ("width");
     grainSizeParam = apvts.getRawParameterValue ("grainSize");
+    grainMixParam  = apvts.getRawParameterValue ("grainMix");
     driveParam     = apvts.getRawParameterValue ("drive");
     reverbParam    = apvts.getRawParameterValue ("reverb");
     delayParam     = apvts.getRawParameterValue ("delay");
@@ -72,6 +73,8 @@ VocalChopAudioProcessor::createParameterLayout()
         "width", "Width", Range (0.0f, 2.0f, 0.001f), 1.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "grainSize", "Grain Size", Range (20.0f, 500.0f, 1.0f), 80.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "grainMix", "Grain Mix", Range (0.0f, 1.0f, 0.001f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "drive", "Drive", Range (0.0f, 1.0f, 0.001f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
@@ -164,8 +167,10 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     noteToVoice.fill (-1);
     padKeyToVoice.fill (-1);
 
-    // The pitch/formant engine has inherent latency — report it to the host.
-    setLatencySamples (pitchFormant.getLatencySamples());
+    // Total plugin latency: the pitch/formant engine's inherent latency plus
+    // the limiter's look-ahead delay.
+    setLatencySamples (pitchFormant.getLatencySamples()
+                       + limiter.getLatencySamples());
 
     reassignSampleToEngines();
 }
@@ -258,6 +263,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // 4) Granular texture (bypassed unless its mix is raised).
     granularEngine.setGrainSize (grainSizeParam->load());
+    granularEngine.setMix (grainMixParam->load());
     granularEngine.process (buffer);
 
     // 5) Master FX chain.
@@ -966,62 +972,6 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 }
 
 //==============================================================================
-void VocalChopAudioProcessor::toggleAB()
-{
-    // Save the current knobs into the slot we're leaving, then load the other
-    // slot (first toggle simply carries the current sound across).
-    auto current = apvts.copyState();
-
-    if (abIsB)
-    {
-        snapshotB = current;
-        if (snapshotA.isValid())
-            apvts.replaceState (snapshotA.createCopy());
-    }
-    else
-    {
-        snapshotA = current;
-        if (snapshotB.isValid())
-            apvts.replaceState (snapshotB.createCopy());
-    }
-
-    abIsB = ! abIsB;
-}
-
-void VocalChopAudioProcessor::randomizeParams()
-{
-    auto& rng = juce::Random::getSystemRandom();
-
-    auto set = [this] (const juce::String& id, float value)
-    {
-        if (auto* p = apvts.getParameter (id))
-            p->setValueNotifyingHost (p->convertTo0to1 (value));
-    };
-    auto uni = [&rng] (float lo, float hi) { return lo + rng.nextFloat() * (hi - lo); };
-
-    // Musical-but-surprising ranges; envelope stays playable on purpose.
-    set ("pitch",        uni (-12.0f, 12.0f));
-    set ("formant",      uni (-6.0f, 6.0f));
-    set ("grainSize",    uni (30.0f, 300.0f));
-    set ("drive",        uni (0.0f, 0.6f));
-    set ("reverb",       uni (0.0f, 0.7f));
-    set ("delay",        uni (0.0f, 0.6f));
-    set ("delayFeedback",uni (0.2f, 0.7f));
-    set ("pingpong",     rng.nextBool() ? 1.0f : 0.0f);
-    set ("width",        uni (0.6f, 1.6f));
-    set ("filterType",   (float) rng.nextInt (4));
-    set ("filterCutoff", uni (300.0f, 18000.0f));
-    set ("filterReso",   uni (0.5f, 4.0f));
-    set ("reverse",      rng.nextFloat() < 0.25f ? 1.0f : 0.0f);
-    set ("attack",       uni (0.0f, 80.0f));
-    set ("decay",        uni (0.0f, 400.0f));
-    set ("sustain",      uni (0.4f, 1.0f));
-    set ("release",      uni (10.0f, 400.0f));
-    set ("synthWave",    (float) rng.nextInt (4));
-    set ("synthDetune",  uni (0.0f, 25.0f));
-}
-
-//==============================================================================
 void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // Full session state: parameters + sample path + slicing + theme, so that
@@ -1033,6 +983,9 @@ void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     root.setAttribute ("sensitivity", (double) sliceEngine.getSensitivity());
     root.setAttribute ("theme",       ThemeManager::current());
     root.setAttribute ("instrument",  currentInstrument);
+    // The name is authoritative across plugin versions — the table grows and
+    // indices drift, but "Grand Piano" is forever.
+    root.setAttribute ("instrumentName", getInstrumentNames()[currentInstrument]);
 
     if (auto params = apvts.copyState().createXml())
         root.addChildElement (params.release());
@@ -1063,7 +1016,20 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
 
     // Restore the instrument's engine architecture only — the knob values come
     // from the restored parameter tree above, not the instrument defaults.
-    applyEnginePatch (xml->getIntAttribute ("instrument", 0));
+    // Prefer the saved NAME (indices drift as the table grows across
+    // versions); fall back to the index for old sessions.
+    {
+        int idx = xml->getIntAttribute ("instrument", 0);
+        const auto savedName = xml->getStringAttribute ("instrumentName");
+        if (savedName.isNotEmpty())
+        {
+            const auto names = getInstrumentNames();
+            const int byName = names.indexOf (savedName);
+            if (byName >= 0)
+                idx = byName;
+        }
+        applyEnginePatch (idx);
+    }
 
     sliceEngine.setMode ((SliceEngine::Mode) xml->getIntAttribute ("sliceMode",
                                                                    (int) SliceEngine::Transient));
@@ -1078,6 +1044,10 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         loadSampleFromFile (sample, false);
     else
         sliceEngine.rebuildSlices();
+
+    // Let an open editor re-sync its combos / theme / cached waveform
+    // (sendChangeMessage is async and safe from any thread).
+    sendChangeMessage();
 }
 
 //==============================================================================
