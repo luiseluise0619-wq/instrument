@@ -68,7 +68,7 @@ FetchContent_MakeAvailable(signalsmith_stretch signalsmith_linear)
 # category and the AU 'aumu' type.
 juce_add_plugin(VocalChopStudio
     COMPANY_NAME "VocalChop Labs"
-    BUNDLE_ID com.vocalchoplabs.vocalchopstudio
+    BUNDLE_ID com.vocalchoplabs.slyce
     PLUGIN_MANUFACTURER_CODE VCSL
     PLUGIN_CODE VCS0
     FORMATS VST3 AU Standalone
@@ -77,7 +77,7 @@ juce_add_plugin(VocalChopStudio
     NEEDS_MIDI_OUTPUT FALSE
     VST3_CATEGORIES "Instrument" "Synth" "Sampler"
     COPY_PLUGIN_AFTER_BUILD FALSE
-    PRODUCT_NAME "VocalChop Studio")
+    PRODUCT_NAME "Slyce")
 
 juce_generate_juce_header(VocalChopStudio)
 

@@ -39,7 +39,7 @@ struct Theme
 class ThemeManager
 {
 public:
-    static constexpr int kNumThemes = 7;
+    static constexpr int kNumThemes = 8;
 
     static const std::array<Theme, kNumThemes>& themes() { return all; }
     static int  current()          { return idx; }

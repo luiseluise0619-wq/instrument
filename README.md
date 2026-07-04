@@ -1,4 +1,6 @@
-# VocalChop Studio
+# Slyce
+
+> formerly "VocalChop Studio"
 
 A MIDI-triggered vocal chop / slice instrument built with [JUCE](https://juce.com)
 and exported as **VST3**, **AU**, and **Standalone**. Licensed under
@@ -92,7 +94,7 @@ Source/
 
 Ready-made builds live on the **Releases** page:
 grab `VocalChopStudio-vX.Y.Z-Windows.zip` (or macOS/Linux), unzip, and copy
-`VocalChop Studio.vst3` into your VST3 folder
+`Slyce.vst3` into your VST3 folder
 (`C:\Program Files\Common Files\VST3\` on Windows). Each zip includes the
 Standalone app and the GPL licence text.
 
@@ -116,7 +118,7 @@ Every push builds the plugin automatically on GitHub Actions for
 1. Open the repo's **Actions** tab on GitHub.
 2. Click the latest **Build & Validate** run (green check = build passed).
 3. Scroll to **Artifacts** and download e.g. `VocalChopStudio-Windows-VST3`.
-4. Unzip and copy the `VocalChop Studio.vst3` folder to
+4. Unzip and copy the `Slyce.vst3` folder to
    `C:\Program Files\Common Files\VST3\`, then rescan plugins in your DAW.
 
 ## Building
@@ -139,7 +141,7 @@ Built plugins land under `build/VocalChopStudio_artefacts/`.
 
 ## Using it in a DAW
 
-VocalChop Studio is an **instrument / generator** (not an insert effect), so it
+Slyce is an **instrument / generator** (not an insert effect), so it
 receives MIDI notes and outputs the chopped audio:
 
 - **FL Studio** (Windows): loads the **VST3** as a generator in the Channel Rack;

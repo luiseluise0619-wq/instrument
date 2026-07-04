@@ -22,7 +22,7 @@ public:
     explicit UnlockPanel (std::function<bool (juce::String, juce::String)> finalizeFn)
         : finalize (std::move (finalizeFn))
     {
-        title.setText ("UNLOCK VOCALCHOP STUDIO", juce::dontSendNotification);
+        title.setText ("UNLOCK SLYCE", juce::dontSendNotification);
         title.setFont (juce::Font (juce::FontOptions (20.0f).withStyle ("Semibold")));
         title.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (title);

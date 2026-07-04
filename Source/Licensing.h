@@ -3,7 +3,7 @@
 #include <JuceHeader.h>
 
 /**
-    Licensing for VocalChop Studio.
+    Licensing for Slyce (formerly VocalChop Studio).
 
     Two kinds of key unlock the plugin:
 
@@ -29,8 +29,9 @@ namespace vcs
 struct Licensing
 {
     // Gumroad product permalink (the bit after gumroad.com/l/...).
-    // REPLACE once the product page exists, then rebuild.
-    static constexpr const char* kGumroadPermalink = "vocalchopstudio";
+    // The product page URL must be gumroad.com/l/slyce — or update this
+    // constant to match and rebuild.
+    static constexpr const char* kGumroadPermalink = "slyce";
     static constexpr int kMaxDevices = 3;
 
     // RSA public key for offline "VCS-" keys (e, n hex — juce::RSAKey format).
@@ -143,7 +144,7 @@ struct Licensing
 
         r.ok = true;
         r.email = purchase.getProperty ("email", juce::String()).toString();
-        r.message = "Activated - thank you for supporting VocalChop Studio!";
+        r.message = "Activated - thank you for supporting Slyce!";
         return r;
     }
 
@@ -164,7 +165,7 @@ struct Licensing
     static juce::File licenseFile()
     {
         return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                   .getChildFile ("VocalChop Studio")
+                   .getChildFile ("Slyce")
                    .getChildFile ("license.xml");
     }
 

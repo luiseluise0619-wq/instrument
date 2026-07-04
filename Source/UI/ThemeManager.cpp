@@ -1,8 +1,23 @@
 #include "ThemeManager.h"
 
-int ThemeManager::idx = 0; // default to the "Neon Rider" artwork skin
+int ThemeManager::idx = 0; // default to the flat "Studio" look
 
 std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
+    // ---- Studio (default): near-black, violet accent, flat pro look --------
+    // Modelled on modern commercial instruments: matte panels, one restrained
+    // accent, zero glow. The artwork skins below stay available as options.
+    {
+        "Studio", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),   // bg gradient
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),   // material / controls
+        juce::Colour (0x1effffff),                              // separator
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),   // control / track
+        juce::Colour (0xff8b5cf6), juce::Colour (0x338b5cf6),   // accent (violet)
+        juce::Colour (0xffa78bfa),                              // waveform (soft violet)
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),   // text / secondary
+        juce::Colour (0x66000000),                              // shadow
+        12.0f, 0.0f                                             // flat
+    },
     // ---- Neon Rider (full-bleed artwork: pink/blue bike in the rain) -------
     // The editor draws the embedded skin_neon_rider.png behind the panels.
     {

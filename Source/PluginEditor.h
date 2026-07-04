@@ -69,6 +69,7 @@ private:
 
     // Top bar.
     juce::Label      titleLabel;
+    juce::Label      subtitleLabel;
     juce::Label      presetLabel;
     juce::ComboBox   presetBox;
     juce::ComboBox   themeBox;

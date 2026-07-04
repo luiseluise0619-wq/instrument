@@ -478,12 +478,18 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // The editor itself plays notes from the computer keyboard.
     setWantsKeyboardFocus (true);
 
-    // --- Title ---
-    titleLabel.setText ("VOCALCHOP STUDIO", juce::dontSendNotification);
-    titleLabel.setFont (juce::Font (juce::FontOptions (19.0f).withStyle ("Semibold"))
-                            .withExtraKerningFactor (0.14f));
+    // --- Title: lowercase wordmark + quiet category caption ---
+    titleLabel.setText ("slyce", juce::dontSendNotification);
+    titleLabel.setFont (juce::Font (juce::FontOptions (26.0f).withStyle ("Bold"))
+                            .withExtraKerningFactor (0.02f));
     titleLabel.setJustificationType (juce::Justification::centredLeft);
     addAndMakeVisible (titleLabel);
+
+    subtitleLabel.setText ("VOCAL CHOP INSTRUMENT", juce::dontSendNotification);
+    subtitleLabel.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Medium"))
+                               .withExtraKerningFactor (0.18f));
+    subtitleLabel.setJustificationType (juce::Justification::centredLeft);
+    addAndMakeVisible (subtitleLabel);
 
     // --- Preset menu (NOT an APVTS param) ---
     presetLabel.setText ("Preset", juce::dontSendNotification);
@@ -1135,6 +1141,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
 
     // Live label colours.
     titleLabel.setColour (juce::Label::textColourId, theme.text);
+    subtitleLabel.setColour (juce::Label::textColourId, theme.textSecondary);
     presetLabel.setColour (juce::Label::textColourId, theme.textSecondary);
     octLabel.setColour (juce::Label::textColourId, theme.textSecondary);
 
@@ -1184,7 +1191,8 @@ void VocalChopAudioProcessorEditor::resized()
 
     // --- Top toolbar row ---
     auto top = area.removeFromTop (kToolbarH);
-    titleLabel.setBounds (top.removeFromLeft (300));
+    titleLabel.setBounds (top.removeFromLeft (92));
+    subtitleLabel.setBounds (top.removeFromLeft (208).withTrimmedTop (6));
 
     // Right-aligned: theme, load, demo, preset combo, preset label.
     themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
