@@ -1192,7 +1192,9 @@ void VocalChopAudioProcessorEditor::resized()
     // --- Top toolbar row ---
     auto top = area.removeFromTop (kToolbarH);
     titleLabel.setBounds (top.removeFromLeft (92));
-    subtitleLabel.setBounds (top.removeFromLeft (208).withTrimmedTop (6));
+    // 92 + 194 left + 690 right = 976 = exactly the space at the 1020 min
+    // width; one more px and the LOOPER button lands on this caption.
+    subtitleLabel.setBounds (top.removeFromLeft (194).withTrimmedTop (6));
 
     // Right-aligned: theme, load, demo, preset combo, preset label.
     themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));

@@ -1277,6 +1277,9 @@ void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     root.setAttribute ("gridDiv",     sliceEngine.getGridDivision());
     root.setAttribute ("sensitivity", (double) sliceEngine.getSensitivity());
     root.setAttribute ("theme",       ThemeManager::current());
+    // Like the instrument: the NAME is authoritative — the theme list grows
+    // and indices drift across versions.
+    root.setAttribute ("themeName",   ThemeManager::active().name);
     root.setAttribute ("instrument",  currentInstrument);
     // The name is authoritative across plugin versions — the table grows and
     // indices drift, but "Syn Grand" is forever.
@@ -1307,7 +1310,25 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     if (auto* params = xml->getChildByName (apvts.state.getType()))
         apvts.replaceState (juce::ValueTree::fromXml (*params));
 
-    ThemeManager::setIndex (xml->getIntAttribute ("theme", ThemeManager::current()));
+    // Prefer the saved theme NAME; sessions saved before the Studio themes
+    // were prepended carry only an index into the OLD 7-theme list, which
+    // now sits shifted by 8 (Neon Rider was 0, is 8).
+    {
+        int themeIdx = -1;
+        const auto savedTheme = xml->getStringAttribute ("themeName");
+        if (savedTheme.isNotEmpty())
+        {
+            const auto& list = ThemeManager::themes();
+            for (int i = 0; i < (int) list.size(); ++i)
+                if (list[(size_t) i].name == savedTheme)
+                    { themeIdx = i; break; }
+        }
+        if (themeIdx < 0 && xml->hasAttribute ("theme"))
+            themeIdx = xml->getIntAttribute ("theme")
+                       + (savedTheme.isEmpty() ? 8 : 0);   // legacy index -> shifted list
+        if (themeIdx >= 0)
+            ThemeManager::setIndex (themeIdx);
+    }
 
     // Restore the instrument's engine architecture only — the knob values come
     // from the restored parameter tree above, not the instrument defaults.
