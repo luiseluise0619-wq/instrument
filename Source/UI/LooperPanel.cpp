@@ -42,9 +42,10 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     addAndMakeVisible (engineBox);
 
     {
-        static const char* featured[] = { "Supersaw Lead", "Rage Bell", "Memphis 808",
-                                          "Lov3 Keys", "Kick 808", "Hat Closed",
-                                          "Snare 808", "Clap", "Bass Pad", "Syn Grand" };
+        static const char* featured[] = { "Vox Choir", "Vox Pluck", "Supersaw Lead",
+                                          "Rage Bell", "Memphis 808", "Lov3 Keys",
+                                          "Kick 808", "Hat Closed", "Snare 808",
+                                          "Clap", "Bass Pad", "Syn Grand" };
         const auto names = VocalChopAudioProcessor::getInstrumentNames();
         const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
 

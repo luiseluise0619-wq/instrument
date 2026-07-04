@@ -837,6 +837,19 @@ namespace
     { "DRUMS", "Hat Open",      1, 0.0f, 0.0f, 0.75f, 0.90f, 7.31f,0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,  420, 0.00f, 320, 0.15f, 0.08f, 0.0f, 0, 1.1f },
     { "DRUMS", "Rim Perc",      1, 0.0f, 0.20f,0.35f, 0.60f, 3.7f, 0.0f, 0.0f,  8000, 0.8f,   60, 2,  0,  0.0f,  0,   90, 0.00f,  70, 0.25f, 0.10f, 0.0f, 0, 1.0f },
 
+    { "VOCAL", "Vox Choir",     5, 0.85f,0.0f, 0.08f, 0.00f, 2.0f, 4.5f, 8.0f,  1800, 0.4f,  500, 0,  0, 12.0f, 260,  700, 0.85f, 700, 0.00f, 0.55f, 0.00f, 0, 1.5f },
+    { "VOCAL", "Vox Ahh",       4, 0.70f,0.0f, 0.06f, 0.00f, 2.0f, 5.0f,10.0f,  2600, 0.6f,  300, 0,  0, 10.0f, 120,  500, 0.85f, 450, 0.00f, 0.45f, 0.00f, 0, 1.35f },
+    { "VOCAL", "Vox Ooh",       3, 0.60f,0.0f, 0.05f, 0.00f, 2.0f, 4.5f, 8.0f,   950, 0.4f,  350, 3,  0,  8.0f, 150,  600, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.25f },
+    { "VOCAL", "Vox Lead",      2, 0.30f,0.0f, 0.04f, 0.15f, 2.0f, 5.5f,14.0f,  2800, 1.0f,  220, 0,  0,  7.0f,  25,  300, 0.90f, 260, 0.10f, 0.30f, 0.10f, 0, 1.1f },
+    { "VOCAL", "Vox Pluck",     3, 0.50f,0.0f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  2400, 2.0f,  120, 0,  0,  8.0f,   0,  240, 0.05f, 220, 0.05f, 0.35f, 0.12f, 0, 1.2f },
+    { "VOCAL", "Vox Stab",      5, 0.70f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2600, 1.5f,  180, 0,  0, 12.0f,   2,  320, 0.15f, 240, 0.05f, 0.40f, 0.15f, 0, 1.3f },
+    { "VOCAL", "Chop Vox",      4, 0.60f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 1.8f,  140, 0,  0, 10.0f,   2,  180, 0.10f, 160, 0.08f, 0.30f, 0.20f, 0, 1.25f },
+    { "VOCAL", "Robot Vox",     1, 0.00f,0.0f, 0.02f, 0.55f, 1.0f, 0.0f, 0.0f,  1600, 1.0f,  260, 1,  0,  0.0f,   5,  260, 0.70f, 180, 0.25f, 0.20f, 0.10f, 0, 1.0f },
+    { "VOCAL", "Talkbox Vox",   1, 0.00f,0.1f, 0.00f, 0.50f, 3.0f, 5.0f,10.0f,  1200, 1.2f,  250, 3,  0,  0.0f,   8,  300, 0.65f, 200, 0.30f, 0.25f, 0.05f, 0, 1.0f },
+    { "VOCAL", "Vox Hum",       1, 0.00f,0.15f,0.04f, 0.00f, 2.0f, 4.0f, 6.0f,   750, 0.3f,  400, 2,  0,  0.0f, 200,  600, 0.90f, 500, 0.00f, 0.35f, 0.00f, 0, 1.0f },
+    { "VOCAL", "Whisper Air",   2, 0.60f,0.0f, 0.60f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 0,  0, 10.0f, 300,  900, 0.80f, 900, 0.00f, 0.70f, 0.10f, 0, 1.6f },
+    { "VOCAL", "Angel Choir",   6, 0.90f,0.0f, 0.10f, 0.00f, 2.0f, 4.0f, 7.0f,  2200, 0.3f,  700, 0,  0, 14.0f, 500, 1000, 0.85f,1100, 0.00f, 0.75f, 0.10f, 0, 1.6f },
+
     { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
     { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
     { "LEAD",  "Acid Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 3.0f,  200, 0,  0,  3.0f,  0,   180, 0.55f,  90, 0.35f, 0.10f, 0.15f, 0, 1.0f },
@@ -1096,6 +1109,8 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
                                 p.satAmount = 0.30f; }
     else if (cat == "DRUMS")  { chorus = 0.0f;  p.driftCents = 0.0f;  p.velToFilterOct = 1.2f;
                                 p.satAmount = 0.25f; }
+    else if (cat == "VOCAL")  { chorus = 0.45f; p.driftCents = 3.5f;  p.velToFilterOct = 0.4f;
+                                p.filterQ = 1.6f; }   // resonance ~= formant vowel colour
     else /* MISC / INIT */    { chorus = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
 
     if (name == "Acid Lead")     { p.filterQ = 5.5f; p.satAmount = 0.35f; }
@@ -1106,6 +1121,7 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name == "Sub 808")       { p.driftCents = 0.5f; chorus = 0.0f; }
     if (name == "Synth Brass")   chorus = 0.30f;
     if (name == "Syn Flute")    chorus = 0.20f;
+    if (name == "Robot Vox")    { chorus = 0.10f; p.driftCents = 0.0f; }   // machines don't drift
 
     // Percussion pitch drops (the 808 "boo" and snare thwack).
     if (name == "Kick 808")    { p.pitchEnvOct = 2.2f; p.pitchEnvMs = 42.0f; }
