@@ -441,7 +441,7 @@ namespace
         }
 
         // Brand-cohesive CRT scanlines, very subtle.
-        g.setColour (juce::Colours::black.withAlpha (0.05f));
+        g.setColour (juce::Colours::black.withAlpha (0.03f));
         for (float sy = 0.0f; sy < h; sy += 3.0f)
             g.fillRect (0.0f, sy, w, 1.0f);
     }
@@ -540,6 +540,16 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
 
     addChildComponent (looperPanel);   // hidden until the tab is opened
 
+    // --- Licensing: UNLOCK button (demo builds only) + overlay panel ---
+    unlockButton.onClick = [this]
+    {
+        unlockPanel.setVisible (true);
+        unlockPanel.toFront (true);
+    };
+    addAndMakeVisible (unlockButton);
+    unlockButton.setVisible (! processor.isLicensed());
+    addChildComponent (unlockPanel);
+
     demoButton.setTriggeredOnMouseDown (true);   // instant response
     demoButton.onClick = [this]
     {
@@ -581,7 +591,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
 
         auto* root = instrumentBox.getRootMenu();
-        root->addSectionHeader (juce::String::fromUTF8 ("\xe2\x98\x85 FEATURED"));
+        root->addSectionHeader ("FEATURED");
         for (auto* f : featured)
         {
             const int idx = names.indexOf (f);
@@ -934,6 +944,13 @@ void VocalChopAudioProcessorEditor::timerCallback()
     // hidden entirely, let go of everything.
     scanTypingKeys (! isShowing());
 
+    // Hide the UNLOCK affordance the moment activation succeeds.
+    if (processor.isLicensed() && unlockButton.isVisible())
+    {
+        unlockButton.setVisible (false);
+        repaint (getLocalBounds().removeFromBottom (30));
+    }
+
     // Advance the hero motion FX; repaint ONLY the artwork band, and only
     // while something is actually moving.
     if (! speedLines.empty() || heroGlow > 0.02f)
@@ -995,7 +1012,7 @@ void VocalChopAudioProcessorEditor::drawHeroFx (juce::Graphics& g)
         const float cx = heroRect.getWidth() * 0.5f;
         const float cy = heroRect.getHeight() * 0.62f;
         const float r  = heroRect.getWidth() * 0.30f;
-        juce::ColourGradient pulse (theme.accent.withAlpha (0.16f * heroGlow), cx, cy,
+        juce::ColourGradient pulse (theme.accent.withAlpha (0.10f * heroGlow), cx, cy,
                                     theme.accent.withAlpha (0.0f), cx + r, cy, true);
         g.setGradientFill (pulse);
         g.fillEllipse (cx - r, cy - r * 0.55f, r * 2.0f, r * 1.1f);
@@ -1007,12 +1024,12 @@ void VocalChopAudioProcessorEditor::drawHeroFx (juce::Graphics& g)
     {
         const auto col = (s.hue == 0 ? theme.accent : theme.waveform);
         juce::ColourGradient streak (col.withAlpha (0.0f), s.x, s.y,
-                                     col.withAlpha (0.50f * s.life), s.x + s.len, s.y,
+                                     col.withAlpha (0.32f * s.life), s.x + s.len, s.y,
                                      false);
         g.setGradientFill (streak);
-        g.fillRect (s.x, s.y - 1.5f, s.len, 3.0f);
+        g.fillRect (s.x, s.y - 1.0f, s.len, 2.0f);
 
-        g.setColour (juce::Colours::white.withAlpha (0.35f * s.life));
+        g.setColour (juce::Colours::white.withAlpha (0.20f * s.life));
         g.fillRect (s.x + s.len * 0.72f, s.y - 0.5f, s.len * 0.28f, 1.0f);
     }
 }
@@ -1039,10 +1056,10 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
         g.setColour (juce::Colour (0xc008102a));
         g.fillRoundedRectangle (bounds, radius);
 
-        // Faint neon rim.
-        g.setColour (theme.accent.withAlpha (0.10f));
-        g.drawRoundedRectangle (bounds.expanded (1.0f), radius + 1.0f, 2.5f);
-        g.setColour (theme.accent.withAlpha (0.28f));
+        // Faint neon rim — restrained: an expensive plugin whispers.
+        g.setColour (theme.accent.withAlpha (0.06f));
+        g.drawRoundedRectangle (bounds.expanded (1.0f), radius + 1.0f, 2.0f);
+        g.setColour (theme.accent.withAlpha (0.16f));
         g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
         return;
     }
@@ -1151,6 +1168,14 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
                     + JucePlugin_VersionString,
                 getLocalBounds().removeFromBottom (24).reduced (kMargin, 0),
                 juce::Justification::centredRight);
+
+    if (! processor.isLicensed())
+    {
+        g.setColour (juce::Colour (0xffff453a).withAlpha (0.85f));
+        g.drawText ("DEMO - output mutes 2 s every minute",
+                    juce::Rectangle<int> (kMargin + 104, getHeight() - 26, 300, 22),
+                    juce::Justification::centredLeft);
+    }
 }
 
 void VocalChopAudioProcessorEditor::resized()
@@ -1343,4 +1368,8 @@ void VocalChopAudioProcessorEditor::resized()
                                               juce::jmin (200, controlsCol.getWidth()), 30));
         }
     }
+
+    // Licensing: footer button + full-window overlay.
+    unlockButton.setBounds (kMargin, getHeight() - 26, 96, 22);
+    unlockPanel.setBounds (getLocalBounds());
 }

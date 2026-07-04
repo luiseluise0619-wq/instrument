@@ -122,7 +122,7 @@ target_include_directories(VocalChopStudio PRIVATE
 # Only set it back to 0 after buying a JUCE Indie/Pro licence.
 target_compile_definitions(VocalChopStudio PRIVATE
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
+    JUCE_USE_CURL=1
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=1
     JUCE_MODAL_LOOPS_PERMITTED=1)
@@ -131,6 +131,7 @@ target_link_libraries(VocalChopStudio
     PRIVATE
         VocalChopData
         juce::juce_audio_utils
+        juce::juce_cryptography
         juce::juce_dsp
         juce::juce_gui_basics
         juce::juce_gui_extra

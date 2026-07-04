@@ -10,6 +10,7 @@
 #include "AudioEngine/FXChain.h"
 #include "AudioEngine/LoopStation.h"
 #include "DSP/Limiter.h"
+#include "Licensing.h"
 
 //==============================================================================
 class VocalChopAudioProcessor : public juce::AudioProcessor,
@@ -97,6 +98,16 @@ public:
     int  getDetectedKeyRoot() const  { return detectedKeyRoot.load(); }
     bool isDetectedKeyMinor() const  { return detectedKeyMinor.load(); }
 
+    /** Licensing: unlicensed = demo (output mutes 2 s every minute). */
+    bool isLicensed() const { return licensed.load(); }
+    bool finalizeActivation (const juce::String& email, const juce::String& key)
+    {
+        if (! vcs::Licensing::saveActivation (email, key))
+            return false;
+        licensed.store (true);
+        return true;
+    }
+
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
@@ -166,6 +177,10 @@ private:
     std::atomic<float>* macroDirtParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
+
+    // Licensing (loaded once in the constructor; demo gate in processBlock).
+    std::atomic<bool> licensed { false };
+    int64_t demoClock = 0;
 
     // Detected key of the loaded sample (message thread writes, UI reads).
     std::atomic<int>  detectedKeyRoot { -1 };

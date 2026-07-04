@@ -141,7 +141,7 @@ void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShel
                                           "Rage Bell", "Memphis 808", "Lov3 Keys",
                                           "Kick 808", "Hat Closed", "Snare 808",
                                           "Clap", "Bass Pad", "Syn Grand" };
-        root->addSectionHeader (juce::String::fromUTF8 ("\xe2\x98\x85 QUICK"));
+        root->addSectionHeader ("QUICK");
         for (auto* f : featured)
         {
             const int idx = names.indexOf (f);

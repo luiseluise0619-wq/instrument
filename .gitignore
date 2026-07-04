@@ -34,3 +34,4 @@ Thumbs.db
 *.component
 *.o
 *.obj
+vcs_private_key.json

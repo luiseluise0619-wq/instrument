@@ -9,6 +9,8 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    licensed.store (vcs::Licensing::loadActivation());
+
     pitchParam     = apvts.getRawParameterValue ("pitch");
     formantParam   = apvts.getRawParameterValue ("formant");
     mixParam       = apvts.getRawParameterValue ("mix");
@@ -421,6 +423,29 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // 9) Brick-wall limiter.
     limiter.process (buffer);
+
+    // 10) Demo gate: without a license the output mutes for 2 s every
+    //     minute (short fades at the window edges so there is no click).
+    if (! licensed.load (std::memory_order_relaxed))
+    {
+        const auto period  = (int64_t) (60.0 * currentSampleRate);
+        const auto muteLen = (int64_t) ( 2.0 * currentSampleRate);
+        for (int n = 0; n < numSamples; ++n)
+        {
+            const auto ph = (demoClock + n) % period;
+            if (ph >= period - muteLen)
+            {
+                const auto into   = ph - (period - muteLen);
+                const auto remain = muteLen - into;
+                float gain = 0.0f;
+                if (into < 256)        gain = 1.0f - (float) into / 256.0f;
+                else if (remain < 256) gain = 1.0f - (float) remain / 256.0f;
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    buffer.getWritePointer (ch)[n] *= gain;
+            }
+        }
+        demoClock += numSamples;
+    }
 
     // Publish the output level as a PEAK LATCH: keep the maximum until the
     // meter consumes it (exchange-to-zero), so no transient between two UI

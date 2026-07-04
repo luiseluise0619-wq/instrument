@@ -11,6 +11,7 @@
 #include "UI/KnobComponent.h"
 #include "UI/MeterComponent.h"
 #include "UI/LooperPanel.h"
+#include "UI/UnlockPanel.h"
 #include "UI/AppleLookAndFeel.h"
 
 //==============================================================================
@@ -123,6 +124,9 @@ private:
     SliceGrid      sliceGrid;
     FXRack         fxRack;
     LooperPanel    looperPanel { processor };
+    UnlockPanel    unlockPanel { [this] (juce::String e, juce::String k)
+                                 { return processor.finalizeActivation (e, k); } };
+    juce::TextButton unlockButton { "UNLOCK" };
 
     // Cached card rectangles (populated in resized(), painted in paint()).
     juce::Rectangle<int> macroCardBounds;
