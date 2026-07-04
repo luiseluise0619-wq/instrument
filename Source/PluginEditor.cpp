@@ -523,6 +523,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
 
     // One-click start: load the embedded demo vocal (the processor slices it,
     // falling back to a grid when transients are sparse — reflect that here).
+    demoButton.setTriggeredOnMouseDown (true);   // instant response
     demoButton.onClick = [this]
     {
         if (processor.loadDemoSample())
@@ -566,14 +567,34 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
             instrumentBox.addItem (names[i], i + 1);
         }
     }
+    // Featured shelf: the ten patches that make the best first impression,
+    // pinned above the category sections (ids offset by 1000).
+    {
+        static const char* featured[] = { "Supersaw Lead", "Rage Bell", "Memphis 808",
+                                          "Lov3 Keys", "Future Bass", "Trance Pluck",
+                                          "Bass Pad", "Dream Pad", "Syn Grand",
+                                          "Hyper Saw" };
+        const auto allNames = VocalChopAudioProcessor::getInstrumentNames();
+        instrumentBox.addSectionHeading (juce::String::fromUTF8 ("\xe2\x98\x85 FEATURED"));
+        for (auto* f : featured)
+        {
+            const int idx = allNames.indexOf (f);
+            if (idx >= 0)
+                instrumentBox.addItem (f, 1000 + idx);
+        }
+    }
+
     instrumentBox.setTextWhenNothingSelected ("Instrument");
     if (processor.getCurrentInstrument() > 0)
         instrumentBox.setSelectedId (processor.getCurrentInstrument() + 1,
                                      juce::dontSendNotification);
     instrumentBox.onChange = [this]
     {
-        if (instrumentBox.getSelectedId() > 0)
-            processor.applyInstrument (instrumentBox.getSelectedId() - 1);
+        const int id = instrumentBox.getSelectedId();
+        if (id >= 1000)
+            processor.applyInstrument (id - 1000);   // featured shelf
+        else if (id > 0)
+            processor.applyInstrument (id - 1);
         refreshChildren();
         grabKeysSoon();   // pick a patch, play it immediately
     };
@@ -628,6 +649,13 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         };
         octDownButton.onClick = [shiftOctave] { shiftOctave (-1); };
         octUpButton.onClick   = [shiftOctave] { shiftOctave (+1); };
+        // Fire on press and auto-repeat while held: octave surfing feels
+        // instantaneous instead of click-release-click.
+        for (auto* b : { &octDownButton, &octUpButton })
+        {
+            b->setTriggeredOnMouseDown (true);
+            b->setRepeatSpeed (350, 110);
+        }
     }
     octLabel.setJustificationType (juce::Justification::centred);
     addAndMakeVisible (octDownButton);
@@ -658,6 +686,11 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (chorusKnob,  "synthChorus",  "Chorus");
     addKnob (lfoRateKnob, "synthLfoRate", "LFO Rate");
     addKnob (motionKnob,  "synthLfoAmt",  "Motion");
+
+    // --- Performance macros: the three most prominent knobs on screen ---
+    addKnob (hypeKnob,  "macroHype",  "HYPE");
+    addKnob (spaceKnob, "macroSpace", "SPACE");
+    addKnob (dirtKnob,  "macroDirt",  "DIRT");
 
     // --- Filter knobs + combo ---
     addKnob (filterCutoffKnob, "filterCutoff", "Cutoff");
@@ -706,8 +739,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     setResizable (true, true);
     // Minimum width must fit the fixed slice-control row (engine + slicing
     // combos + wave + instrument + octave buttons) without clipping.
-    setResizeLimits (1020, 760, 1800, 1400);
-    setSize (1080, 900);
+    setResizeLimits (1020, 860, 1800, 1500);
+    setSize (1080, 990);
 
     refreshChildren();
     startTimerHz (30);   // typing-key watchdog (stuck-note guard)
@@ -782,6 +815,7 @@ void VocalChopAudioProcessorEditor::refreshChildren()
 {
     waveform.refresh();
     sliceGrid.refresh();
+    chordBar.refreshKeyLabel();
     repaint();
 }
 
@@ -791,7 +825,7 @@ void VocalChopAudioProcessorEditor::grabKeysSoon()
     // Combo popups steal focus; take it back once they've closed so the
     // computer keyboard plays notes right away.
     juce::Component::SafePointer<VocalChopAudioProcessorEditor> safe (this);
-    juce::Timer::callAfterDelay (120, [safe]
+    juce::Timer::callAfterDelay (80, [safe]
     {
         if (safe != nullptr && safe->isShowing())
             safe->grabKeyboardFocus();
@@ -986,6 +1020,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillRect (full.getX(), toolbarBottom, full.getWidth(), 1);
 
     // Material cards.
+    drawCard (g, macroCardBounds.toFloat());
     drawCard (g, sliceCardBounds.toFloat());
     drawCard (g, envCardBounds.toFloat());
     drawCard (g, toneCardBounds.toFloat());
@@ -994,6 +1029,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     drawCard (g, playbackCardBounds.toFloat());
 
     // Section captions.
+    drawCaption (g, "Macros",     macroCardBounds);
     drawCaption (g, "Envelope",   envCardBounds);
     drawCaption (g, "Pitch / Tone", toneCardBounds);
     drawCaption (g, "Synth",      synthCardBounds);
@@ -1026,6 +1062,22 @@ void VocalChopAudioProcessorEditor::resized()
     top.removeFromRight (kGap / 2);
     presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 30));
     presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
+
+    area.removeFromTop (kGap);
+
+    // --- Macro strip: HYPE / SPACE / DIRT, front and centre ---
+    {
+        auto macroRow = area.removeFromTop (86);
+        macroCardBounds = macroRow;
+        auto inner = macroRow.reduced (kPadding, 6);
+        const int kw = juce::jmin (150, inner.getWidth() / 3);
+        auto strip = inner.withSizeKeepingCentre (kw * 3 + kGap * 2, inner.getHeight());
+        if (hypeKnob  != nullptr) hypeKnob->setBounds  (strip.removeFromLeft (kw));
+        strip.removeFromLeft (kGap);
+        if (spaceKnob != nullptr) spaceKnob->setBounds (strip.removeFromLeft (kw));
+        strip.removeFromLeft (kGap);
+        if (dirtKnob  != nullptr) dirtKnob->setBounds  (strip.removeFromLeft (kw));
+    }
 
     area.removeFromTop (kGap);
 

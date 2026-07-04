@@ -43,13 +43,33 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     synthChorusParam  = apvts.getRawParameterValue ("synthChorus");
     synthLfoRateParam = apvts.getRawParameterValue ("synthLfoRate");
     synthLfoAmtParam  = apvts.getRawParameterValue ("synthLfoAmt");
+    macroHypeParam  = apvts.getRawParameterValue ("macroHype");
+    macroSpaceParam = apvts.getRawParameterValue ("macroSpace");
+    macroDirtParam  = apvts.getRawParameterValue ("macroDirt");
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
 
-    // First-run experience: the default engine is Synth, so boot with a
-    // designed patch (Supersaw Lead) instead of the bare init tone.
+    // Synth mode boots with a designed patch (Supersaw Lead) whenever the
+    // user flips the engine over.
     applyEnginePatch (defaultInstrumentIndex());
+
+    // First-run experience = the name promise: decode the embedded demo
+    // vocal and slice it, so the very first key press CHOPS. No parameter
+    // writes here (hosts dislike notifications mid-construction) — the
+    // engine parameter's default is already Chop.
+    {
+        double sr = currentSampleRate;
+        if (auto demo = SampleLoader::decode (BinaryData::vocal_chop_demo_wav,
+                                              BinaryData::vocal_chop_demo_wavSize, sr))
+        {
+            sampleBuffer     = demo;
+            loadedSampleRate = sr;
+            reassignSampleToEngines();
+            rescanSlices();
+            analyzeSampleKey();
+        }
+    }
 }
 
 VocalChopAudioProcessor::~VocalChopAudioProcessor()
@@ -118,7 +138,7 @@ VocalChopAudioProcessor::createParameterLayout()
 
     // Synth engine mode: play oscillators instead of sample slices.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "engine", "Engine", juce::StringArray { "Chop", "Synth" }, 1));
+        "engine", "Engine", juce::StringArray { "Chop", "Synth" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "synthWave", "Synth Wave",
         juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
@@ -147,6 +167,16 @@ VocalChopAudioProcessor::createParameterLayout()
         "synthLfoRate", "LFO Rate", Range (0.05f, 8.0f, 0.01f, 0.5f), 2.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "synthLfoAmt", "Motion", Range (0.0f, 1.0f, 0.001f), 0.0f));
+
+    // Performance macros: one knob each for "the hook hits harder", "wetter
+    // space" and "dirtier texture". They OFFSET the underlying values in the
+    // audio thread without touching the parameters they shadow.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "macroHype", "HYPE", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "macroSpace", "SPACE", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "macroDirt", "DIRT", Range (0.0f, 1.0f, 0.001f), 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -197,6 +227,83 @@ void VocalChopAudioProcessor::reassignSampleToEngines()
 {
     sliceEngine.setSample (sampleBuffer, loadedSampleRate);
     voicePool.setSource (sampleBuffer, loadedSampleRate);
+}
+
+void VocalChopAudioProcessor::analyzeSampleKey()
+{
+    // Message thread. Chroma-based key estimate: average FFT magnitudes
+    // folded onto 12 pitch classes, correlated against the Krumhansl-Kessler
+    // major/minor profiles in all 12 rotations.
+    detectedKeyRoot.store (-1);
+
+    auto sample = sampleBuffer;
+    if (sample == nullptr || sample->getNumSamples() < 8192)
+        return;
+
+    constexpr int order = 12;
+    const int fftSize = 1 << order;             // 4096
+    juce::dsp::FFT fft (order);
+
+    std::vector<float> fftData ((size_t) fftSize * 2, 0.0f);
+    std::vector<float> window ((size_t) fftSize);
+    for (int i = 0; i < fftSize; ++i)
+        window[(size_t) i] = 0.5f * (1.0f - std::cos (juce::MathConstants<float>::twoPi
+                                                      * (float) i / (float) (fftSize - 1)));
+
+    double chroma[12] = {};
+    const int numCh   = sample->getNumChannels();
+    const int total   = juce::jmin (sample->getNumSamples(),
+                                    (int) (loadedSampleRate * 15.0));   // first 15 s
+    const double sr   = loadedSampleRate;
+
+    for (int start = 0; start + fftSize <= total; start += fftSize)
+    {
+        for (int i = 0; i < fftSize; ++i)
+        {
+            float mono = 0.0f;
+            for (int ch = 0; ch < numCh; ++ch)
+                mono += sample->getSample (ch, start + i);
+            fftData[(size_t) i] = (mono / (float) numCh) * window[(size_t) i];
+        }
+        std::fill (fftData.begin() + fftSize, fftData.end(), 0.0f);
+        fft.performFrequencyOnlyForwardTransform (fftData.data());
+
+        for (int bin = 2; bin < fftSize / 2; ++bin)
+        {
+            const double freq = (double) bin * sr / (double) fftSize;
+            if (freq < 60.0 || freq > 4500.0)
+                continue;
+            const double midi = 69.0 + 12.0 * std::log2 (freq / 440.0);
+            const int pc = ((int) std::lround (midi) % 12 + 12) % 12;
+            chroma[pc] += (double) fftData[(size_t) bin];
+        }
+    }
+
+    // Krumhansl-Kessler key profiles.
+    static const double majorP[12] = { 6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
+                                       2.52, 5.19, 2.39, 3.66, 2.29, 2.88 };
+    static const double minorP[12] = { 6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
+                                       2.54, 4.75, 3.98, 2.69, 3.34, 3.17 };
+
+    double bestScore = -1.0;
+    int bestRoot = -1;
+    bool bestMinor = false;
+
+    for (int root = 0; root < 12; ++root)
+    {
+        double sMaj = 0.0, sMin = 0.0;
+        for (int i = 0; i < 12; ++i)
+        {
+            const double c = chroma[(root + i) % 12];
+            sMaj += c * majorP[i];
+            sMin += c * minorP[i];
+        }
+        if (sMaj > bestScore) { bestScore = sMaj; bestRoot = root; bestMinor = false; }
+        if (sMin > bestScore) { bestScore = sMin; bestRoot = root; bestMinor = true; }
+    }
+
+    detectedKeyMinor.store (bestMinor);
+    detectedKeyRoot.store (bestRoot);
 }
 
 void VocalChopAudioProcessor::rescanSlices()
@@ -252,6 +359,29 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         pt.chorusMix     = synthChorusParam->load();
         pt.lfoRateHz     = synthLfoRateParam->load();
         pt.lfoDepthOct   = synthLfoAmtParam->load() * 2.0f;
+
+        // Performance macros offset the modules they shadow (never the
+        // parameters themselves, so host automation stays untouched).
+        const float hype = macroHypeParam->load();
+        const float dirt = macroDirtParam->load();
+        if (hype > 0.0f)
+        {
+            pt.stereoSpread = juce::jmin (1.0f, synthSpreadParam->load() + 0.5f * hype);
+            pt.lfoDepthOct  = juce::jmin (2.0f, pt.lfoDepthOct.load() + 0.5f * hype);
+        }
+        if (dirt > 0.0f)
+            pt.noiseLevel = juce::jmin (1.0f, synthNoiseParam->load() + 0.30f * dirt);
+    }
+
+    // Effective FX amounts = knob + macro offsets (clamped in the FX).
+    {
+        const float hype  = macroHypeParam->load();
+        const float space = macroSpaceParam->load();
+        const float dirt  = macroDirtParam->load();
+        effDrive  = juce::jlimit (0.0f, 1.0f, driveParam->load()  + 0.35f * hype + 0.40f * dirt);
+        effReverb = juce::jlimit (0.0f, 1.0f, reverbParam->load() + 0.50f * space);
+        effDelay  = juce::jlimit (0.0f, 1.0f, delayParam->load()  + 0.35f * space);
+        effWidth  = juce::jlimit (0.0f, 2.0f, widthParam->load()  + 0.50f * space);
     }
 
     // 1) MIDI + pad-queue → slice / synth triggers.
@@ -467,17 +597,17 @@ void VocalChopAudioProcessor::applyMasterFXChain (juce::AudioBuffer<float>& buff
     fxChain.filter.process     (buffer, filterCutoffParam->load(),
                                 filterResoParam->load(),
                                 (int) filterTypeParam->load());
-    fxChain.distortion.process (buffer, driveParam->load());
-    fxChain.reverb.process     (buffer, reverbParam->load());
+    fxChain.distortion.process (buffer, effDrive);
+    fxChain.reverb.process     (buffer, effReverb);
 
     fxChain.delay.setFeedback (delayFeedbackParam->load());
     fxChain.delay.setPingpong (pingpongParam->load() >= 0.5f);
-    fxChain.delay.process      (buffer, delayParam->load());
+    fxChain.delay.process      (buffer, effDelay);
 }
 
 void VocalChopAudioProcessor::applyStereoWidth (juce::AudioBuffer<float>& buffer)
 {
-    widthSmoothed.setTargetValue (widthParam->load());
+    widthSmoothed.setTargetValue (effWidth);
 
     if (buffer.getNumChannels() < 2)
     {
@@ -517,6 +647,7 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     loadedSampleFile = file;
     reassignSampleToEngines();
     rescanSlices();
+    analyzeSampleKey();
 
     // Loading a sample means the user wants to chop it - switch engines so
     // the keyboard immediately plays slices (state restore passes false).
@@ -544,6 +675,7 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
     loadedSampleRate = sr;
     reassignSampleToEngines();
     rescanSlices();
+    analyzeSampleKey();
 
     if (auto* p = apvts.getParameter ("engine"))
         p->setValueNotifyingHost (0.0f);

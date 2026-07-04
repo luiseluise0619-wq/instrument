@@ -90,6 +90,11 @@ public:
     void applyInstrument (int instrumentIndex);
     int  getCurrentInstrument() const { return currentInstrument; }
 
+    /** Detected musical key of the loaded sample: root 0..11 (C=0) or -1
+        when unknown; minor flag alongside. The chord bar follows this. */
+    int  getDetectedKeyRoot() const  { return detectedKeyRoot.load(); }
+    bool isDetectedKeyMinor() const  { return detectedKeyMinor.load(); }
+
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
@@ -101,6 +106,7 @@ private:
     void applyStereoWidth (juce::AudioBuffer<float>&);
     void reassignSampleToEngines();
     void rescanSlices();
+    void analyzeSampleKey();
     void queuePadEvent (int sliceIndex, float velocity, int type);
 
     //==========================================================================
@@ -152,8 +158,18 @@ private:
     std::atomic<float>* synthChorusParam  = nullptr;
     std::atomic<float>* synthLfoRateParam = nullptr;
     std::atomic<float>* synthLfoAmtParam  = nullptr;
+    std::atomic<float>* macroHypeParam  = nullptr;
+    std::atomic<float>* macroSpaceParam = nullptr;
+    std::atomic<float>* macroDirtParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
+
+    // Detected key of the loaded sample (message thread writes, UI reads).
+    std::atomic<int>  detectedKeyRoot { -1 };
+    std::atomic<bool> detectedKeyMinor { false };
+
+    // Effective FX amounts after macro offsets (audio thread only).
+    float effDrive = 0.0f, effReverb = 0.0f, effDelay = 0.0f, effWidth = 1.0f;
 
     double currentSampleRate = 44100.0;
     double loadedSampleRate  = 44100.0;

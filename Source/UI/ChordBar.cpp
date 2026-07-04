@@ -83,6 +83,7 @@ ChordBar::ChordBar (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
     caption.setText ("CHORDS", juce::dontSendNotification);
+    refreshKeyLabel();
     caption.setFont (juce::Font (juce::FontOptions (10.5f).withStyle ("Semibold")));
     caption.setJustificationType (juce::Justification::centredLeft);
     caption.setInterceptsMouseClicks (false, false);
@@ -96,11 +97,15 @@ ChordBar::ChordBar (VocalChopAudioProcessor& processor)
     addAndMakeVisible (styleBox);
 
     genButton.onClick = [this] { regenerate(); };
+    genButton.setTriggeredOnMouseDown (true);   // fire on press, not release
     addAndMakeVisible (genButton);
 
     for (int i = 0; i < (int) chordButtons.size(); ++i)
     {
         chordButtons[(size_t) i].onClick = [this, i] { playChord (i); };
+        // Chords must SOUND the instant the mouse goes down — waiting for
+        // mouse-up reads as lag on a musical control.
+        chordButtons[(size_t) i].setTriggeredOnMouseDown (true);
         addAndMakeVisible (chordButtons[(size_t) i]);
     }
 
@@ -110,6 +115,20 @@ ChordBar::ChordBar (VocalChopAudioProcessor& processor)
 ChordBar::~ChordBar()
 {
     stopTimer();
+}
+
+void ChordBar::refreshKeyLabel()
+{
+    static const char* names[12] = { "C", "C#", "D", "D#", "E", "F",
+                                     "F#", "G", "G#", "A", "A#", "B" };
+    const int root = proc.getDetectedKeyRoot();
+
+    if (root >= 0 && root < 12)
+        caption.setText (juce::String ("CHORDS \xc2\xb7 ") + names[root]
+                             + (proc.isDetectedKeyMinor() ? "m" : ""),
+                         juce::dontSendNotification);
+    else
+        caption.setText ("CHORDS", juce::dontSendNotification);
 }
 
 void ChordBar::regenerate()
@@ -135,8 +154,16 @@ void ChordBar::playChord (int buttonIndex)
         return;
 
     // Each chord tone goes through the same lock-free path as a key press.
+    // Progressions are stored in C; transpose them into the detected key of
+    // the loaded sample so suggestions always fit what the user dropped in.
+    const int root = juce::jmax (0, proc.getDetectedKeyRoot());
+
     for (int semi : current[(size_t) buttonIndex].semis)
-        proc.triggerSlicePad (semi, 0.85f);
+    {
+        int t = semi + root;
+        while (t > 35) t -= 12;   // stay inside the 3-octave keyboard
+        proc.triggerSlicePad (t, 0.85f);
+    }
 
     // Kick off the neon flash pulse on the clicked button (glow themes only;
     // the shared look-and-feel reads the "neonFlash" property when drawing).
@@ -186,7 +213,7 @@ void ChordBar::resized()
 {
     auto area = getLocalBounds();
 
-    caption.setBounds (area.removeFromLeft (64));
+    caption.setBounds (area.removeFromLeft (96));   // fits "CHORDS - A#m"
     styleBox.setBounds (area.removeFromLeft (120).withSizeKeepingCentre (120, 30));
     area.removeFromLeft (8);
     genButton.setBounds (area.removeFromLeft (96).withSizeKeepingCentre (96, 30));

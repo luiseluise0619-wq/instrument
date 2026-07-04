@@ -31,6 +31,10 @@ public:
     void resized() override;
     void paint (juce::Graphics&) override;
 
+    /** Updates the caption with the detected key ("CHORDS - Am"); call after
+        a sample loads. Chord playback transposes into this key. */
+    void refreshKeyLabel();
+
 private:
     struct Chord
     {

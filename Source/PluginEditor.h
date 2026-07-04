@@ -97,6 +97,9 @@ private:
                                    fmKnob, vibratoKnob, chorusKnob,
                                    lfoRateKnob, motionKnob;
 
+    // Performance macros (HYPE / SPACE / DIRT).
+    std::unique_ptr<KnobComponent> hypeKnob, spaceKnob, dirtKnob;
+
     // Grouped choice / bool controls.
     juce::ComboBox   filterTypeBox;
     juce::ComboBox   playModeBox;
@@ -117,6 +120,7 @@ private:
     FXRack         fxRack;
 
     // Cached card rectangles (populated in resized(), painted in paint()).
+    juce::Rectangle<int> macroCardBounds;
     juce::Rectangle<int> sliceCardBounds;
     juce::Rectangle<int> envCardBounds;
     juce::Rectangle<int> toneCardBounds;
