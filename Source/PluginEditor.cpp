@@ -550,36 +550,40 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         processor.getAPVTS(), "synthWave", synthWaveBox));
     addAndMakeVisible (synthWaveBox);
 
-    // --- Instrument picker: designed synth patches (switches to Synth mode),
-    //     grouped by category with section headings ---
-    {
-        const auto names = VocalChopAudioProcessor::getInstrumentNames();
-        const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
-        juce::String lastCat;
-        for (int i = 0; i < names.size(); ++i)
-        {
-            if (cats[i] != lastCat)
-            {
-                instrumentBox.addSectionHeading (cats[i]);
-                lastCat = cats[i];
-            }
-            instrumentBox.addItem (names[i], i + 1);
-        }
-    }
-    // Featured shelf: the ten patches that make the best first impression,
-    // pinned above the category sections (ids offset by 1000).
+    // Instrument menu: a flat 225-row list scrolled past the screen edge and
+    // appeared to show "only a few" items depending on where the popup
+    // opened. Structure it instead as a short root (Featured shelf) plus one
+    // submenu per category - always the same compact menu.
     {
         static const char* featured[] = { "Supersaw Lead", "Rage Bell", "Memphis 808",
                                           "Lov3 Keys", "Future Bass", "Trance Pluck",
                                           "Bass Pad", "Dream Pad", "Syn Grand",
                                           "Hyper Saw" };
-        const auto allNames = VocalChopAudioProcessor::getInstrumentNames();
-        instrumentBox.addSectionHeading (juce::String::fromUTF8 ("\xe2\x98\x85 FEATURED"));
+        const auto names = VocalChopAudioProcessor::getInstrumentNames();
+        const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
+
+        auto* root = instrumentBox.getRootMenu();
+        root->addSectionHeader (juce::String::fromUTF8 ("\xe2\x98\x85 FEATURED"));
         for (auto* f : featured)
         {
-            const int idx = allNames.indexOf (f);
+            const int idx = names.indexOf (f);
             if (idx >= 0)
                 instrumentBox.addItem (f, 1000 + idx);
+        }
+        root->addSeparator();
+
+        // One submenu per contiguous category block (ids stay index + 1).
+        int i = 0;
+        while (i < names.size())
+        {
+            const juce::String cat = cats[i];
+            juce::PopupMenu sub;
+            while (i < names.size() && cats[i] == cat)
+            {
+                sub.addItem (i + 1, names[i]);
+                ++i;
+            }
+            root->addSubMenu (cat, sub);
         }
     }
 
