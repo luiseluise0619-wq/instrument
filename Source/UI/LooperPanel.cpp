@@ -7,32 +7,49 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
 {
     // Looper controls must fire the instant the mouse goes down — timing IS
     // the feature.
-    mainButton.setTriggeredOnMouseDown (true);
-    stopButton.setTriggeredOnMouseDown (true);
-    clearButton.setTriggeredOnMouseDown (true);
-
-    mainButton.onClick  = [this] { proc.getLooper().tapMain();  };
-    stopButton.onClick  = [this] { proc.getLooper().tapStop();  };
-    clearButton.onClick = [this] { proc.getLooper().tapClear(); };
-
-    addAndMakeVisible (mainButton);
-    addAndMakeVisible (stopButton);
-    addAndMakeVisible (clearButton);
-
-    volumeSlider.setSliderStyle (juce::Slider::LinearHorizontal);
-    volumeSlider.setRange (0.0, 1.5, 0.01);
-    volumeSlider.setValue (proc.getLooper().getVolume(), juce::dontSendNotification);
-    volumeSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
-    volumeSlider.onValueChange = [this]
+    for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
-        proc.getLooper().setVolume ((float) volumeSlider.getValue());
-    };
-    addAndMakeVisible (volumeSlider);
+        auto& t = trackUI[i];
 
-    volumeLabel.setText ("LOOP VOL", juce::dontSendNotification);
-    volumeLabel.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Semibold")));
-    volumeLabel.setJustificationType (juce::Justification::centredRight);
-    addAndMakeVisible (volumeLabel);
+        t.mainButton.setTriggeredOnMouseDown (true);
+        t.undoButton.setTriggeredOnMouseDown (true);
+        t.clearButton.setTriggeredOnMouseDown (true);
+
+        t.mainButton.onClick  = [this, i] { proc.getLooper().tapMain (i);  };
+        t.undoButton.onClick  = [this, i] { proc.getLooper().tapUndo (i);  };
+        t.clearButton.onClick = [this, i] { proc.getLooper().tapClear (i); };
+
+        t.muteButton.setClickingTogglesState (true);
+        t.muteButton.onClick = [this, i]
+        {
+            proc.getLooper().setMuted (i, trackUI[i].muteButton.getToggleState());
+        };
+
+        t.volSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        t.volSlider.setRange (0.0, 1.5, 0.01);
+        t.volSlider.setValue (proc.getLooper().getTrackVolume (i),
+                              juce::dontSendNotification);
+        t.volSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        t.volSlider.onValueChange = [this, i]
+        {
+            proc.getLooper().setTrackVolume (i, (float) trackUI[i].volSlider.getValue());
+        };
+
+        addAndMakeVisible (t.mainButton);
+        addAndMakeVisible (t.undoButton);
+        addAndMakeVisible (t.clearButton);
+        addAndMakeVisible (t.muteButton);
+        addAndMakeVisible (t.volSlider);
+    }
+
+    playAllButton.setTriggeredOnMouseDown (true);
+    stopAllButton.setTriggeredOnMouseDown (true);
+    playAllButton.onClick  = [this] { proc.getLooper().tapPlayAll();  };
+    stopAllButton.onClick  = [this] { proc.getLooper().tapStopAll();  };
+    clearAllButton.onClick = [this] { proc.getLooper().tapClearAll(); };
+    addAndMakeVisible (playAllButton);
+    addAndMakeVisible (stopAllButton);
+    addAndMakeVisible (clearAllButton);
 
     // --- Sound pickers: choose the next layer's engine + instrument here ---
     engineBox.addItem ("Chop", 1);
@@ -93,7 +110,6 @@ LooperPanel::~LooperPanel()
 
 void LooperPanel::timerCallback()
 {
-    // Keep the main button's label in sync with the looper state.
     // Mirror an instrument change made anywhere else.
     {
         const int want = proc.getCurrentInstrument() + 1;
@@ -102,42 +118,77 @@ void LooperPanel::timerCallback()
             instrumentBox.setSelectedId (want, juce::dontSendNotification);
     }
 
-    switch (proc.getLooper().getState())
+    auto& looper = proc.getLooper();
+    for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
-        case LoopStation::Empty:     mainButton.setButtonText ("REC");     break;
-        case LoopStation::Recording: mainButton.setButtonText ("SET");     break;
-        case LoopStation::Playing:   mainButton.setButtonText ("OVERDUB"); break;
-        case LoopStation::Overdub:   mainButton.setButtonText ("PLAY");    break;
-        case LoopStation::Stopped:   mainButton.setButtonText ("OVERDUB"); break;
-        default: break;
+        auto& t = trackUI[i];
+        switch (looper.getTrackState (i))
+        {
+            case LoopStation::Empty:     t.mainButton.setButtonText ("REC");     break;
+            case LoopStation::Recording: t.mainButton.setButtonText ("SET");     break;
+            case LoopStation::Playing:   t.mainButton.setButtonText ("OVERDUB"); break;
+            case LoopStation::Overdub:   t.mainButton.setButtonText ("PLAY");    break;
+            case LoopStation::Stopped:   t.mainButton.setButtonText ("GO");      break;
+            default: break;
+        }
+        t.undoButton.setEnabled (looper.canUndo (i));
     }
     repaint();
 }
 
 void LooperPanel::resized()
 {
-    auto area = getLocalBounds().reduced (24);
+    auto area = getLocalBounds().reduced (20);
 
     // Sound pickers along the top of the panel.
     auto pickers = area.removeFromTop (34);
-    auto strip = pickers.withSizeKeepingCentre (juce::jmin (440, pickers.getWidth()), 30);
-    engineBox.setBounds (strip.removeFromLeft (110));
-    strip.removeFromLeft (12);
-    instrumentBox.setBounds (strip);
+    auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (440, pickers.getWidth()), 30);
+    engineBox.setBounds (pickStrip.removeFromLeft (110));
+    pickStrip.removeFromLeft (12);
+    instrumentBox.setBounds (pickStrip);
 
-    auto bottom = area.removeFromBottom (40);
-    volumeLabel.setBounds (bottom.removeFromLeft (90));
-    bottom.removeFromLeft (8);
-    volumeSlider.setBounds (bottom.removeFromLeft (juce::jmin (260, bottom.getWidth() / 2)));
+    // Master transport row at the bottom.
+    auto master = area.removeFromBottom (44);
+    const int mw = juce::jmin (150, (master.getWidth() - 32) / 3);
+    auto mStrip = master.withSizeKeepingCentre (mw * 3 + 32, 36);
+    playAllButton.setBounds  (mStrip.removeFromLeft (mw));
+    mStrip.removeFromLeft (16);
+    stopAllButton.setBounds  (mStrip.removeFromLeft (mw));
+    mStrip.removeFromLeft (16);
+    clearAllButton.setBounds (mStrip.removeFromLeft (mw));
 
-    auto buttons = area.removeFromBottom (56);
-    const int bw = juce::jmin (170, (buttons.getWidth() - 32) / 3);
-    auto btnStrip = buttons.withSizeKeepingCentre (bw * 3 + 32, 44);
-    mainButton.setBounds  (btnStrip.removeFromLeft (bw));
-    btnStrip.removeFromLeft (16);
-    stopButton.setBounds  (btnStrip.removeFromLeft (bw));
-    btnStrip.removeFromLeft (16);
-    clearButton.setBounds (btnStrip.removeFromLeft (bw));
+    area.removeFromBottom (26);   // how-to line (painted)
+    area.removeFromTop (8);
+
+    // Four track strips side by side.
+    const int gap = 14;
+    const int stripW = (area.getWidth() - gap * (LoopStation::kNumTracks - 1))
+                       / LoopStation::kNumTracks;
+    for (int i = 0; i < LoopStation::kNumTracks; ++i)
+    {
+        auto strip = area.removeFromLeft (stripW);
+        if (i < LoopStation::kNumTracks - 1)
+            area.removeFromLeft (gap);
+        auto& t = trackUI[i];
+
+        auto vol = strip.removeFromBottom (24);
+        t.volSlider.setBounds (vol.reduced (6, 0));
+
+        auto small = strip.removeFromBottom (30);
+        const int sw = (small.getWidth() - 12) / 3;
+        t.undoButton.setBounds  (small.removeFromLeft (sw));
+        small.removeFromLeft (6);
+        t.muteButton.setBounds  (small.removeFromLeft (sw));
+        small.removeFromLeft (6);
+        t.clearButton.setBounds (small);
+
+        strip.removeFromBottom (6);
+        auto mainB = strip.removeFromBottom (42);
+        t.mainButton.setBounds (mainB);
+
+        strip.removeFromBottom (6);
+        t.ringArea = strip;   // whatever remains hosts the progress ring
+    }
 }
 
 void LooperPanel::paint (juce::Graphics& g)
@@ -154,64 +205,87 @@ void LooperPanel::paint (juce::Graphics& g)
     g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.2f);
 
     auto& looper = proc.getLooper();
-    const int   st     = looper.getState();
-    const float posN   = looper.getPosition();
-    const int   layers = looper.getLayers();
 
-    // --- Progress ring ------------------------------------------------------
-    const float ringR = juce::jmin (card.getWidth(), card.getHeight()) * 0.24f;
-    const juce::Point<float> centre (card.getCentreX(), card.getY() + card.getHeight() * 0.40f);
-
-    g.setColour (theme.controlTrack);
-    g.drawEllipse (centre.x - ringR, centre.y - ringR, ringR * 2.0f, ringR * 2.0f, 5.0f);
-
-    const juce::Colour stateColour =
-        st == LoopStation::Recording ? juce::Colour (0xffff453a)
-      : st == LoopStation::Overdub   ? theme.waveform
-      : st == LoopStation::Playing   ? theme.accent
-      : theme.textSecondary;
-
-    if (st != LoopStation::Empty)
+    for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
-        juce::Path arc;
-        arc.addCentredArc (centre.x, centre.y, ringR, ringR, 0.0f,
-                           0.0f, juce::MathConstants<float>::twoPi * juce::jmax (0.02f, posN),
-                           true);
-        if (theme.glow >= 0.9f)
+        const auto& t = trackUI[i];
+        if (t.ringArea.isEmpty())
+            continue;
+
+        const int   st     = looper.getTrackState (i);
+        const float posN   = looper.getTrackPosition (i);
+        const int   layers = looper.getTrackLayers (i);
+        const bool  muted  = looper.isMuted (i);
+
+        auto ringRect = t.ringArea;   // local copy: we carve the label off it
+
+        g.setColour (theme.textSecondary);
+        g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Semibold")));
+        g.drawText ("TRACK " + juce::String (i + 1),
+                    ringRect.removeFromTop (16), juce::Justification::centred);
+
+        const auto  ra    = ringRect.toFloat();
+        const float ringR = juce::jmin (ra.getWidth(), ra.getHeight()) * 0.5f - 10.0f;
+        const juce::Point<float> centre (ra.getCentreX(), ra.getCentreY());
+
+        if (ringR < 12.0f)
+            continue;
+
+        g.setColour (theme.controlTrack);
+        g.drawEllipse (centre.x - ringR, centre.y - ringR, ringR * 2.0f, ringR * 2.0f, 4.0f);
+
+        const juce::Colour stateColour =
+            st == LoopStation::Recording ? juce::Colour (0xffff453a)
+          : st == LoopStation::Overdub   ? theme.waveform
+          : st == LoopStation::Playing   ? theme.accent
+          : theme.textSecondary;
+
+        if (st != LoopStation::Empty)
         {
-            g.setColour (stateColour.withAlpha (0.25f));
-            g.strokePath (arc, juce::PathStrokeType (11.0f, juce::PathStrokeType::curved,
+            juce::Path arc;
+            arc.addCentredArc (centre.x, centre.y, ringR, ringR, 0.0f,
+                               0.0f, juce::MathConstants<float>::twoPi
+                                         * juce::jmax (0.02f, posN),
+                               true);
+            const float alpha = muted ? 0.35f : 1.0f;
+            if (theme.glow >= 0.9f)
+            {
+                g.setColour (stateColour.withAlpha (0.25f * alpha));
+                g.strokePath (arc, juce::PathStrokeType (9.0f, juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+            }
+            g.setColour (stateColour.withAlpha (alpha));
+            g.strokePath (arc, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved,
                                                      juce::PathStrokeType::rounded));
         }
-        g.setColour (stateColour);
-        g.strokePath (arc, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved,
-                                                 juce::PathStrokeType::rounded));
+
+        g.setColour (muted ? theme.textSecondary : theme.text);
+        g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Semibold")));
+        const juce::String stateText =
+            st == LoopStation::Empty     ? "-"
+          : st == LoopStation::Recording ? "REC"
+          : st == LoopStation::Overdub   ? "DUB"
+          : st == LoopStation::Playing   ? (muted ? "MUTE" : "PLAY")
+          : "STOP";
+        g.drawText (stateText,
+                    juce::Rectangle<float> (ringR * 2.0f, 20.0f).withCentre (centre),
+                    juce::Justification::centred);
+
+        if (layers > 0)
+        {
+            g.setColour (theme.textSecondary);
+            g.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Medium")));
+            g.drawText ("x" + juce::String (layers),
+                        juce::Rectangle<float> (ringR * 2.0f, 14.0f)
+                            .withCentre ({ centre.x, centre.y + 18.0f }),
+                        juce::Justification::centred);
+        }
     }
-
-    // --- Centre status ------------------------------------------------------
-    g.setColour (theme.text);
-    g.setFont (juce::Font (juce::FontOptions (26.0f).withStyle ("Semibold")));
-    const juce::String stateText =
-        st == LoopStation::Empty     ? "READY"
-      : st == LoopStation::Recording ? "REC"
-      : st == LoopStation::Overdub   ? "DUB"
-      : st == LoopStation::Playing   ? "PLAY"
-      : "STOP";
-    g.drawText (stateText,
-                juce::Rectangle<float> (ringR * 2.0f, 34.0f).withCentre (centre),
-                juce::Justification::centred);
-
-    g.setColour (theme.textSecondary);
-    g.setFont (juce::Font (juce::FontOptions (13.0f).withStyle ("Medium")));
-    g.drawText (juce::String ("LAYERS ") + juce::String (layers),
-                juce::Rectangle<float> (ringR * 2.0f, 20.0f)
-                    .withCentre ({ centre.x, centre.y + 26.0f }),
-                juce::Justification::centred);
 
     // --- How-to line ---------------------------------------------------------
     g.setColour (theme.textSecondary);
-    g.setFont (juce::Font (juce::FontOptions (12.5f)));
-    g.drawText ("REC: play your first loop   >   SET: lock the length   >   OVERDUB: stack layers   (keys below stay live)",
-                card.reduced (16.0f).removeFromBottom (110.0f).removeFromTop (18.0f),
+    g.setFont (juce::Font (juce::FontOptions (12.0f)));
+    g.drawText ("T1 sets the loop length - other tracks lock to it.   REC > SET > OVERDUB.   UNDO kills the last dub.   Keys below stay live.",
+                card.reduced (14.0f).removeFromBottom (66.0f).removeFromTop (16.0f),
                 juce::Justification::centred);
 }

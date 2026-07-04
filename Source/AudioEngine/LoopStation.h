@@ -2,175 +2,389 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
+#include <cmath>
+#include <cstdint>
 
 /**
-    RC-505-style layering looper for the plugin's own output.
+    RC-505-style 4-track layering looper for the plugin's own output.
 
-    The first recording pass defines the loop length; every later Overdub
-    pass ADDS the live performance on top, so a beat builds up layer by
-    layer from one laptop. All state changes come in through lock-free
-    command atomics and are applied on the audio thread; the first layer
+    Track 1's first take defines the master loop length; later tracks are
+    quantised to a multiple of it (tap slightly early and the recorder keeps
+    going to the boundary; tap slightly late and the tail past the boundary
+    is dropped), so everything stays locked. All finished tracks read and
+    overdub through one shared transport counter, which keeps their phases
+    aligned no matter when each was recorded.
+
+    Every UI action arrives through lock-free per-track / master command
+    atomics and is applied on the audio thread. The first layer of a track
     WRITES (no giant memset needed for Clear) and overdubs ADD.
+
+    UNDO: while a track overdubs, the pre-dub value of every visited sample
+    is saved into a shadow buffer, so "undo" = copy the visited region back
+    - it removes everything added since Overdub was last entered.
 
     Signal placement: process() is called with the plugin's pre-limiter
     output. It records that "performance" signal only (never its own
-    playback, so layers don't multiply themselves), then mixes the loop
+    playback, so layers don't multiply themselves), then mixes the loops
     into the buffer; the limiter after us protects the sum.
 */
 class LoopStation
 {
 public:
     enum State { Empty = 0, Recording, Playing, Overdub, Stopped };
+    static constexpr int kNumTracks = 4;
 
     void prepare (double sampleRate, int /*maxBlock*/)
     {
         const double sr = sampleRate > 0.0 ? sampleRate : 44100.0;
-        maxLenSamples = (int) (sr * 30.0);          // up to 30 s loops
-        loop.setSize (2, maxLenSamples, false, true);
-        state.store (Empty);
-        lenSamples.store (0);
-        pos = 0;
-        layers.store (0);
-        uiPos.store (0.0f);
+        maxLenSamples = (int) (sr * 30.0);          // up to 30 s master loops
+        for (auto& t : tracks)
+        {
+            t.loop.setSize (2, maxLenSamples, false, true);
+            t.shadow.setSize (2, maxLenSamples, false, true);
+            t.state.store (Empty);
+            t.lenSamples.store (0);
+            t.layers.store (0);
+            t.uiPos.store (0.0f);
+            t.undoAvail.store (false);
+            t.recPos = 0;
+            t.startStamp = 0;
+            t.targetLen = 0;
+            t.dubSamples = 0;
+        }
+        masterLen.store (0);
+        transport = 0;
     }
 
     // ---- Message thread (UI) --------------------------------------------
-    /** Main button: Empty->Record, Record->set length + Play,
-        Play<->Overdub. */
-    void tapMain()  { pendingCmd.store (1); }
-    /** Stop playback / restart from the top when stopped. */
-    void tapStop()  { pendingCmd.store (2); }
-    /** Throw the loop away. */
-    void tapClear() { pendingCmd.store (3); }
+    /** Track main button: Empty->Record, Record->set length + Play,
+        Play<->Overdub, Stopped->Play (all synced from the top). */
+    void tapMain (int track)  { trk (track).pendingCmd.store (1); }
+    /** Throw one track away. */
+    void tapClear (int track) { trk (track).pendingCmd.store (2); }
+    /** Remove everything added since this track last entered Overdub. */
+    void tapUndo (int track)  { trk (track).pendingCmd.store (3); }
 
-    int   getState() const     { return state.load(); }
-    int   getLayers() const    { return layers.load(); }
-    float getPosition() const  { return uiPos.load(); }      // 0..1 in loop
-    float getLengthSeconds (double sr) const
+    void setMuted (int track, bool m)   { trk (track).muted.store (m); }
+    bool isMuted (int track) const      { return trk (track).muted.load(); }
+    void setTrackVolume (int track, float v)
     {
-        return sr > 0.0 ? (float) lenSamples.load() / (float) sr : 0.0f;
+        trk (track).volume.store (juce::jlimit (0.0f, 1.5f, v));
     }
+    float getTrackVolume (int track) const { return trk (track).volume.load(); }
 
-    void setVolume (float v)   { volume.store (juce::jlimit (0.0f, 1.5f, v)); }
-    float getVolume() const    { return volume.load(); }
+    int   getTrackState (int track) const  { return trk (track).state.load(); }
+    int   getTrackLayers (int track) const { return trk (track).layers.load(); }
+    float getTrackPosition (int track) const { return trk (track).uiPos.load(); }
+    bool  canUndo (int track) const        { return trk (track).undoAvail.load(); }
+
+    /** Master transport: stop everything / restart everything from the top /
+        wipe all four tracks. */
+    void tapStopAll()  { pendingMaster.store (1); }
+    void tapPlayAll()  { pendingMaster.store (2); }
+    void tapClearAll() { pendingMaster.store (3); }
+
+    bool anyContent() const
+    {
+        for (auto& t : tracks)
+            if (t.lenSamples.load() > 0 || t.state.load() == Recording)
+                return true;
+        return false;
+    }
+    bool anyRunning() const
+    {
+        for (auto& t : tracks)
+        {
+            const int s = t.state.load();
+            if (s == Recording || s == Playing || s == Overdub)
+                return true;
+        }
+        return false;
+    }
 
     // ---- Audio thread -----------------------------------------------------
     void process (juce::AudioBuffer<float>& io, int numSamples)
     {
-        applyPendingCommand();
-
-        const int st = state.load (std::memory_order_relaxed);
-        if (st == Empty || st == Stopped)
-            return;
+        applyMasterCommand();
+        for (int i = 0; i < kNumTracks; ++i)
+            applyTrackCommand (i);
 
         const int numCh = juce::jmin (2, io.getNumChannels());
-        float* L = loop.getWritePointer (0);
-        float* R = loop.getWritePointer (1);
-        const float vol = volume.load (std::memory_order_relaxed);
+        bool running = false;
 
         for (int n = 0; n < numSamples; ++n)
         {
             const float inL = io.getSample (0, n);
             const float inR = numCh > 1 ? io.getSample (1, n) : inL;
+            float outL = 0.0f, outR = 0.0f;
+            bool advance = false;
 
-            if (st == Recording)
+            for (auto& t : tracks)
             {
-                // First layer WRITES, so a cleared loop needs no memset.
-                L[pos] = inL;
-                R[pos] = inR;
+                const int st = t.state.load (std::memory_order_relaxed);
+                if (st == Empty || st == Stopped)
+                    continue;
 
-                if (++pos >= maxLenSamples)   // safety: auto-finalise at max
+                advance = true;
+                float* L  = t.loop.getWritePointer (0);
+                float* R  = t.loop.getWritePointer (1);
+
+                if (st == Recording)
                 {
-                    lenSamples.store (maxLenSamples);
-                    state.store (Playing);
-                    layers.store (1);
-                    pos = 0;
-                    break;
+                    L[t.recPos] = inL;
+                    R[t.recPos] = inR;
+                    ++t.recPos;
+
+                    // Auto-finalise at a pending quantise boundary or the cap.
+                    if ((t.targetLen > 0 && t.recPos >= t.targetLen)
+                        || t.recPos >= maxLenSamples)
+                        finalizeTake (t);
+                }
+                else   // Playing / Overdub
+                {
+                    const int len = t.lenSamples.load (std::memory_order_relaxed);
+                    if (len <= 0)
+                        continue;
+
+                    const int idx = (int) (((transport - t.startStamp) % len + len) % len);
+
+                    if (st == Overdub)
+                    {
+                        // Save the pre-dub sample so UNDO can put it back.
+                        t.shadow.setSample (0, idx, L[idx]);
+                        t.shadow.setSample (1, idx, R[idx]);
+                        L[idx] += inL;
+                        R[idx] += inR;
+                        if (t.dubSamples < len)
+                            ++t.dubSamples;
+                        if (idx == len - 1)
+                            t.layers.fetch_add (1);   // one full pass = one layer
+                    }
+
+                    if (! t.muted.load (std::memory_order_relaxed))
+                    {
+                        const float vol = t.volume.load (std::memory_order_relaxed);
+                        outL += L[idx] * vol;
+                        outR += R[idx] * vol;
+                    }
                 }
             }
-            else   // Playing / Overdub
+
+            io.addSample (0, n, outL);
+            if (numCh > 1)
+                io.addSample (1, n, outR);
+
+            if (advance)
             {
-                const int len = lenSamples.load (std::memory_order_relaxed);
-                if (len <= 0)
-                    break;
-
-                if (st == Overdub)
-                {
-                    L[pos] += inL;
-                    R[pos] += inR;
-                }
-
-                io.addSample (0, n, L[pos] * vol);
-                if (numCh > 1)
-                    io.addSample (1, n, R[pos] * vol);
-
-                if (++pos >= len)
-                {
-                    pos = 0;
-                    if (st == Overdub)
-                        layers.fetch_add (1);   // one full pass = one layer
-                }
+                ++transport;
+                running = true;
             }
         }
 
-        const int len = juce::jmax (1, st == Recording ? maxLenSamples
-                                                       : lenSamples.load());
-        uiPos.store ((float) pos / (float) len);
+        if (running)
+            for (auto& t : tracks)
+            {
+                const int st = t.state.load (std::memory_order_relaxed);
+                if (st == Recording)
+                {
+                    const int span = t.targetLen > 0 ? t.targetLen : maxLenSamples;
+                    t.uiPos.store ((float) t.recPos / (float) juce::jmax (1, span));
+                }
+                else if (st == Playing || st == Overdub)
+                {
+                    const int len = t.lenSamples.load (std::memory_order_relaxed);
+                    if (len > 0)
+                        t.uiPos.store ((float) (((transport - t.startStamp) % len + len) % len)
+                                       / (float) len);
+                }
+            }
     }
 
 private:
-    void applyPendingCommand()
+    struct Track
     {
-        const int cmd = pendingCmd.exchange (0, std::memory_order_relaxed);
+        juce::AudioBuffer<float> loop, shadow;
+        std::atomic<int>   state { Empty };
+        std::atomic<int>   lenSamples { 0 };
+        std::atomic<int>   layers { 0 };
+        std::atomic<int>   pendingCmd { 0 };
+        std::atomic<float> volume { 0.9f };
+        std::atomic<float> uiPos { 0.0f };
+        std::atomic<bool>  muted { false };
+        std::atomic<bool>  undoAvail { false };
+        int     recPos = 0;        // write head while Recording (audio thread)
+        int64_t startStamp = 0;    // transport value that maps to sample 0
+        int     targetLen = 0;     // quantised finalise point (0 = free take)
+        int     dubSamples = 0;    // samples visited in the current dub pass
+    };
+
+    Track&       trk (int i)       { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
+    const Track& trk (int i) const { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
+
+    void finalizeTake (Track& t)
+    {
+        int len = juce::jmax (1, t.targetLen > 0 ? juce::jmin (t.recPos, t.targetLen)
+                                                 : t.recPos);
+        const int master = masterLen.load (std::memory_order_relaxed);
+        if (master <= 0)
+            masterLen.store (len);
+
+        t.lenSamples.store (len);
+        t.layers.store (1);
+        t.startStamp = transport;   // sample 0 plays back right now: seamless
+        t.targetLen = 0;
+        t.state.store (Playing);
+    }
+
+    void applyTrackCommand (int i)
+    {
+        Track& t = tracks[(size_t) i];
+        const int cmd = t.pendingCmd.exchange (0, std::memory_order_relaxed);
         if (cmd == 0)
             return;
 
-        const int st = state.load (std::memory_order_relaxed);
+        const int st = t.state.load (std::memory_order_relaxed);
 
         if (cmd == 1)          // main button
         {
-            if (st == Empty)                      { pos = 0; state.store (Recording); }
+            if (st == Empty)
+            {
+                t.recPos = 0;
+                t.targetLen = 0;
+                t.state.store (Recording);
+            }
             else if (st == Recording)
             {
-                lenSamples.store (juce::jmax (1, pos));
-                layers.store (1);
-                pos = 0;
-                state.store (Playing);
-            }
-            else if (st == Playing)               state.store (Overdub);
-            else if (st == Overdub)               state.store (Playing);
-            else if (st == Stopped)               { pos = 0; state.store (Overdub); }
-        }
-        else if (cmd == 2)     // stop / restart
-        {
-            if (st == Playing || st == Overdub || st == Recording)
-            {
-                if (st == Recording)   // cancel an unfinished first take
+                const int master = masterLen.load (std::memory_order_relaxed);
+                if (master > 0)
                 {
-                    state.store (lenSamples.load() > 0 ? Stopped : Empty);
+                    // Quantise: round to the nearest multiple of the master
+                    // length. Late tap -> truncate; early tap -> keep rolling
+                    // to the boundary.
+                    const int mult = juce::jmax (1, (int) std::lround (
+                                        (double) t.recPos / (double) master));
+                    const int target = juce::jmin (maxLenSamples, mult * master);
+                    if (t.recPos >= target)
+                    {
+                        t.targetLen = target;
+                        finalizeTake (t);
+                    }
+                    else
+                        t.targetLen = target;   // finish at the boundary
                 }
                 else
-                    state.store (Stopped);
+                    finalizeTake (t);
             }
-            else if (st == Stopped)               { pos = 0; state.store (Playing); }
+            else if (st == Playing)
+            {
+                t.dubSamples = 0;
+                t.undoAvail.store (true);
+                t.state.store (Overdub);
+            }
+            else if (st == Overdub)  t.state.store (Playing);
+            else if (st == Stopped)  playFromTop (t);
         }
-        else if (cmd == 3)     // clear
+        else if (cmd == 2)     // clear this track
         {
-            state.store (Empty);
-            lenSamples.store (0);
-            layers.store (0);
-            pos = 0;
+            t.state.store (Empty);
+            t.lenSamples.store (0);
+            t.layers.store (0);
+            t.undoAvail.store (false);
+            t.recPos = 0;
+            t.targetLen = 0;
+            if (! anyLength())
+                masterLen.store (0);   // last loop gone: next take re-defines it
+        }
+        else if (cmd == 3)     // undo the current / latest dub pass
+        {
+            if (t.undoAvail.load() && (st == Overdub || st == Playing))
+            {
+                const int len = t.lenSamples.load (std::memory_order_relaxed);
+                if (len > 0 && t.dubSamples > 0)
+                {
+                    const int count = juce::jmin (t.dubSamples, len);
+                    const int idx   = (int) (((transport - t.startStamp) % len + len) % len);
+                    int start = idx - count;   // region we walked through
+                    while (start < 0) start += len;
+                    const int first = juce::jmin (count, len - start);
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        t.loop.copyFrom (ch, start, t.shadow, ch, start, first);
+                        if (count > first)   // wrapped region
+                            t.loop.copyFrom (ch, 0, t.shadow, ch, 0, count - first);
+                    }
+                    if (t.dubSamples >= len && t.layers.load() > 1)
+                        t.layers.fetch_sub (1);
+                }
+                t.dubSamples = 0;
+                t.undoAvail.store (false);
+                if (st == Overdub)
+                    t.state.store (Playing);
+            }
         }
     }
 
-    juce::AudioBuffer<float> loop;
-    int maxLenSamples = 1;
-    int pos = 0;
+    void applyMasterCommand()
+    {
+        const int cmd = pendingMaster.exchange (0, std::memory_order_relaxed);
+        if (cmd == 0)
+            return;
 
-    std::atomic<int>   state { Empty };
-    std::atomic<int>   lenSamples { 0 };
-    std::atomic<int>   layers { 0 };
-    std::atomic<int>   pendingCmd { 0 };
-    std::atomic<float> volume { 0.9f };
-    std::atomic<float> uiPos { 0.0f };
+        if (cmd == 1)          // stop all
+        {
+            for (auto& t : tracks)
+            {
+                const int st = t.state.load (std::memory_order_relaxed);
+                if (st == Recording)
+                {
+                    if (t.lenSamples.load() > 0) t.state.store (Stopped);
+                    else                         t.state.store (Empty);
+                }
+                else if (st == Playing || st == Overdub)
+                    t.state.store (Stopped);
+            }
+        }
+        else if (cmd == 2)     // play all, re-synced from the top
+        {
+            transport = 0;
+            for (auto& t : tracks)
+                if (t.lenSamples.load() > 0)
+                    playFromTop (t);
+        }
+        else if (cmd == 3)     // clear all
+        {
+            for (auto& t : tracks)
+            {
+                t.state.store (Empty);
+                t.lenSamples.store (0);
+                t.layers.store (0);
+                t.undoAvail.store (false);
+                t.recPos = 0;
+                t.targetLen = 0;
+            }
+            masterLen.store (0);
+            transport = 0;
+        }
+    }
+
+    void playFromTop (Track& t)
+    {
+        t.startStamp = transport;   // sample 0 = now, same instant for all
+        t.state.store (Playing);
+    }
+
+    bool anyLength() const
+    {
+        for (auto& t : tracks)
+            if (t.lenSamples.load() > 0)
+                return true;
+        return false;
+    }
+
+    Track tracks[kNumTracks];
+    int maxLenSamples = 1;
+    int64_t transport = 0;
+
+    std::atomic<int> masterLen { 0 };
+    std::atomic<int> pendingMaster { 0 };
 };
