@@ -131,12 +131,12 @@ void LooperPanel::resized()
 
     auto buttons = area.removeFromBottom (56);
     const int bw = juce::jmin (170, (buttons.getWidth() - 32) / 3);
-    auto strip = buttons.withSizeKeepingCentre (bw * 3 + 32, 44);
-    mainButton.setBounds  (strip.removeFromLeft (bw));
-    strip.removeFromLeft (16);
-    stopButton.setBounds  (strip.removeFromLeft (bw));
-    strip.removeFromLeft (16);
-    clearButton.setBounds (strip.removeFromLeft (bw));
+    auto btnStrip = buttons.withSizeKeepingCentre (bw * 3 + 32, 44);
+    mainButton.setBounds  (btnStrip.removeFromLeft (bw));
+    btnStrip.removeFromLeft (16);
+    stopButton.setBounds  (btnStrip.removeFromLeft (bw));
+    btnStrip.removeFromLeft (16);
+    clearButton.setBounds (btnStrip.removeFromLeft (bw));
 }
 
 void LooperPanel::paint (juce::Graphics& g)
