@@ -7,7 +7,7 @@ std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
     // Modelled on modern commercial instruments: matte panels, one restrained
     // accent, zero glow. The artwork skins below stay available as options.
     {
-        "Studio", true,
+        "Studio Violet", true,
         juce::Colour (0xff101014), juce::Colour (0xff09090b),   // bg gradient
         juce::Colour (0x0affffff), juce::Colour (0xf018181d),   // material / controls
         juce::Colour (0x1effffff),                              // separator
@@ -17,6 +17,91 @@ std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
         juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),   // text / secondary
         juce::Colour (0x66000000),                              // shadow
         12.0f, 0.0f                                             // flat
+    },
+    // ---- Studio colorways: same matte black ground, one accent swapped ----
+    {
+        "Studio Ocean", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xff3b82f6), juce::Colour (0x333b82f6),   // electric blue
+        juce::Colour (0xff93c5fd),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
+    },
+    {
+        "Studio Ice", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xff22d3ee), juce::Colour (0x3322d3ee),   // cool cyan
+        juce::Colour (0xffa5f3fc),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
+    },
+    {
+        "Studio Mint", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xff34d399), juce::Colour (0x3334d399),   // mint green
+        juce::Colour (0xff6ee7b7),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
+    },
+    {
+        "Studio Amber", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xfff59e0b), juce::Colour (0x33f59e0b),   // warm amber
+        juce::Colour (0xfffcd34d),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
+    },
+    {
+        "Studio Rose", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xfff43f5e), juce::Colour (0x33f43f5e),   // rose red
+        juce::Colour (0xfffda4af),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
+    },
+    {
+        "Studio Gold", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xffd4af37), juce::Colour (0x33d4af37),   // luxe gold
+        juce::Colour (0xffe6cf85),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
+    },
+    {
+        "Studio Mono", true,
+        juce::Colour (0xff101014), juce::Colour (0xff09090b),
+        juce::Colour (0x0affffff), juce::Colour (0xf018181d),
+        juce::Colour (0x1effffff),
+        juce::Colour (0xff1c1c22), juce::Colour (0x1affffff),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x26f5f5f7),   // pure monochrome
+        juce::Colour (0xffb9b9c1),
+        juce::Colour (0xfff5f5f7), juce::Colour (0x99b9b9c1),
+        juce::Colour (0x66000000),
+        12.0f, 0.0f
     },
     // ---- Neon Rider (full-bleed artwork: pink/blue bike in the rain) -------
     // The editor draws the embedded skin_neon_rider.png behind the panels.
