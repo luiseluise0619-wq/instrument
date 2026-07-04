@@ -673,12 +673,14 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
 
 bool VocalChopAudioProcessor::loadDemoSample()
 {
-    // Three built-in vocals; every Demo press cycles to the next one.
+    // Built-in vocals; every Demo press cycles to the next one. The last is
+    // a human-beatbox loop: sliced, it turns keys into mouth drums.
     struct Embedded { const void* data; int size; };
     static const Embedded demos[] = {
         { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize },
         { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize },
         { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize },
+        { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize },
     };
     constexpr int numDemos = (int) (sizeof (demos) / sizeof (demos[0]));
 
@@ -849,6 +851,9 @@ namespace
     { "VOCAL", "Vox Hum",       1, 0.00f,0.15f,0.04f, 0.00f, 2.0f, 4.0f, 6.0f,   750, 0.3f,  400, 2,  0,  0.0f, 200,  600, 0.90f, 500, 0.00f, 0.35f, 0.00f, 0, 1.0f },
     { "VOCAL", "Whisper Air",   2, 0.60f,0.0f, 0.60f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 0,  0, 10.0f, 300,  900, 0.80f, 900, 0.00f, 0.70f, 0.10f, 0, 1.6f },
     { "VOCAL", "Angel Choir",   6, 0.90f,0.0f, 0.10f, 0.00f, 2.0f, 4.0f, 7.0f,  2200, 0.3f,  700, 0,  0, 14.0f, 500, 1000, 0.85f,1100, 0.00f, 0.75f, 0.10f, 0, 1.6f },
+    { "VOCAL", "Beatbox Kick",  1, 0.00f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2500, 0.0f,  200, 2, -1,  0.0f,   0,  320, 0.00f, 140, 0.20f, 0.03f, 0.00f, 0, 0.7f },
+    { "VOCAL", "Beatbox Snare", 1, 0.00f,0.1f, 0.95f, 0.00f, 2.0f, 0.0f, 0.0f,  4500, 0.5f,  100, 2,  0,  0.0f,   0,  200, 0.00f, 120, 0.10f, 0.10f, 0.00f, 0, 1.0f },
+    { "VOCAL", "Beatbox Hat",   1, 0.00f,0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,   0,   70, 0.00f,  55, 0.05f, 0.02f, 0.00f, 0, 1.0f },
 
     { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
     { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
@@ -1122,6 +1127,8 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name == "Synth Brass")   chorus = 0.30f;
     if (name == "Syn Flute")    chorus = 0.20f;
     if (name == "Robot Vox")    { chorus = 0.10f; p.driftCents = 0.0f; }   // machines don't drift
+    if (name.startsWith ("Beatbox")) { chorus = 0.0f; p.driftCents = 0.0f;
+                                       p.velToFilterOct = 1.2f; }
 
     // Percussion pitch drops (the 808 "boo" and snare thwack).
     if (name == "Kick 808")    { p.pitchEnvOct = 2.2f; p.pitchEnvMs = 42.0f; }
@@ -1129,6 +1136,8 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name == "Snare 808")   { p.pitchEnvOct = 1.2f; p.pitchEnvMs = 34.0f; }
     if (name == "Snare Tight") { p.pitchEnvOct = 1.5f; p.pitchEnvMs = 22.0f; }
     if (name == "Rim Perc")    { p.pitchEnvOct = 1.8f; p.pitchEnvMs = 16.0f; }
+    if (name == "Beatbox Kick")  { p.pitchEnvOct = 1.7f; p.pitchEnvMs = 55.0f; }   // the 'buh' drop
+    if (name == "Beatbox Snare") { p.pitchEnvOct = 0.8f; p.pitchEnvMs = 40.0f; }
 
     p.chorusMix = chorus;
 

@@ -87,6 +87,7 @@ juce_add_binary_data(VocalChopData SOURCES
     examples/vocal_chop_demo.wav
     examples/vox_air.wav
     examples/vox_rage.wav
+    examples/vox_beatbox.wav
     assets/skin_neon_rider.png
     assets/skin_neo_seoul.png)
 
