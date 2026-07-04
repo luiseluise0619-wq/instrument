@@ -123,6 +123,7 @@ target_include_directories(VocalChopStudio PRIVATE
 target_compile_definitions(VocalChopStudio PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=1
+    JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=1
     JUCE_MODAL_LOOPS_PERMITTED=1)
