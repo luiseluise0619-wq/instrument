@@ -348,6 +348,11 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
 
     // Same mapping as MIDI: key semitone offset == slice index. The key is
     // gated — it sounds until the mouse button is released, like a real key.
+    // Only one mouse-held key is tracked, so a second press (multi-touch)
+    // must let go of the first or its note would never receive a release.
+    if (pressedKey >= 0 && pressedKey != key)
+        proc.releaseSlicePad (pressedKey);
+
     proc.pressSlicePad (key, velocity);
     pressedKey = key;
 

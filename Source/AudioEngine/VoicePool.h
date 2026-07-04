@@ -31,6 +31,7 @@ public:
 
     void render (juce::AudioBuffer<float>& out, int numSamples);
     void release();
+    void hardStop();   // All Sound Off: fast-fades even one-shot voices
 
     bool isActive() const { return active; }
 
@@ -104,6 +105,7 @@ public:
     int  triggerVoice (int startSample, int lengthSamples, float velocity);
     void releaseVoice (int voiceIndex);
     void releaseAll();
+    void stopAll();    // All Sound Off (hard-stops one-shot voices too)
     void renderNextBlock (juce::AudioBuffer<float>& out, int numSamples);
 
     // Message thread: copy active (>=0) normalised playhead positions into dst.

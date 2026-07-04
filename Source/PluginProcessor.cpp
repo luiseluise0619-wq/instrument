@@ -299,6 +299,11 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
             }
             else
             {
+                // Retriggering a still-held note releases its old voice so
+                // the previous hit doesn't ring on as an orphan.
+                if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+                    voicePool.releaseVoice (noteToVoice[(size_t) note]);
+
                 const int voice = triggerSliceIndex (note - kRootNote,
                                                      msg.getVelocity() / 127.0f);
                 if (juce::isPositiveAndBelow (note, 128))
@@ -320,7 +325,13 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
-            voicePool.releaseAll();
+            // All Sound Off is an emergency stop: it must silence even
+            // one-shot voices, which ignore ordinary releases by design.
+            if (msg.isAllSoundOff())
+                voicePool.stopAll();
+            else
+                voicePool.releaseAll();
+
             synthEngine.releaseAll();
             noteToVoice.fill (-1);
             padKeyToVoice.fill (-1);

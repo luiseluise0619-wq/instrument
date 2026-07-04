@@ -192,6 +192,20 @@ void Voice::release()
     }
 }
 
+void Voice::hardStop()
+{
+    // MIDI All Sound Off: even one-shot voices must die, but through a very
+    // short release ramp so the emergency stop itself doesn't click.
+    if (! active || stage == Stage::finished)
+        return;
+
+    releaseFrom    = envelope();
+    oneShotMode    = false;        // let the release actually run
+    releaseSamples = 64;
+    stage          = Stage::release;
+    stagePos       = 0;
+}
+
 float Voice::normalisedPosition() const
 {
     if (! active || srcNumSamples <= 0)
@@ -231,8 +245,13 @@ void VoicePool::setSource (std::shared_ptr<const juce::AudioBuffer<float>> src, 
     }
 
     // Park the outgoing buffer so its final release happens here, not inside
-    // processBlock when a voice slot gets reused.
-    if (old != nullptr)
+    // processBlock when a voice slot gets reused. Never park duplicates (the
+    // same buffer can come back through prepareToPlay -> setSource): two
+    // graveyard entries would keep each other's use_count above 1 forever
+    // and the buffer would leak.
+    if (old != nullptr && old != source
+        && std::find (retiredSources.begin(), retiredSources.end(), old)
+               == retiredSources.end())
         retiredSources.push_back (std::move (old));
 }
 
@@ -293,6 +312,12 @@ void VoicePool::releaseAll()
 {
     for (auto& v : voices)
         v.release();
+}
+
+void VoicePool::stopAll()
+{
+    for (auto& v : voices)
+        v.hardStop();
 }
 
 void VoicePool::renderNextBlock (juce::AudioBuffer<float>& out, int numSamples)

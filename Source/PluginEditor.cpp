@@ -397,9 +397,11 @@ namespace
     }
 
     // FL-style typing keys: bottom row = C3 octave, top row = C4 octave.
-    const juce::String kTypingKeys ("zsxdcvgbhnjm,q2w3er5t6y7u");
+    // ',' is deliberately NOT mapped: it would duplicate Q's C4, and two keys
+    // driving one note means releasing either kills the other's sound.
+    const juce::String kTypingKeys ("zsxdcvgbhnjmq2w3er5t6y7u");
 
-    int typingKeySemitone (int i)     { return i < 13 ? i : 12 + (i - 13); }
+    int typingKeySemitone (int i)     { return i; }   // 12 keys per row, contiguous
 
     bool physicalKeyDown (juce::juce_wchar c)
     {
