@@ -34,6 +34,54 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     volumeLabel.setJustificationType (juce::Justification::centredRight);
     addAndMakeVisible (volumeLabel);
 
+    // --- Sound pickers: choose the next layer's engine + instrument here ---
+    engineBox.addItem ("Chop", 1);
+    engineBox.addItem ("Synth", 2);
+    engineAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        proc.getAPVTS(), "engine", engineBox);
+    addAndMakeVisible (engineBox);
+
+    {
+        static const char* featured[] = { "Supersaw Lead", "Rage Bell", "Memphis 808",
+                                          "Lov3 Keys", "Kick 808", "Hat Closed",
+                                          "Snare 808", "Clap", "Bass Pad", "Syn Grand" };
+        const auto names = VocalChopAudioProcessor::getInstrumentNames();
+        const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
+
+        auto* root = instrumentBox.getRootMenu();
+        root->addSectionHeader (juce::String::fromUTF8 ("\xe2\x98\x85 QUICK"));
+        for (auto* f : featured)
+        {
+            const int idx = names.indexOf (f);
+            if (idx >= 0)
+                instrumentBox.addItem (f, 1000 + idx);
+        }
+        root->addSeparator();
+
+        int i = 0;
+        while (i < names.size())
+        {
+            const juce::String cat = cats[i];
+            juce::PopupMenu sub;
+            while (i < names.size() && cats[i] == cat)
+            {
+                sub.addItem (i + 1, names[i]);
+                ++i;
+            }
+            root->addSubMenu (cat, sub);
+        }
+    }
+    instrumentBox.setTextWhenNothingSelected ("Instrument");
+    instrumentBox.onChange = [this]
+    {
+        const int id = instrumentBox.getSelectedId();
+        if (id >= 1000)
+            proc.applyInstrument (id - 1000);
+        else if (id > 0)
+            proc.applyInstrument (id - 1);
+    };
+    addAndMakeVisible (instrumentBox);
+
     startTimerHz (30);
 }
 
@@ -45,6 +93,14 @@ LooperPanel::~LooperPanel()
 void LooperPanel::timerCallback()
 {
     // Keep the main button's label in sync with the looper state.
+    // Mirror an instrument change made anywhere else.
+    {
+        const int want = proc.getCurrentInstrument() + 1;
+        if (instrumentBox.getSelectedId() != want
+            && instrumentBox.getSelectedId() < 1000)
+            instrumentBox.setSelectedId (want, juce::dontSendNotification);
+    }
+
     switch (proc.getLooper().getState())
     {
         case LoopStation::Empty:     mainButton.setButtonText ("REC");     break;
@@ -60,6 +116,13 @@ void LooperPanel::timerCallback()
 void LooperPanel::resized()
 {
     auto area = getLocalBounds().reduced (24);
+
+    // Sound pickers along the top of the panel.
+    auto pickers = area.removeFromTop (34);
+    auto strip = pickers.withSizeKeepingCentre (juce::jmin (440, pickers.getWidth()), 30);
+    engineBox.setBounds (strip.removeFromLeft (110));
+    strip.removeFromLeft (12);
+    instrumentBox.setBounds (strip);
 
     auto bottom = area.removeFromBottom (40);
     volumeLabel.setBounds (bottom.removeFromLeft (90));

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_audio_processors/juce_audio_processors.h>
+#include <memory>
 
 class VocalChopAudioProcessor;
 
@@ -32,6 +34,11 @@ private:
     juce::TextButton clearButton { "CLEAR" };
     juce::Slider     volumeSlider;
     juce::Label      volumeLabel;
+
+    // Pick the next layer's sound without leaving the looper.
+    juce::ComboBox engineBox;      // Chop / Synth
+    juce::ComboBox instrumentBox;  // Featured + category submenus
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LooperPanel)
 };
