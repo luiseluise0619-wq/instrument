@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <vector>
 
 #include "PluginProcessor.h"
 #include "UI/WaveformView.h"
@@ -140,6 +141,18 @@ private:
     // Cached Ocean Pluck scene (repainted only on resize / theme change).
     juce::Image backdropCache;
     int backdropTheme = -1;
+
+    // Hero motion FX: on glow themes every keypress fires neon speed lines
+    // and a glow pulse across the artwork band — the "riding" illusion with
+    // zero frame animation. Only heroRect repaints, and only while the
+    // effect is alive, so knobs and audio never feel it.
+    struct SpeedLine { float x, y, len, speed, life; int hue; };
+    std::vector<SpeedLine> speedLines;
+    float heroGlow = 0.0f;
+    juce::Rectangle<int> heroRect;
+    juce::Random fxRng;
+    void spawnHeroFx (float velocity);
+    void drawHeroFx (juce::Graphics&);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VocalChopAudioProcessorEditor)
 };

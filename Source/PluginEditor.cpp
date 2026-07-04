@@ -2,6 +2,8 @@
 #include "UI/ThemeManager.h"
 #include "BinaryData.h"
 
+#include <algorithm>
+
 namespace
 {
     // Consistent outer margin / inner padding for the Apple-style layout.
@@ -894,6 +896,7 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
         {
             processor.pressSlicePad (semitone, 0.85f);
             sliceGrid.flashKey (semitone, 0.9f);
+            spawnHeroFx (0.85f);
         }
         else
         {
@@ -930,6 +933,88 @@ void VocalChopAudioProcessorEditor::timerCallback()
     // OS key state, so this catches them within a frame. When the editor is
     // hidden entirely, let go of everything.
     scanTypingKeys (! isShowing());
+
+    // Advance the hero motion FX; repaint ONLY the artwork band, and only
+    // while something is actually moving.
+    if (! speedLines.empty() || heroGlow > 0.02f)
+    {
+        for (auto& s : speedLines)
+        {
+            s.x    -= s.speed;
+            s.life -= 0.05f;
+        }
+        speedLines.erase (std::remove_if (speedLines.begin(), speedLines.end(),
+                                          [] (const SpeedLine& s)
+                                          { return s.life <= 0.0f || s.x + s.len < 0.0f; }),
+                          speedLines.end());
+        heroGlow *= 0.86f;
+
+        if (! heroRect.isEmpty())
+            repaint (heroRect);
+    }
+}
+
+void VocalChopAudioProcessorEditor::spawnHeroFx (float velocity)
+{
+    if (heroRect.isEmpty() || ThemeManager::active().glow < 0.9f)
+        return;
+
+    const float w = (float) heroRect.getWidth();
+    const float h = (float) heroRect.getHeight();
+
+    const int count = 2 + fxRng.nextInt (2);
+    for (int i = 0; i < count && speedLines.size() < 48; ++i)
+    {
+        SpeedLine s;
+        s.y     = h * (0.30f + 0.58f * fxRng.nextFloat());
+        s.len   = (70.0f + 130.0f * fxRng.nextFloat()) * juce::jmax (0.4f, velocity);
+        s.x     = w * (0.55f + 0.55f * fxRng.nextFloat());
+        s.speed = (w / 30.0f) * (0.55f + 0.75f * fxRng.nextFloat());
+        s.life  = 1.0f;
+        s.hue   = fxRng.nextInt (2);
+        speedLines.push_back (s);
+    }
+
+    heroGlow = juce::jmin (1.0f, heroGlow + 0.45f + 0.4f * velocity);
+}
+
+void VocalChopAudioProcessorEditor::drawHeroFx (juce::Graphics& g)
+{
+    if (heroRect.isEmpty())
+        return;
+    if (speedLines.empty() && heroGlow <= 0.02f)
+        return;
+
+    const auto& theme = ThemeManager::active();
+    juce::Graphics::ScopedSaveState save (g);
+    g.reduceClipRegion (heroRect);
+
+    // Glow pulse: headlights / wheels flare with the note, low in the band.
+    if (heroGlow > 0.02f)
+    {
+        const float cx = heroRect.getWidth() * 0.5f;
+        const float cy = heroRect.getHeight() * 0.62f;
+        const float r  = heroRect.getWidth() * 0.30f;
+        juce::ColourGradient pulse (theme.accent.withAlpha (0.16f * heroGlow), cx, cy,
+                                    theme.accent.withAlpha (0.0f), cx + r, cy, true);
+        g.setGradientFill (pulse);
+        g.fillEllipse (cx - r, cy - r * 0.55f, r * 2.0f, r * 1.1f);
+    }
+
+    // Speed lines: the world rushing past — a thin bright core inside a
+    // softer streak, fading along its own length.
+    for (const auto& s : speedLines)
+    {
+        const auto col = (s.hue == 0 ? theme.accent : theme.waveform);
+        juce::ColourGradient streak (col.withAlpha (0.0f), s.x, s.y,
+                                     col.withAlpha (0.50f * s.life), s.x + s.len, s.y,
+                                     false);
+        g.setGradientFill (streak);
+        g.fillRect (s.x, s.y - 1.5f, s.len, 3.0f);
+
+        g.setColour (juce::Colours::white.withAlpha (0.35f * s.life));
+        g.fillRect (s.x + s.len * 0.72f, s.y - 0.5f, s.len * 0.28f, 1.0f);
+    }
 }
 
 //==============================================================================
@@ -1021,6 +1106,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
             backdropTheme = ThemeManager::current();
         }
         g.drawImageAt (backdropCache, 0, 0);
+        drawHeroFx (g);
     }
     else
     {
@@ -1092,7 +1178,13 @@ void VocalChopAudioProcessorEditor::resized()
     // --- Artwork hero: on skin themes leave a clear band so the artwork is
     //     fully visible (grows with the window); modules live BELOW it. ---
     if (ThemeManager::active().glow >= 0.9f)
-        area.removeFromTop (juce::jlimit (110, 470, area.getHeight() - 690));
+    {
+        const int bandH = juce::jlimit (110, 470, area.getHeight() - 690);
+        heroRect = { 0, 0, getWidth(), area.getY() + bandH };   // motion-FX zone
+        area.removeFromTop (bandH);
+    }
+    else
+        heroRect = {};
 
     // --- Slice control card ---
     auto sliceCard = area.removeFromTop (94);
