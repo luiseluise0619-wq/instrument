@@ -397,46 +397,45 @@ namespace
         }
     }
 
-    // Full-bleed artwork skin: cover-scale the embedded PNG, then darken it
-    // enough that the glass panels and text stay readable on top.
+    // Artwork skin, Cymatics-style: the image is anchored to the TOP and
+    // fitted to the window width so the hero (the bike) stays completely
+    // unobstructed; only its lower part fades into the panel zone, and
+    // everything below the image is solid background.
     void paintArtworkBackdrop (juce::Graphics& g, int wi, int hi,
-                               const void* data, int dataSize)
+                               const void* data, int dataSize,
+                               juce::Colour bgBottom)
     {
         const float w = (float) wi;
         const float h = (float) hi;
 
+        g.fillAll (bgBottom);
+
         const auto img = juce::ImageCache::getFromMemory (data, dataSize);
+        float imgH = h;
 
         if (img.isValid())
         {
-            g.drawImage (img, { 0.0f, 0.0f, w, h },
-                         juce::RectanglePlacement (juce::RectanglePlacement::fillDestination
-                                                   | juce::RectanglePlacement::centred));
-        }
-        else
-        {
-            g.fillAll (juce::Colour (0xff05030f));
+            imgH = w * (float) img.getHeight() / (float) img.getWidth();
+            g.drawImage (img, { 0.0f, 0.0f, w, imgH },
+                         juce::RectanglePlacement::stretchToFit);
         }
 
-        // Global dim so neon controls read as the brightest thing on screen.
-        g.setColour (juce::Colours::black.withAlpha (0.30f));
-        g.fillRect (0.0f, 0.0f, w, h);
-
-        // Extra darkening where the dense control cards live (lower 2/3).
+        // Fade the artwork's lower part into the control zone (the hero above
+        // this line stays untouched and fully visible).
         {
-            juce::ColourGradient shade (juce::Colours::transparentBlack, 0.0f, h * 0.30f,
-                                        juce::Colour (0xff05030f).withAlpha (0.72f),
-                                        0.0f, h, false);
+            const float fadeTop = imgH * 0.52f;
+            juce::ColourGradient shade (juce::Colours::transparentBlack, 0.0f, fadeTop,
+                                        bgBottom.withAlpha (0.94f), 0.0f, imgH, false);
             g.setGradientFill (shade);
-            g.fillRect (0.0f, h * 0.30f, w, h * 0.70f);
+            g.fillRect (0.0f, fadeTop, w, imgH - fadeTop);
         }
 
-        // Soft top band behind the toolbar.
+        // Soft top band so the toolbar text reads on bright skies.
         {
-            juce::ColourGradient top (juce::Colours::black.withAlpha (0.45f), 0.0f, 0.0f,
-                                      juce::Colours::transparentBlack, 0.0f, 80.0f, false);
+            juce::ColourGradient top (juce::Colours::black.withAlpha (0.38f), 0.0f, 0.0f,
+                                      juce::Colours::transparentBlack, 0.0f, 74.0f, false);
             g.setGradientFill (top);
-            g.fillRect (0.0f, 0.0f, w, 80.0f);
+            g.fillRect (0.0f, 0.0f, w, 74.0f);
         }
 
         // Brand-cohesive CRT scanlines, very subtle.
@@ -739,8 +738,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     setResizable (true, true);
     // Minimum width must fit the fixed slice-control row (engine + slicing
     // combos + wave + instrument + octave buttons) without clipping.
-    setResizeLimits (1020, 860, 1800, 1500);
-    setSize (1080, 990);
+    setResizeLimits (1020, 900, 1900, 1700);
+    setSize (1080, 1060);
 
     refreshChildren();
     startTimerHz (30);   // typing-key watchdog (stuck-note guard)
@@ -813,6 +812,7 @@ void VocalChopAudioProcessorEditor::syncSliceControls()
 
 void VocalChopAudioProcessorEditor::refreshChildren()
 {
+    resized();   // the artwork hero band depends on the active theme
     waveform.refresh();
     sliceGrid.refresh();
     chordBar.refreshKeyLabel();
@@ -988,11 +988,13 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
             if (themeName == "Neon Rider")
                 paintArtworkBackdrop (ig, getWidth(), getHeight(),
                                       BinaryData::skin_neon_rider_png,
-                                      BinaryData::skin_neon_rider_pngSize);
+                                      BinaryData::skin_neon_rider_pngSize,
+                                      theme.bgBottom);
             else if (themeName == "Neo-Seoul")
                 paintArtworkBackdrop (ig, getWidth(), getHeight(),
                                       BinaryData::skin_neo_seoul_png,
-                                      BinaryData::skin_neo_seoul_pngSize);
+                                      BinaryData::skin_neo_seoul_pngSize,
+                                      theme.bgBottom);
             else
                 paintOceanScene (ig, getWidth(), getHeight());
 
@@ -1065,21 +1067,10 @@ void VocalChopAudioProcessorEditor::resized()
 
     area.removeFromTop (kGap);
 
-    // --- Macro strip: HYPE / SPACE / DIRT, front and centre ---
-    {
-        auto macroRow = area.removeFromTop (86);
-        macroCardBounds = macroRow;
-        auto inner = macroRow.reduced (kPadding, 6);
-        const int kw = juce::jmin (150, inner.getWidth() / 3);
-        auto strip = inner.withSizeKeepingCentre (kw * 3 + kGap * 2, inner.getHeight());
-        if (hypeKnob  != nullptr) hypeKnob->setBounds  (strip.removeFromLeft (kw));
-        strip.removeFromLeft (kGap);
-        if (spaceKnob != nullptr) spaceKnob->setBounds (strip.removeFromLeft (kw));
-        strip.removeFromLeft (kGap);
-        if (dirtKnob  != nullptr) dirtKnob->setBounds  (strip.removeFromLeft (kw));
-    }
-
-    area.removeFromTop (kGap);
+    // --- Artwork hero: on skin themes leave a clear band so the artwork is
+    //     fully visible (grows with the window); modules live BELOW it. ---
+    if (ThemeManager::active().glow >= 0.9f)
+        area.removeFromTop (juce::jlimit (110, 470, area.getHeight() - 690));
 
     // --- Slice control card ---
     auto sliceCard = area.removeFromTop (94);
@@ -1176,12 +1167,18 @@ void VocalChopAudioProcessorEditor::resized()
                                 noiseKnob.get(), fmKnob.get(), vibratoKnob.get(),
                                 chorusKnob.get(), lfoRateKnob.get(), motionKnob.get() });
 
-    // Bottom row: Filter | Playback.
+    // Bottom row: Filter | Macros | Playback.
     {
         const int gap = kGap;
-        auto filterCard  = bottomCards.removeFromLeft ((bottomCards.getWidth() - gap) * 42 / 100);
+        auto filterCard  = bottomCards.removeFromLeft ((bottomCards.getWidth() - gap * 2) * 30 / 100);
         filterCardBounds = filterCard;
         bottomCards.removeFromLeft (gap);
+
+        auto macroCard  = bottomCards.removeFromLeft ((bottomCards.getWidth() - gap) * 52 / 100);
+        macroCardBounds = macroCard;
+        bottomCards.removeFromLeft (gap);
+        layoutKnobRow (macroCard, { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() });
+
         auto playbackCard  = bottomCards;
         playbackCardBounds = playbackCard;
 
