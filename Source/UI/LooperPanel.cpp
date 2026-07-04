@@ -12,10 +12,22 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         auto& t = trackUI[i];
 
         t.mainButton.setTriggeredOnMouseDown (true);
+        t.rerecButton.setTriggeredOnMouseDown (true);
         t.undoButton.setTriggeredOnMouseDown (true);
         t.clearButton.setTriggeredOnMouseDown (true);
 
-        t.mainButton.onClick  = [this, i] { proc.getLooper().tapMain (i);  };
+        t.mainButton.onClick = [this, i]
+        {
+            // A fresh take starts in this track's pre-picked sound.
+            if (proc.getLooper().getTrackState (i) == LoopStation::Empty)
+                applyTrackInstrument (i);
+            proc.getLooper().tapMain (i);
+        };
+        t.rerecButton.onClick = [this, i]
+        {
+            applyTrackInstrument (i);
+            proc.getLooper().tapReRecord (i);
+        };
         t.undoButton.onClick  = [this, i] { proc.getLooper().tapUndo (i);  };
         t.clearButton.onClick = [this, i] { proc.getLooper().tapClear (i); };
 
@@ -35,7 +47,18 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             proc.getLooper().setTrackVolume (i, (float) trackUI[i].volSlider.getValue());
         };
 
+        populateInstrumentBox (t.instBox, false);
+        t.instBox.setTextWhenNothingSelected ("Sound " + juce::String (i + 1));
+        t.instBox.onChange = [this, i]
+        {
+            const int id = trackUI[i].instBox.getSelectedId();
+            trackUI[i].chosenInstrument = id > 0 ? id - 1 : -1;
+            applyTrackInstrument (i);   // audition it right away
+        };
+
+        addAndMakeVisible (t.instBox);
         addAndMakeVisible (t.mainButton);
+        addAndMakeVisible (t.rerecButton);
         addAndMakeVisible (t.undoButton);
         addAndMakeVisible (t.clearButton);
         addAndMakeVisible (t.muteButton);
@@ -51,44 +74,41 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     addAndMakeVisible (stopAllButton);
     addAndMakeVisible (clearAllButton);
 
-    // --- Sound pickers: choose the next layer's engine + instrument here ---
+    addTrackButton.onClick = [this]
+    {
+        visibleTracks = juce::jmin (LoopStation::kNumTracks, visibleTracks + 1);
+        updateTrackVisibility();
+        resized();
+        repaint();
+    };
+    addAndMakeVisible (addTrackButton);
+
+    metroButton.setClickingTogglesState (true);
+    metroButton.onClick = [this]
+    {
+        proc.getLooper().setMetronomeOn (metroButton.getToggleState());
+    };
+    addAndMakeVisible (metroButton);
+
+    bpmSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    bpmSlider.setRange (40.0, 240.0, 1.0);
+    bpmSlider.setValue (proc.getLooper().getMetroBpm(), juce::dontSendNotification);
+    bpmSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 20);
+    bpmSlider.setTextValueSuffix ("");
+    bpmSlider.onValueChange = [this]
+    {
+        proc.getLooper().setMetroBpm ((float) bpmSlider.getValue());
+    };
+    addAndMakeVisible (bpmSlider);
+
+    // --- Current-sound pickers (mirror the studio's engine + instrument) ---
     engineBox.addItem ("Chop", 1);
     engineBox.addItem ("Synth", 2);
     engineAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.getAPVTS(), "engine", engineBox);
     addAndMakeVisible (engineBox);
 
-    {
-        static const char* featured[] = { "Vox Choir", "Vox Pluck", "Supersaw Lead",
-                                          "Rage Bell", "Memphis 808", "Lov3 Keys",
-                                          "Kick 808", "Hat Closed", "Snare 808",
-                                          "Clap", "Bass Pad", "Syn Grand" };
-        const auto names = VocalChopAudioProcessor::getInstrumentNames();
-        const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
-
-        auto* root = instrumentBox.getRootMenu();
-        root->addSectionHeader (juce::String::fromUTF8 ("\xe2\x98\x85 QUICK"));
-        for (auto* f : featured)
-        {
-            const int idx = names.indexOf (f);
-            if (idx >= 0)
-                instrumentBox.addItem (f, 1000 + idx);
-        }
-        root->addSeparator();
-
-        int i = 0;
-        while (i < names.size())
-        {
-            const juce::String cat = cats[i];
-            juce::PopupMenu sub;
-            while (i < names.size() && cats[i] == cat)
-            {
-                sub.addItem (i + 1, names[i]);
-                ++i;
-            }
-            root->addSubMenu (cat, sub);
-        }
-    }
+    populateInstrumentBox (instrumentBox, true);
     instrumentBox.setTextWhenNothingSelected ("Instrument");
     instrumentBox.onChange = [this]
     {
@@ -100,12 +120,73 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     };
     addAndMakeVisible (instrumentBox);
 
+    updateTrackVisibility();
     startTimerHz (30);
 }
 
 LooperPanel::~LooperPanel()
 {
     stopTimer();
+}
+
+void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShelf)
+{
+    const auto names = VocalChopAudioProcessor::getInstrumentNames();
+    const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
+    auto* root = box.getRootMenu();
+
+    if (withQuickShelf)
+    {
+        static const char* featured[] = { "Vox Choir", "Vox Pluck", "Supersaw Lead",
+                                          "Rage Bell", "Memphis 808", "Lov3 Keys",
+                                          "Kick 808", "Hat Closed", "Snare 808",
+                                          "Clap", "Bass Pad", "Syn Grand" };
+        root->addSectionHeader (juce::String::fromUTF8 ("\xe2\x98\x85 QUICK"));
+        for (auto* f : featured)
+        {
+            const int idx = names.indexOf (f);
+            if (idx >= 0)
+                box.addItem (f, 1000 + idx);
+        }
+        root->addSeparator();
+    }
+
+    int i = 0;
+    while (i < names.size())
+    {
+        const juce::String cat = cats[i];
+        juce::PopupMenu sub;
+        while (i < names.size() && cats[i] == cat)
+        {
+            sub.addItem (i + 1, names[i]);
+            ++i;
+        }
+        root->addSubMenu (cat, sub);
+    }
+}
+
+void LooperPanel::applyTrackInstrument (int track)
+{
+    const int instr = trackUI[track].chosenInstrument;
+    if (instr >= 0 && instr != proc.getCurrentInstrument())
+        proc.applyInstrument (instr);
+}
+
+void LooperPanel::updateTrackVisibility()
+{
+    for (int i = 0; i < LoopStation::kNumTracks; ++i)
+    {
+        const bool on = i < visibleTracks;
+        auto& t = trackUI[i];
+        t.instBox.setVisible (on);
+        t.mainButton.setVisible (on);
+        t.rerecButton.setVisible (on);
+        t.undoButton.setVisible (on);
+        t.clearButton.setVisible (on);
+        t.muteButton.setVisible (on);
+        t.volSlider.setVisible (on);
+    }
+    addTrackButton.setEnabled (visibleTracks < LoopStation::kNumTracks);
 }
 
 void LooperPanel::timerCallback()
@@ -119,10 +200,11 @@ void LooperPanel::timerCallback()
     }
 
     auto& looper = proc.getLooper();
-    for (int i = 0; i < LoopStation::kNumTracks; ++i)
+    for (int i = 0; i < visibleTracks; ++i)
     {
         auto& t = trackUI[i];
-        switch (looper.getTrackState (i))
+        const int st = looper.getTrackState (i);
+        switch (st)
         {
             case LoopStation::Empty:     t.mainButton.setButtonText ("REC");     break;
             case LoopStation::Recording: t.mainButton.setButtonText ("SET");     break;
@@ -132,6 +214,7 @@ void LooperPanel::timerCallback()
             default: break;
         }
         t.undoButton.setEnabled (looper.canUndo (i));
+        t.rerecButton.setEnabled (st != LoopStation::Empty);
     }
     repaint();
 }
@@ -140,42 +223,59 @@ void LooperPanel::resized()
 {
     auto area = getLocalBounds().reduced (20);
 
-    // Sound pickers along the top of the panel.
+    // Current-sound pickers along the top of the panel.
     auto pickers = area.removeFromTop (34);
     auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (440, pickers.getWidth()), 30);
     engineBox.setBounds (pickStrip.removeFromLeft (110));
     pickStrip.removeFromLeft (12);
     instrumentBox.setBounds (pickStrip);
 
-    // Master transport row at the bottom.
+    // Master transport row at the bottom: MET + BPM, then the big three,
+    // then + TRACK.
     auto master = area.removeFromBottom (44);
-    const int mw = juce::jmin (150, (master.getWidth() - 32) / 3);
-    auto mStrip = master.withSizeKeepingCentre (mw * 3 + 32, 36);
+    auto mStrip = master.withSizeKeepingCentre (juce::jmin (860, master.getWidth()), 36);
+    metroButton.setBounds (mStrip.removeFromLeft (58));
+    mStrip.removeFromLeft (8);
+    bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (170, mStrip.getWidth() / 4)));
+    mStrip.removeFromLeft (12);
+    addTrackButton.setBounds (mStrip.removeFromRight (86));
+    mStrip.removeFromRight (12);
+    const int mw = juce::jmax (60, (mStrip.getWidth() - 24) / 3);
     playAllButton.setBounds  (mStrip.removeFromLeft (mw));
-    mStrip.removeFromLeft (16);
+    mStrip.removeFromLeft (12);
     stopAllButton.setBounds  (mStrip.removeFromLeft (mw));
-    mStrip.removeFromLeft (16);
-    clearAllButton.setBounds (mStrip.removeFromLeft (mw));
+    mStrip.removeFromLeft (12);
+    clearAllButton.setBounds (mStrip);
 
-    area.removeFromBottom (26);   // how-to line (painted)
-    area.removeFromTop (8);
+    area.removeFromBottom (24);   // how-to line (painted)
+    area.removeFromTop (6);
 
-    // Four track strips side by side.
-    const int gap = 14;
-    const int stripW = (area.getWidth() - gap * (LoopStation::kNumTracks - 1))
-                       / LoopStation::kNumTracks;
+    // Visible track strips side by side.
+    const int gap = 12;
+    const int stripW = (area.getWidth() - gap * (visibleTracks - 1)) / juce::jmax (1, visibleTracks);
     for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
-        auto strip = area.removeFromLeft (stripW);
-        if (i < LoopStation::kNumTracks - 1)
-            area.removeFromLeft (gap);
         auto& t = trackUI[i];
+        if (i >= visibleTracks)
+        {
+            t.ringArea = {};
+            continue;
+        }
 
-        auto vol = strip.removeFromBottom (24);
-        t.volSlider.setBounds (vol.reduced (6, 0));
+        auto strip = area.removeFromLeft (stripW);
+        if (i < visibleTracks - 1)
+            area.removeFromLeft (gap);
 
-        auto small = strip.removeFromBottom (30);
-        const int sw = (small.getWidth() - 12) / 3;
+        t.instBox.setBounds (strip.removeFromTop (26));
+        strip.removeFromTop (4);
+
+        auto vol = strip.removeFromBottom (22);
+        t.volSlider.setBounds (vol.reduced (4, 0));
+
+        auto small = strip.removeFromBottom (28);
+        const int sw = (small.getWidth() - 18) / 4;
+        t.rerecButton.setBounds (small.removeFromLeft (sw));
+        small.removeFromLeft (6);
         t.undoButton.setBounds  (small.removeFromLeft (sw));
         small.removeFromLeft (6);
         t.muteButton.setBounds  (small.removeFromLeft (sw));
@@ -183,10 +283,9 @@ void LooperPanel::resized()
         t.clearButton.setBounds (small);
 
         strip.removeFromBottom (6);
-        auto mainB = strip.removeFromBottom (42);
-        t.mainButton.setBounds (mainB);
+        t.mainButton.setBounds (strip.removeFromBottom (40));
 
-        strip.removeFromBottom (6);
+        strip.removeFromBottom (4);
         t.ringArea = strip;   // whatever remains hosts the progress ring
     }
 }
@@ -206,7 +305,7 @@ void LooperPanel::paint (juce::Graphics& g)
 
     auto& looper = proc.getLooper();
 
-    for (int i = 0; i < LoopStation::kNumTracks; ++i)
+    for (int i = 0; i < visibleTracks; ++i)
     {
         const auto& t = trackUI[i];
         if (t.ringArea.isEmpty())
@@ -285,7 +384,7 @@ void LooperPanel::paint (juce::Graphics& g)
     // --- How-to line ---------------------------------------------------------
     g.setColour (theme.textSecondary);
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText ("T1 sets the loop length - other tracks lock to it.   REC > SET > OVERDUB.   UNDO kills the last dub.   Keys below stay live.",
-                card.reduced (14.0f).removeFromBottom (66.0f).removeFromTop (16.0f),
+    g.drawText ("Pick each track's sound up top, then REC > SET > OVERDUB.   RE re-records a track.   MET = click at your BPM (never recorded).",
+                card.reduced (14.0f).removeFromBottom (64.0f).removeFromTop (16.0f),
                 juce::Justification::centred);
 }

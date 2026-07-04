@@ -6,7 +6,9 @@
 #include <cstdint>
 
 /**
-    RC-505-style 4-track layering looper for the plugin's own output.
+    RC-505-style multi-track layering looper (kNumTracks) for the plugin's
+    own output, with a BPM metronome click that is mixed into the output
+    only — never into a recording.
 
     Track 1's first take defines the master loop length; later tracks are
     quantised to a multiple of it (tap slightly early and the recorder keeps
@@ -32,7 +34,7 @@ class LoopStation
 {
 public:
     enum State { Empty = 0, Recording, Playing, Overdub, Stopped };
-    static constexpr int kNumTracks = 4;
+    static constexpr int kNumTracks = 6;
 
     void prepare (double sampleRate, int /*maxBlock*/)
     {
@@ -54,6 +56,13 @@ public:
         }
         masterLen.store (0);
         transport = 0;
+
+        srHz = sr;
+        clickDecay = (float) std::exp (-1.0 / (0.012 * sr));   // ~12 ms tick
+        metroCountdown = 0.0;
+        metroBeatIdx = 0;
+        clickEnv = 0.0f;
+        clickPhase = 0.0f;
     }
 
     // ---- Message thread (UI) --------------------------------------------
@@ -64,6 +73,18 @@ public:
     void tapClear (int track) { trk (track).pendingCmd.store (2); }
     /** Remove everything added since this track last entered Overdub. */
     void tapUndo (int track)  { trk (track).pendingCmd.store (3); }
+    /** Wipe the track and start recording again in one tap. */
+    void tapReRecord (int track) { trk (track).pendingCmd.store (4); }
+
+    // Metronome: an audible click at a set BPM, never recorded into loops.
+    void setMetronomeOn (bool on)
+    {
+        if (on && ! metroOn.load()) metroResetReq.store (true);
+        metroOn.store (on);
+    }
+    bool isMetronomeOn() const      { return metroOn.load(); }
+    void setMetroBpm (float bpm)    { metroBpm.store (juce::jlimit (40.0f, 240.0f, bpm)); }
+    float getMetroBpm() const       { return metroBpm.load(); }
 
     void setMuted (int track, bool m)   { trk (track).muted.store (m); }
     bool isMuted (int track) const      { return trk (track).muted.load(); }
@@ -112,12 +133,43 @@ public:
         const int numCh = juce::jmin (2, io.getNumChannels());
         bool running = false;
 
+        // Metronome bookkeeping (audio thread only).
+        const bool  click = metroOn.load (std::memory_order_relaxed);
+        const double samplesPerBeat = srHz * 60.0
+                                      / (double) metroBpm.load (std::memory_order_relaxed);
+        if (metroResetReq.exchange (false, std::memory_order_relaxed))
+        {
+            metroCountdown = 0.0;
+            metroBeatIdx = 0;
+        }
+
         for (int n = 0; n < numSamples; ++n)
         {
             const float inL = io.getSample (0, n);
             const float inR = numCh > 1 ? io.getSample (1, n) : inL;
             float outL = 0.0f, outR = 0.0f;
             bool advance = false;
+
+            // The click is summed into the OUTPUT only — the recorders below
+            // capture the raw input, so it never ends up inside a loop.
+            if (click)
+            {
+                if (metroCountdown <= 0.0)
+                {
+                    clickEnv   = 1.0f;
+                    clickPhase = 0.0f;
+                    clickFreq  = (metroBeatIdx % 4 == 0) ? 1568.0f : 1046.5f;  // accent on 1
+                    ++metroBeatIdx;
+                    metroCountdown += samplesPerBeat;
+                }
+                metroCountdown -= 1.0;
+
+                const float c = std::sin (clickPhase) * clickEnv * 0.35f;
+                clickPhase += (float) (juce::MathConstants<double>::twoPi * clickFreq / srHz);
+                clickEnv   *= clickDecay;
+                outL += c;
+                outR += c;
+            }
 
             for (auto& t : tracks)
             {
@@ -251,6 +303,8 @@ private:
             {
                 t.recPos = 0;
                 t.targetLen = 0;
+                if (! anyLength())
+                    metroResetReq.store (true);   // click grid starts with the take
                 t.state.store (Recording);
             }
             else if (st == Recording)
@@ -292,8 +346,24 @@ private:
             t.undoAvail.store (false);
             t.recPos = 0;
             t.targetLen = 0;
+            t.dubSamples = 0;
             if (! anyLength())
                 masterLen.store (0);   // last loop gone: next take re-defines it
+        }
+        else if (cmd == 4)     // re-record: wipe this track and roll again
+        {
+            t.lenSamples.store (0);
+            t.layers.store (0);
+            t.undoAvail.store (false);
+            t.recPos = 0;
+            t.targetLen = 0;
+            t.dubSamples = 0;
+            if (! anyLength())
+            {
+                masterLen.store (0);
+                metroResetReq.store (true);
+            }
+            t.state.store (Recording);
         }
         else if (cmd == 3)     // undo the current / latest dub pass
         {
@@ -347,6 +417,7 @@ private:
         else if (cmd == 2)     // play all, re-synced from the top
         {
             transport = 0;
+            metroResetReq.store (true);
             for (auto& t : tracks)
                 if (t.lenSamples.load() > 0)
                     playFromTop (t);
@@ -387,4 +458,13 @@ private:
 
     std::atomic<int> masterLen { 0 };
     std::atomic<int> pendingMaster { 0 };
+
+    // Metronome (atomics = UI writes; the rest is audio-thread state).
+    std::atomic<bool>  metroOn { false };
+    std::atomic<bool>  metroResetReq { false };
+    std::atomic<float> metroBpm { 120.0f };
+    double srHz = 44100.0;
+    double metroCountdown = 0.0;
+    int    metroBeatIdx = 0;
+    float  clickEnv = 0.0f, clickPhase = 0.0f, clickFreq = 1046.5f, clickDecay = 0.99f;
 };
