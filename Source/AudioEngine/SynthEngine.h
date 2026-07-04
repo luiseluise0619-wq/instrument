@@ -56,6 +56,8 @@ public:
         std::atomic<float> satAmount     { 0.15f };  // 0..1 bus saturation
         std::atomic<float> lfoRateHz     { 2.0f };   // filter LFO rate
         std::atomic<float> lfoDepthOct   { 0.0f };   // filter LFO depth (octaves)
+        std::atomic<float> pitchEnvOct   { 0.0f };   // pitch drop (octaves, drums)
+        std::atomic<float> pitchEnvMs    { 60.0f };  // pitch envelope decay
 
         void resetToInit()
         {
@@ -65,6 +67,7 @@ public:
             filterQ = 0.71f; driftCents = 2.5f; velToFilterOct = 0.8f;
             chorusMix = 0.0f; satAmount = 0.15f;
             lfoRateHz = 2.0f; lfoDepthOct = 0.0f;
+            pitchEnvOct = 0.0f; pitchEnvMs = 60.0f;
         }
     };
 
@@ -100,6 +103,9 @@ private:
         float  unisonNorm = 1.0f;
 
         double subPhase = 0.0,  subInc = 0.0;
+
+        // Pitch envelope (percussion "drop"): 1 -> 0 exponential.
+        float penv = 0.0f, penvCoeff = 0.0f, penvOct = 0.0f;
         double fmCarPhase = 0.0, fmCarInc = 0.0;
         double fmModPhase = 0.0, fmModInc = 0.0;
         double vibPhase = 0.0,  vibInc = 0.0;

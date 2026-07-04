@@ -8,6 +8,7 @@
 #include "AudioEngine/PitchFormant.h"
 #include "AudioEngine/GranularEngine.h"
 #include "AudioEngine/FXChain.h"
+#include "AudioEngine/LoopStation.h"
 #include "DSP/Limiter.h"
 
 //==============================================================================
@@ -57,6 +58,7 @@ public:
     SliceEngine&    getSliceEngine()  { return sliceEngine; }
     VoicePool&      getVoicePool()    { return voicePool;   }
     GranularEngine& getGranular()     { return granularEngine; }
+    LoopStation&    getLooper()       { return looper; }
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
 
     double getLoadedSampleRate() const { return loadedSampleRate; }
@@ -118,6 +120,7 @@ private:
     PitchFormant   pitchFormant;
     GranularEngine granularEngine;
     FXChain        fxChain;
+    LoopStation    looper;
     Limiter        limiter;
 
     std::shared_ptr<juce::AudioBuffer<float>> sampleBuffer;
@@ -190,6 +193,9 @@ private:
 
     // Same, for held on-screen / computer-keyboard pads (audio thread only).
     std::array<int, 128> padKeyToVoice {};
+
+    // Which embedded demo vocal the Demo button loads next.
+    int demoCycle = 0;
 
     // Engine-architecture half of an instrument (non-APVTS synth settings).
     void applyEnginePatch (int instrumentIndex);

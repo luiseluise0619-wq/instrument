@@ -9,6 +9,7 @@
 #include "UI/FXRack.h"
 #include "UI/KnobComponent.h"
 #include "UI/MeterComponent.h"
+#include "UI/LooperPanel.h"
 #include "UI/AppleLookAndFeel.h"
 
 //==============================================================================
@@ -71,6 +72,8 @@ private:
     juce::ComboBox   themeBox;
     juce::TextButton loadButton   { "Load Sample" };
     juce::TextButton demoButton   { "Demo" };
+    juce::TextButton looperTabButton { "LOOPER" };
+    bool             showLooper = false;
 
     // Slicing controls.
     juce::ComboBox engineBox;      // Chop / Synth
@@ -118,6 +121,7 @@ private:
     MeterComponent meter { processor.getOutputLevelRef() };
     SliceGrid      sliceGrid;
     FXRack         fxRack;
+    LooperPanel    looperPanel { processor };
 
     // Cached card rectangles (populated in resized(), painted in paint()).
     juce::Rectangle<int> macroCardBounds;

@@ -175,6 +175,14 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
 
     v.driftDepth = juce::jlimit (0.0f, 15.0f, patchSettings.driftCents.load());
 
+    // Percussion pitch envelope: start high, fall exponentially to base.
+    v.penvOct = juce::jlimit (0.0f, 5.0f, patchSettings.pitchEnvOct.load());
+    v.penv    = v.penvOct > 0.0f ? 1.0f : 0.0f;
+    {
+        const float pms = juce::jmax (5.0f, patchSettings.pitchEnvMs.load());
+        v.penvCoeff = std::exp (-1.0f / (pms * 0.001f * (float) sampleRate));
+    }
+
     // --- Resonant filter (velocity opens/closes the base cutoff) -------------
     const float velOct = patchSettings.velToFilterOct.load();
     const float velFactor = std::pow (2.0f, velOct * (v.velocity - 1.0f));
@@ -375,7 +383,13 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 v.driftCents  = juce::jlimit (-v.driftDepth, v.driftDepth, v.driftCents);
                 cents += v.driftCents;
             }
-            const float pitchRatio = 1.0f + cents * 0.000578f;
+            float pitchRatio = 1.0f + cents * 0.000578f;
+            if (v.penv > 0.00001f)
+            {
+                // Exponential drop from +penvOct octaves down to the note.
+                pitchRatio *= std::exp2 (v.penvOct * v.penv);
+                v.penv *= v.penvCoeff;
+            }
 
             // --- Unison oscillator bank -------------------------------------
             float oscL = 0.0f, oscR = 0.0f;
@@ -407,7 +421,7 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             if (v.subLevel > 0.0f)
             {
                 const float sub = std::sin (twoPi * (float) v.subPhase) * v.subLevel;
-                advance (v.subPhase, v.subInc);
+                advance (v.subPhase, v.subInc * (double) pitchRatio);
                 oscL += sub;
                 oscR += sub;
             }

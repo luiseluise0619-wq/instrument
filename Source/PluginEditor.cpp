@@ -522,6 +522,22 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
 
     // One-click start: load the embedded demo vocal (the processor slices it,
     // falling back to a grid when transients are sparse — reflect that here).
+    // --- LOOPER tab toggle: swap the mid section for the loop station ---
+    looperTabButton.setClickingTogglesState (true);
+    looperTabButton.onClick = [this]
+    {
+        showLooper = looperTabButton.getToggleState();
+        looperPanel.setVisible (showLooper);
+        if (showLooper)
+            looperPanel.toFront (false);
+        grabKeysSoon();   // keep playing while looping
+        resized();
+        repaint();
+    };
+    addAndMakeVisible (looperTabButton);
+
+    addChildComponent (looperPanel);   // hidden until the tab is opened
+
     demoButton.setTriggeredOnMouseDown (true);   // instant response
     demoButton.onClick = [this]
     {
@@ -1068,6 +1084,8 @@ void VocalChopAudioProcessorEditor::resized()
     top.removeFromRight (kGap / 2);
     presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 30));
     presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
+    top.removeFromRight (kGap / 2);
+    looperTabButton.setBounds (top.removeFromRight (92).withSizeKeepingCentre (92, 30));
 
     area.removeFromTop (kGap);
 
@@ -1105,6 +1123,7 @@ void VocalChopAudioProcessorEditor::resized()
 
     // --- Waveform row: waveform + meter column on the right ---
     auto waveRow = area.removeFromTop (juce::jmax (150, area.getHeight() * 30 / 100));
+    const auto waveTop = waveRow;   // remembered for the LOOPER overlay
     meter.setBounds (waveRow.removeFromRight (kMeterW));
     waveRow.removeFromRight (kGap);
     waveform.setBounds (waveRow);
@@ -1120,6 +1139,12 @@ void VocalChopAudioProcessorEditor::resized()
 
     // --- Controls area: cards row (grouped) + FX rack side column ---
     auto controls = area;
+
+    // The LOOPER tab covers the whole mid section (wave row through the
+    // control cards); the keyboard below stays visible and playable.
+    looperPanel.setBounds (juce::Rectangle<int> (waveTop.getX(), waveTop.getY(),
+                                                 waveTop.getWidth(),
+                                                 controls.getBottom() - waveTop.getY()));
 
     // FX rack as a side column on the right.
     auto fxCol = controls.removeFromRight (160);

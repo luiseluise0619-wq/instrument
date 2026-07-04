@@ -195,6 +195,7 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     pitchFormant.prepare (sampleRate, samplesPerBlock, juce::jmax (1, getTotalNumOutputChannels()));
     granularEngine.prepare (spec);
     fxChain.prepare (spec);
+    looper.prepare (sampleRate, samplesPerBlock);
     limiter.prepare (sampleRate, samplesPerBlock);
 
     widthSmoothed.reset (sampleRate, 0.02);
@@ -414,7 +415,11 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float gain = juce::Decibels::decibelsToGain (outputGainParam->load());
     buffer.applyGain (gain);
 
-    // 8) Brick-wall limiter.
+    // 8) Loop station: records the performance, then adds the stacked loop
+    //    (the limiter after us protects the sum).
+    looper.process (buffer, numSamples);
+
+    // 9) Brick-wall limiter.
     limiter.process (buffer);
 
     // Publish the output level as a PEAK LATCH: keep the maximum until the
@@ -668,8 +673,18 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
 
 bool VocalChopAudioProcessor::loadDemoSample()
 {
-    return loadSampleFromMemory (BinaryData::vocal_chop_demo_wav,
-                                 BinaryData::vocal_chop_demo_wavSize);
+    // Three built-in vocals; every Demo press cycles to the next one.
+    struct Embedded { const void* data; int size; };
+    static const Embedded demos[] = {
+        { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize },
+        { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize },
+        { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize },
+    };
+    constexpr int numDemos = (int) (sizeof (demos) / sizeof (demos[0]));
+
+    const auto& d = demos[demoCycle % numDemos];
+    ++demoCycle;
+    return loadSampleFromMemory (d.data, d.size);
 }
 
 bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBytes)
@@ -812,6 +827,15 @@ namespace
     { "BASS",  "Growl 808",     1, 0.0f, 0.7f, 0.00f, 0.60f, 2.5f, 0.0f, 0.0f,   400, 3.0f,  300, 2, -2,  0.0f,  0, 1000, 0.40f, 220, 0.60f, 0.05f, 0.0f, 0, 0.85f },
     { "BASS",  "Bounce Bass",   1, 0.0f, 0.6f, 0.03f, 0.00f, 2.0f, 0.0f, 0.0f,   700, 2.8f,  110, 1, -1,  4.0f,  0,  300, 0.20f, 120, 0.35f, 0.08f, 0.0f, 0, 0.9f },
     { "BASS",  "Seoul Bass",    1, 0.0f, 0.75f,0.00f, 0.15f, 1.0f, 0.0f, 0.0f,   450, 1.5f,  250, 2, -1,  0.0f,  2,  450, 0.50f, 200, 0.15f, 0.10f, 0.0f, 0, 0.85f },
+
+    { "DRUMS", "Kick 808",      1, 0.0f, 0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,  0,  500, 0.00f, 200, 0.30f, 0.02f, 0.0f, 0, 0.7f },
+    { "DRUMS", "Kick Punch",    1, 0.0f, 0.0f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  4000, 0.0f,  200, 2, -1,  0.0f,  0,  260, 0.00f, 120, 0.45f, 0.02f, 0.0f, 0, 0.7f },
+    { "DRUMS", "Snare 808",     1, 0.0f, 0.15f,0.85f, 0.00f, 2.0f, 0.0f, 0.0f,  7000, 0.6f,  120, 2,  0,  0.0f,  0,  220, 0.00f, 140, 0.25f, 0.12f, 0.0f, 0, 1.0f },
+    { "DRUMS", "Snare Tight",   1, 0.0f, 0.10f,0.90f, 0.00f, 2.0f, 0.0f, 0.0f,  9000, 0.4f,   90, 2,  0,  0.0f,  0,  150, 0.00f, 100, 0.30f, 0.08f, 0.0f, 0, 1.0f },
+    { "DRUMS", "Clap",          1, 0.0f, 0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f,  6500, 0.3f,  110, 2,  0,  0.0f,  8,  190, 0.00f, 160, 0.20f, 0.22f, 0.0f, 0, 1.15f },
+    { "DRUMS", "Hat Closed",    1, 0.0f, 0.0f, 0.75f, 0.90f, 7.31f,0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,   55, 0.00f,  45, 0.15f, 0.03f, 0.0f, 0, 1.0f },
+    { "DRUMS", "Hat Open",      1, 0.0f, 0.0f, 0.75f, 0.90f, 7.31f,0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,  420, 0.00f, 320, 0.15f, 0.08f, 0.0f, 0, 1.1f },
+    { "DRUMS", "Rim Perc",      1, 0.0f, 0.20f,0.35f, 0.60f, 3.7f, 0.0f, 0.0f,  8000, 0.8f,   60, 2,  0,  0.0f,  0,   90, 0.00f,  70, 0.25f, 0.10f, 0.0f, 0, 1.0f },
 
     { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
     { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
@@ -1070,6 +1094,8 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
                                 p.filterQ = 1.5f; }
     else if (cat == "BASS")   { chorus = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
                                 p.satAmount = 0.30f; }
+    else if (cat == "DRUMS")  { chorus = 0.0f;  p.driftCents = 0.0f;  p.velToFilterOct = 1.2f;
+                                p.satAmount = 0.25f; }
     else /* MISC / INIT */    { chorus = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
 
     if (name == "Acid Lead")     { p.filterQ = 5.5f; p.satAmount = 0.35f; }
@@ -1080,6 +1106,13 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name == "Sub 808")       { p.driftCents = 0.5f; chorus = 0.0f; }
     if (name == "Synth Brass")   chorus = 0.30f;
     if (name == "Syn Flute")    chorus = 0.20f;
+
+    // Percussion pitch drops (the 808 "boo" and snare thwack).
+    if (name == "Kick 808")    { p.pitchEnvOct = 2.2f; p.pitchEnvMs = 42.0f; }
+    if (name == "Kick Punch")  { p.pitchEnvOct = 3.0f; p.pitchEnvMs = 26.0f; }
+    if (name == "Snare 808")   { p.pitchEnvOct = 1.2f; p.pitchEnvMs = 34.0f; }
+    if (name == "Snare Tight") { p.pitchEnvOct = 1.5f; p.pitchEnvMs = 22.0f; }
+    if (name == "Rim Perc")    { p.pitchEnvOct = 1.8f; p.pitchEnvMs = 16.0f; }
 
     p.chorusMix = chorus;
 

@@ -85,6 +85,8 @@ juce_generate_juce_header(VocalChopStudio)
 # skin artworks (drawn as theme backdrops).
 juce_add_binary_data(VocalChopData SOURCES
     examples/vocal_chop_demo.wav
+    examples/vox_air.wav
+    examples/vox_rage.wav
     assets/skin_neon_rider.png
     assets/skin_neo_seoul.png)
 
@@ -104,6 +106,7 @@ target_sources(VocalChopStudio PRIVATE
     Source/UI/WaveformView.cpp
     Source/UI/KnobComponent.cpp
     Source/UI/SliceGrid.cpp
+    Source/UI/LooperPanel.cpp
     Source/UI/ChordBar.cpp
     Source/UI/FXRack.cpp)
 
