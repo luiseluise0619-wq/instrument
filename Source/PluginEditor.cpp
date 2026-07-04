@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "UI/ThemeManager.h"
+#include "BinaryData.h"
 
 namespace
 {
@@ -394,6 +395,54 @@ namespace
             g.setGradientFill (vig);
             g.fillRect (0.0f, 0.0f, w, h);
         }
+    }
+
+    // Full-bleed artwork skin: cover-scale the embedded PNG, then darken it
+    // enough that the glass panels and text stay readable on top.
+    void paintArtworkBackdrop (juce::Graphics& g, int wi, int hi,
+                               const void* data, int dataSize)
+    {
+        const float w = (float) wi;
+        const float h = (float) hi;
+
+        const auto img = juce::ImageCache::getFromMemory (data, dataSize);
+
+        if (img.isValid())
+        {
+            g.drawImage (img, { 0.0f, 0.0f, w, h },
+                         juce::RectanglePlacement (juce::RectanglePlacement::fillDestination
+                                                   | juce::RectanglePlacement::centred));
+        }
+        else
+        {
+            g.fillAll (juce::Colour (0xff05030f));
+        }
+
+        // Global dim so neon controls read as the brightest thing on screen.
+        g.setColour (juce::Colours::black.withAlpha (0.30f));
+        g.fillRect (0.0f, 0.0f, w, h);
+
+        // Extra darkening where the dense control cards live (lower 2/3).
+        {
+            juce::ColourGradient shade (juce::Colours::transparentBlack, 0.0f, h * 0.30f,
+                                        juce::Colour (0xff05030f).withAlpha (0.72f),
+                                        0.0f, h, false);
+            g.setGradientFill (shade);
+            g.fillRect (0.0f, h * 0.30f, w, h * 0.70f);
+        }
+
+        // Soft top band behind the toolbar.
+        {
+            juce::ColourGradient top (juce::Colours::black.withAlpha (0.45f), 0.0f, 0.0f,
+                                      juce::Colours::transparentBlack, 0.0f, 80.0f, false);
+            g.setGradientFill (top);
+            g.fillRect (0.0f, 0.0f, w, 80.0f);
+        }
+
+        // Brand-cohesive CRT scanlines, very subtle.
+        g.setColour (juce::Colours::black.withAlpha (0.05f));
+        for (float sy = 0.0f; sy < h; sy += 3.0f)
+            g.fillRect (0.0f, sy, w, 1.0f);
     }
 
     // FL-style typing keys: bottom row = C3 octave, top row = C4 octave.
@@ -898,7 +947,19 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
                                          juce::jmax (1, getWidth()),
                                          juce::jmax (1, getHeight()), true);
             juce::Graphics ig (backdropCache);
-            paintOceanScene (ig, getWidth(), getHeight());
+
+            const juce::String themeName (theme.name);
+            if (themeName == "Neon Rider")
+                paintArtworkBackdrop (ig, getWidth(), getHeight(),
+                                      BinaryData::skin_neon_rider_png,
+                                      BinaryData::skin_neon_rider_pngSize);
+            else if (themeName == "Neo-Seoul")
+                paintArtworkBackdrop (ig, getWidth(), getHeight(),
+                                      BinaryData::skin_neo_seoul_png,
+                                      BinaryData::skin_neo_seoul_pngSize);
+            else
+                paintOceanScene (ig, getWidth(), getHeight());
+
             backdropTheme = ThemeManager::current();
         }
         g.drawImageAt (backdropCache, 0, 0);

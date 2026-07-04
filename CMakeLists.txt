@@ -81,8 +81,12 @@ juce_add_plugin(VocalChopStudio
 
 juce_generate_juce_header(VocalChopStudio)
 
-# Embed the demo vocal so first-run users get sound in one click.
-juce_add_binary_data(VocalChopData SOURCES examples/vocal_chop_demo.wav)
+# Embed the demo vocal (one-click first-run sound) and the two full-bleed
+# skin artworks (drawn as theme backdrops).
+juce_add_binary_data(VocalChopData SOURCES
+    examples/vocal_chop_demo.wav
+    assets/skin_neon_rider.png
+    assets/skin_neo_seoul.png)
 
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp

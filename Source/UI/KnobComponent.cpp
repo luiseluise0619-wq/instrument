@@ -100,9 +100,12 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         progress.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f,
                                 rotaryStartAngle, angle, true);
 
-        // Full-glow themes sweep the arc cyan -> electric purple.
-        const juce::Colour arcEnd = theme.glow >= 0.9f ? juce::Colour (0xffb026ff)
-                                                       : theme.accent;
+        // Full-glow themes sweep the arc from the accent toward the theme's
+        // second neon (waveform colour): cyan->pink on Neon Ocean, pink->cyan
+        // on Neon Rider, green->orange on Neo-Seoul.
+        const juce::Colour arcEnd = theme.glow >= 0.9f
+            ? theme.accent.interpolatedWith (theme.waveform, 0.85f)
+            : theme.accent;
         juce::ColourGradient arcGrad (theme.accent,
                                       bounds.getX(), bounds.getBottom(),
                                       arcEnd,
