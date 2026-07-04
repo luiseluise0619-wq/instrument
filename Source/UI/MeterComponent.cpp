@@ -3,7 +3,7 @@
 MeterComponent::MeterComponent (std::atomic<float>& levelSource)
     : level (levelSource)
 {
-    startTimerHz (30);
+    startTimerHz (60);   // meters must feel instantaneous
 }
 
 MeterComponent::~MeterComponent()
@@ -13,20 +13,22 @@ MeterComponent::~MeterComponent()
 
 void MeterComponent::timerCallback()
 {
-    // Read the external level (clamped to a sane 0..1 range). Read-only.
-    const float target = juce::jlimit (0.0f, 1.0f, level.load (std::memory_order_relaxed));
+    // Consume the processor's peak latch (exchange-to-zero): whatever peak
+    // happened since the last frame shows up on THIS frame.
+    const float target = juce::jlimit (0.0f, 1.0f,
+                                       level.exchange (0.0f, std::memory_order_relaxed));
 
-    // Fast attack: jump up immediately. Slow release: ease down toward target.
+    // Instant attack: jump up immediately. Musical release: ease down.
     if (target >= displayed)
         displayed = target;
     else
-        displayed += (target - displayed) * 0.25f;   // exponential ease-down
+        displayed += (target - displayed) * 0.16f;   // per-frame at 60 Hz
 
     // Peak-hold catches the top and then falls slowly.
     if (displayed >= peakHold)
         peakHold = displayed;
     else
-        peakHold -= 0.010f;                            // slow linear fall
+        peakHold -= 0.006f;                            // slow linear fall
 
     peakHold = juce::jlimit (0.0f, 1.0f, peakHold);
 

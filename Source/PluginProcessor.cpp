@@ -417,8 +417,16 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // 8) Brick-wall limiter.
     limiter.process (buffer);
 
-    // Publish the output level for the UI meter (meter applies its own ballistics).
-    outputLevel.store (buffer.getMagnitude (0, numSamples), std::memory_order_relaxed);
+    // Publish the output level as a PEAK LATCH: keep the maximum until the
+    // meter consumes it (exchange-to-zero), so no transient between two UI
+    // frames is ever missed and the bar reacts on the very next frame.
+    {
+        const float mag = buffer.getMagnitude (0, numSamples);
+        float prev = outputLevel.load (std::memory_order_relaxed);
+        while (prev < mag
+               && ! outputLevel.compare_exchange_weak (prev, mag,
+                                                       std::memory_order_relaxed)) {}
+    }
 }
 
 void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*numSamples*/)
