@@ -32,6 +32,8 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         t.clearButton.onClick = [this, i] { proc.getLooper().tapClear (i); };
 
         t.muteButton.setClickingTogglesState (true);
+        t.muteButton.setToggleState (proc.getLooper().isMuted (i),
+                                     juce::dontSendNotification);
         t.muteButton.onClick = [this, i]
         {
             proc.getLooper().setMuted (i, trackUI[i].muteButton.getToggleState());
@@ -53,7 +55,18 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         {
             const int id = trackUI[i].instBox.getSelectedId();
             trackUI[i].chosenInstrument = id > 0 ? id - 1 : -1;
-            applyTrackInstrument (i);   // audition it right away
+
+            // Audition right away — but never while a take is rolling:
+            // switching the global sound mid-Recording/Overdub would bake
+            // the wrong instrument into another track's loop.
+            auto& looper = proc.getLooper();
+            for (int tr = 0; tr < LoopStation::kNumTracks; ++tr)
+            {
+                const int st = looper.getTrackState (tr);
+                if (st == LoopStation::Recording || st == LoopStation::Overdub)
+                    return;
+            }
+            applyTrackInstrument (i);
         };
 
         addAndMakeVisible (t.instBox);
@@ -84,6 +97,8 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     addAndMakeVisible (addTrackButton);
 
     metroButton.setClickingTogglesState (true);
+    metroButton.setToggleState (proc.getLooper().isMetronomeOn(),
+                                juce::dontSendNotification);
     metroButton.onClick = [this]
     {
         proc.getLooper().setMetronomeOn (metroButton.getToggleState());
@@ -119,6 +134,12 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             proc.applyInstrument (id - 1);
     };
     addAndMakeVisible (instrumentBox);
+
+    // Loops live in the processor and survive the editor: if tracks 5/6 are
+    // still playing, reopening the window must show their strips again.
+    for (int i = 0; i < LoopStation::kNumTracks; ++i)
+        if (proc.getLooper().getTrackState (i) != LoopStation::Empty)
+            visibleTracks = juce::jmax (visibleTracks, i + 1);
 
     updateTrackVisibility();
     startTimerHz (30);
@@ -191,12 +212,15 @@ void LooperPanel::updateTrackVisibility()
 
 void LooperPanel::timerCallback()
 {
-    // Mirror an instrument change made anywhere else.
+    // Mirror an instrument change made anywhere else. Compare INDICES, not
+    // raw ids — QUICK-shelf picks use ids 1000+idx, and comparing ids would
+    // freeze the mirror forever after one QUICK selection.
     {
-        const int want = proc.getCurrentInstrument() + 1;
-        if (instrumentBox.getSelectedId() != want
-            && instrumentBox.getSelectedId() < 1000)
-            instrumentBox.setSelectedId (want, juce::dontSendNotification);
+        const int sel    = instrumentBox.getSelectedId();
+        const int selIdx = sel >= 1000 ? sel - 1000 : sel - 1;
+        if (selIdx != proc.getCurrentInstrument())
+            instrumentBox.setSelectedId (proc.getCurrentInstrument() + 1,
+                                         juce::dontSendNotification);
     }
 
     auto& looper = proc.getLooper();

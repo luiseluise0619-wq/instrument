@@ -53,6 +53,9 @@ public:
             t.startStamp = 0;
             t.targetLen = 0;
             t.dubSamples = 0;
+            t.undoEnd = 0;
+            t.cmdWrite.store (0);
+            t.cmdRead = 0;
         }
         masterLen.store (0);
         transport = 0;
@@ -67,14 +70,14 @@ public:
 
     // ---- Message thread (UI) --------------------------------------------
     /** Track main button: Empty->Record, Record->set length + Play,
-        Play<->Overdub, Stopped->Play (all synced from the top). */
-    void tapMain (int track)  { trk (track).pendingCmd.store (1); }
+        Play<->Overdub, Stopped->Play (resumes in phase). */
+    void tapMain (int track)  { pushCmd (track, 1); }
     /** Throw one track away. */
-    void tapClear (int track) { trk (track).pendingCmd.store (2); }
+    void tapClear (int track) { pushCmd (track, 2); }
     /** Remove everything added since this track last entered Overdub. */
-    void tapUndo (int track)  { trk (track).pendingCmd.store (3); }
+    void tapUndo (int track)  { pushCmd (track, 3); }
     /** Wipe the track and start recording again in one tap. */
-    void tapReRecord (int track) { trk (track).pendingCmd.store (4); }
+    void tapReRecord (int track) { pushCmd (track, 4); }
 
     // Metronome: an audible click at a set BPM, never recorded into loops.
     void setMetronomeOn (bool on)
@@ -128,7 +131,7 @@ public:
     {
         applyMasterCommand();
         for (int i = 0; i < kNumTracks; ++i)
-            applyTrackCommand (i);
+            drainTrackCommands (i);
 
         const int numCh = juce::jmin (2, io.getNumChannels());
         bool running = false;
@@ -163,7 +166,12 @@ public:
                     metroCountdown += samplesPerBeat;
                 }
                 metroCountdown -= 1.0;
+            }
 
+            // Render the tick tail even after the metronome is switched off —
+            // cutting a decaying sine mid-cycle is an audible step.
+            if (clickEnv > 1.0e-4f)
+            {
                 const float c = std::sin (clickPhase) * clickEnv * 0.35f;
                 clickPhase += (float) (juce::MathConstants<double>::twoPi * clickFreq / srHz);
                 clickEnv   *= clickDecay;
@@ -202,13 +210,17 @@ public:
 
                     if (st == Overdub)
                     {
-                        // Save the pre-dub sample so UNDO can put it back.
-                        t.shadow.setSample (0, idx, L[idx]);
-                        t.shadow.setSample (1, idx, R[idx]);
+                        // Save each sample's PRE-SESSION value exactly once —
+                        // rewriting the shadow on later passes would make UNDO
+                        // restore "original + pass 1" on half the loop only.
+                        if (t.dubSamples < len)
+                        {
+                            t.shadow.setSample (0, idx, L[idx]);
+                            t.shadow.setSample (1, idx, R[idx]);
+                            ++t.dubSamples;
+                        }
                         L[idx] += inL;
                         R[idx] += inR;
-                        if (t.dubSamples < len)
-                            ++t.dubSamples;
                         if (idx == len - 1)
                             t.layers.fetch_add (1);   // one full pass = one layer
                     }
@@ -259,19 +271,41 @@ private:
         std::atomic<int>   state { Empty };
         std::atomic<int>   lenSamples { 0 };
         std::atomic<int>   layers { 0 };
-        std::atomic<int>   pendingCmd { 0 };
         std::atomic<float> volume { 0.9f };
         std::atomic<float> uiPos { 0.0f };
         std::atomic<bool>  muted { false };
         std::atomic<bool>  undoAvail { false };
+
+        // Command ring (message thread writes, audio thread reads): a single
+        // slot would drop the second tap of a fast double-tap that lands in
+        // one audio block, leaving e.g. an unintended Overdub running.
+        std::atomic<int>   cmdQueue[8] {};
+        std::atomic<int>   cmdWrite { 0 };
+        int     cmdRead = 0;       // audio thread only
+
         int     recPos = 0;        // write head while Recording (audio thread)
         int64_t startStamp = 0;    // transport value that maps to sample 0
         int     targetLen = 0;     // quantised finalise point (0 = free take)
-        int     dubSamples = 0;    // samples visited in the current dub pass
+        int     dubSamples = 0;    // samples visited in the current dub session
+        int     undoEnd = 0;       // loop index where the last dub session ended
     };
 
     Track&       trk (int i)       { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
     const Track& trk (int i) const { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
+
+    void pushCmd (int track, int cmd)
+    {
+        auto& t = trk (track);
+        const int w = t.cmdWrite.load (std::memory_order_relaxed);
+        t.cmdQueue[w & 7].store (cmd, std::memory_order_relaxed);
+        t.cmdWrite.store (w + 1, std::memory_order_release);
+    }
+
+    int idxOf (const Track& t) const   // current play index (audio thread)
+    {
+        const int len = t.lenSamples.load (std::memory_order_relaxed);
+        return len > 0 ? (int) (((transport - t.startStamp) % len + len) % len) : 0;
+    }
 
     void finalizeTake (Track& t)
     {
@@ -283,18 +317,28 @@ private:
 
         t.lenSamples.store (len);
         t.layers.store (1);
-        t.startStamp = transport;   // sample 0 plays back right now: seamless
+        // Phase-continue the take: for an exact-boundary or free take this is
+        // "sample 0 = now" (recPos == len, same thing mod len); for a LATE
+        // tap that got truncated it keeps playback where the performer
+        // actually is instead of jumping back to the loop top.
+        t.startStamp = transport - (int64_t) t.recPos;
         t.targetLen = 0;
         t.state.store (Playing);
     }
 
-    void applyTrackCommand (int i)
+    void drainTrackCommands (int i)
     {
         Track& t = tracks[(size_t) i];
-        const int cmd = t.pendingCmd.exchange (0, std::memory_order_relaxed);
-        if (cmd == 0)
-            return;
+        while (t.cmdRead != t.cmdWrite.load (std::memory_order_acquire))
+        {
+            const int cmd = t.cmdQueue[t.cmdRead & 7].load (std::memory_order_relaxed);
+            ++t.cmdRead;
+            applyTrackCommand (t, cmd);
+        }
+    }
 
+    void applyTrackCommand (Track& t, int cmd)
+    {
         const int st = t.state.load (std::memory_order_relaxed);
 
         if (cmd == 1)          // main button
@@ -335,8 +379,18 @@ private:
                 t.undoAvail.store (true);
                 t.state.store (Overdub);
             }
-            else if (st == Overdub)  t.state.store (Playing);
-            else if (st == Stopped)  playFromTop (t);
+            else if (st == Overdub)
+            {
+                t.undoEnd = idxOf (t);   // where this dub session stopped
+                t.state.store (Playing);
+            }
+            else if (st == Stopped)
+            {
+                // Resume IN PHASE: startStamp is untouched, so the track
+                // comes back locked to the shared transport instead of
+                // restarting at its own top out of sync.
+                t.state.store (Playing);
+            }
         }
         else if (cmd == 2)     // clear this track
         {
@@ -373,7 +427,9 @@ private:
                 if (len > 0 && t.dubSamples > 0)
                 {
                     const int count = juce::jmin (t.dubSamples, len);
-                    const int idx   = (int) (((transport - t.startStamp) % len + len) % len);
+                    // The dubbed region ends where the dub STOPPED, not where
+                    // playback happens to be now.
+                    const int idx   = (st == Overdub) ? idxOf (t) : t.undoEnd;
                     int start = idx - count;   // region we walked through
                     while (start < 0) start += len;
                     const int first = juce::jmin (count, len - start);
@@ -411,7 +467,11 @@ private:
                     else                         t.state.store (Empty);
                 }
                 else if (st == Playing || st == Overdub)
+                {
+                    if (st == Overdub)
+                        t.undoEnd = idxOf (t);   // dub session ends here
                     t.state.store (Stopped);
+                }
             }
         }
         else if (cmd == 2)     // play all, re-synced from the top
@@ -441,6 +501,10 @@ private:
     void playFromTop (Track& t)
     {
         t.startStamp = transport;   // sample 0 = now, same instant for all
+        // The rewritten stamp shifts every loop index, so the recorded undo
+        // region no longer lines up — restoring it would corrupt the loop.
+        t.undoAvail.store (false);
+        t.dubSamples = 0;
         t.state.store (Playing);
     }
 
