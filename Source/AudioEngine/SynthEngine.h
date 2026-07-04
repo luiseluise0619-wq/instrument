@@ -54,6 +54,8 @@ public:
         std::atomic<float> velToFilterOct{ 0.8f };   // velocity -> cutoff
         std::atomic<float> chorusMix     { 0.0f };   // 0..1 bus chorus
         std::atomic<float> satAmount     { 0.15f };  // 0..1 bus saturation
+        std::atomic<float> lfoRateHz     { 2.0f };   // filter LFO rate
+        std::atomic<float> lfoDepthOct   { 0.0f };   // filter LFO depth (octaves)
 
         void resetToInit()
         {
@@ -62,6 +64,7 @@ public:
             filterCutoff = 20000.0f; filterEnvOct = 0.0f; filterEnvMs = 200.0f;
             filterQ = 0.71f; driftCents = 2.5f; velToFilterOct = 0.8f;
             chorusMix = 0.0f; satAmount = 0.15f;
+            lfoRateHz = 2.0f; lfoDepthOct = 0.0f;
         }
     };
 
@@ -141,6 +144,7 @@ private:
 
     Patch  patchSettings;
     juce::Random noiseRng;
+    double lfoPhaseBase = 0.0;   // global filter-LFO phase (0..1)
 
     // Synth-only scratch bus so chorus/saturation never touch the chop signal.
     juce::AudioBuffer<float> scratch;

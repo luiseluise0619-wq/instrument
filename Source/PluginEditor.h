@@ -94,7 +94,8 @@ private:
 
     // Synth module knobs (Serum-style architecture controls).
     std::unique_ptr<KnobComponent> unisonKnob, spreadKnob, subKnob, noiseKnob,
-                                   fmKnob, vibratoKnob, chorusKnob;
+                                   fmKnob, vibratoKnob, chorusKnob,
+                                   lfoRateKnob, motionKnob;
 
     // Grouped choice / bool controls.
     juce::ComboBox   filterTypeBox;

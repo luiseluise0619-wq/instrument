@@ -16,7 +16,10 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedDrive { 0.0f };
 };
 
-/** Room reverb wrapping juce::dsp::Reverb; `amount` 0..1 sets the wet level. */
+/** Room reverb wrapping juce::dsp::Reverb; `amount` 0..1 sets the wet level.
+    The wet path runs on its own bus with a 12 ms pre-delay (separates the
+    reverb from the transient) and a gentle high-pass (keeps low end dry and
+    punchy) — the dry signal passes bit-exact. */
 class ReverbFX
 {
 public:
@@ -27,6 +30,12 @@ private:
     juce::dsp::Reverb reverb;
     double sampleRate = 44100.0;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedAmount { 0.0f };
+
+    juce::AudioBuffer<float> wetBus;
+    std::vector<float> preLine[2];   // pre-delay ring buffers
+    int   prePos = 0, preSamples = 0;
+    float hpState[2] { 0.0f, 0.0f }; // one-pole HP on the wet return
+    float hpCoeff = 0.02f;
 };
 
 /** Stereo feedback delay; `amount` 0..1 sets the wet level. */

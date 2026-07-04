@@ -66,13 +66,26 @@ void ReverbFX::prepare (const juce::dsp::ProcessSpec& spec)
     smoothedAmount.reset (sampleRate, 0.02); // ~20 ms ramp
     smoothedAmount.setCurrentAndTargetValue (0.0f);
 
+    // Wet-only inside the reverb; we do the mixing ourselves.
     juce::dsp::Reverb::Parameters p;
-    p.roomSize = 0.6f;
-    p.damping  = 0.4f;
-    p.wetLevel = 0.0f;
-    p.dryLevel = 1.0f;
+    p.roomSize = 0.68f;
+    p.damping  = 0.35f;
+    p.wetLevel = 1.0f;
+    p.dryLevel = 0.0f;
     p.width    = 1.0f;
     reverb.setParameters (p);
+
+    wetBus.setSize (2, (int) spec.maximumBlockSize);
+
+    preSamples = juce::jmax (1, (int) (0.012 * sampleRate));   // 12 ms pre-delay
+    for (auto& l : preLine)
+        l.assign ((size_t) preSamples, 0.0f);
+    prePos = 0;
+
+    // One-pole high-pass ~150 Hz on the wet return keeps the low end dry.
+    hpCoeff = 1.0f - std::exp (-2.0f * juce::MathConstants<float>::pi
+                               * 150.0f / (float) sampleRate);
+    hpState[0] = hpState[1] = 0.0f;
 }
 
 void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
@@ -87,24 +100,52 @@ void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
         return;
     }
 
-    const int numSamples = buffer.getNumSamples();
+    const int numSamples  = buffer.getNumSamples();
+    const int numChannels = juce::jmin (2, buffer.getNumChannels());
+    if (numSamples > wetBus.getNumSamples())
+        return;   // host exceeded the prepared block; skip defensively
 
-    // juce::dsp::Reverb updates smoothly enough per block; advance the smoother
-    // across the block (never hard-jump) and use the block-end value.
-    smoothedAmount.skip (numSamples);
-    const float wet = smoothedAmount.getCurrentValue();
+    // Feed the wet bus through the pre-delay ring.
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const float* in  = buffer.getReadPointer (juce::jmin (ch, numChannels - 1));
+        float*       wet = wetBus.getWritePointer (ch);
+        auto&        line = preLine[ch];
+        int          pos  = prePos;
 
-    juce::dsp::Reverb::Parameters p;
-    p.roomSize = 0.6f;
-    p.damping  = 0.4f;
-    p.wetLevel = wet;
-    p.dryLevel = 1.0f - wet * 0.5f;
-    p.width    = 1.0f;
-    reverb.setParameters (p);
+        for (int n = 0; n < numSamples; ++n)
+        {
+            wet[n] = line[(size_t) pos];
+            line[(size_t) pos] = in[n];
+            pos = (pos + 1) % preSamples;
+        }
+        if (ch == 1)
+            prePos = pos;
+    }
 
-    juce::dsp::AudioBlock<float> block (buffer);
+    // 100%-wet reverb on the bus.
+    juce::dsp::AudioBlock<float> block (wetBus.getArrayOfWritePointers(), 2,
+                                        (size_t) numSamples);
     juce::dsp::ProcessContextReplacing<float> ctx (block);
     reverb.process (ctx);
+
+    // High-pass the wet return and mix it in; the dry path stays untouched.
+    smoothedAmount.skip (numSamples);
+    const float wetGain = smoothedAmount.getCurrentValue() * 0.85f;
+
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        float* out = buffer.getWritePointer (ch);
+        const float* wet = wetBus.getReadPointer (ch);
+        float state = hpState[ch];
+
+        for (int n = 0; n < numSamples; ++n)
+        {
+            state += hpCoeff * (wet[n] - state);
+            out[n] += (wet[n] - state) * wetGain;
+        }
+        hpState[ch] = state;
+    }
 }
 
 //==============================================================================

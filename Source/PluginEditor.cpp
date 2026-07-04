@@ -656,6 +656,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (fmKnob,      "synthFM",      "FM");
     addKnob (vibratoKnob, "synthVibrato", "Vibrato");
     addKnob (chorusKnob,  "synthChorus",  "Chorus");
+    addKnob (lfoRateKnob, "synthLfoRate", "LFO Rate");
+    addKnob (motionKnob,  "synthLfoAmt",  "Motion");
 
     // --- Filter knobs + combo ---
     addKnob (filterCutoffKnob, "filterCutoff", "Cutoff");
@@ -1120,7 +1122,7 @@ void VocalChopAudioProcessorEditor::resized()
     // Middle row: the synth architecture modules.
     layoutKnobRow (synthCard, { unisonKnob.get(), spreadKnob.get(), subKnob.get(),
                                 noiseKnob.get(), fmKnob.get(), vibratoKnob.get(),
-                                chorusKnob.get() });
+                                chorusKnob.get(), lfoRateKnob.get(), motionKnob.get() });
 
     // Bottom row: Filter | Playback.
     {

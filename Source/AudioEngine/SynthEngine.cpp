@@ -151,6 +151,16 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     }
     v.unisonNorm = 1.0f / std::sqrt ((float) v.unison);
 
+    // Free-running-oscillator feel: random start phases decorrelate the
+    // unison bank and FM pair, so every retrigger blooms slightly
+    // differently instead of machine-gunning an identical waveform. The sub
+    // keeps phase 0 so bass attacks stay consistent and punchy.
+    for (int u = 0; u < v.unison; ++u)
+        v.phases[u] = (double) noiseRng.nextFloat();
+    v.fmCarPhase = (double) noiseRng.nextFloat();
+    v.fmModPhase = (double) noiseRng.nextFloat();
+    v.subPhase   = 0.0;
+
     // --- Sub / noise / FM / vibrato / drift ----------------------------------
     v.subLevel   = juce::jlimit (0.0f, 1.0f, patchSettings.subLevel.load());
     v.noiseLevel = juce::jlimit (0.0f, 1.0f, patchSettings.noiseLevel.load());
@@ -336,6 +346,12 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
     constexpr float twoPi = juce::MathConstants<float>::twoPi;
     bool anyVoice = false;
 
+    // Global filter LFO: one shared phase so all voices breathe together.
+    const double lfoInc   = (double) juce::jlimit (0.0f, 12.0f,
+                                patchSettings.lfoRateHz.load()) / sampleRate;
+    const float  lfoDepth = juce::jlimit (0.0f, 2.0f,
+                                patchSettings.lfoDepthOct.load());
+
     for (auto& v : voices)
     {
         if (! v.isActive())
@@ -408,12 +424,17 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 if (--v.fltUpdateCounter <= 0)
                 {
                     v.fltUpdateCounter = 32;
+                    // Filter LFO ("Motion"): slow sine wobble in octaves.
+                    float lfoOct = 0.0f;
+                    if (lfoDepth > 0.0f)
+                        lfoOct = lfoDepth * std::sin (twoPi * (float) std::fmod (
+                                     lfoPhaseBase + lfoInc * (double) n, 1.0));
                     // Clamp relative to Nyquist, not just an absolute 18 kHz:
                     // past fs/2 the tan() warp goes negative and the SVF poles
                     // leave the unit circle (inf/NaN at 32 kHz hosts).
                     const float hz = juce::jmin (0.45f * (float) sampleRate,
                                                  juce::jmin (18000.0f,
-                        v.fltBaseHz * std::pow (2.0f, v.fltEnvOct * v.fenv)));
+                        v.fltBaseHz * std::pow (2.0f, v.fltEnvOct * v.fenv + lfoOct)));
                     const float g  = std::tan (juce::MathConstants<float>::pi
                                                * hz / (float) sampleRate);
                     v.svfA1 = 1.0f / (1.0f + g * (g + v.fltK));
@@ -476,6 +497,9 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             }
         }
     }
+
+    // Advance the shared filter-LFO phase once per block.
+    lfoPhaseBase = std::fmod (lfoPhaseBase + lfoInc * (double) numSamples, 1.0);
 
     // Bus polish runs even without voices so the chorus tail rings out.
     const bool chorusActive = patchSettings.chorusMix.load() > 0.0f;

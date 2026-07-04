@@ -150,6 +150,8 @@ private:
     std::atomic<float>* synthFMParam      = nullptr;
     std::atomic<float>* synthVibratoParam = nullptr;
     std::atomic<float>* synthChorusParam  = nullptr;
+    std::atomic<float>* synthLfoRateParam = nullptr;
+    std::atomic<float>* synthLfoAmtParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
 
