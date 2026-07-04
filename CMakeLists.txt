@@ -117,11 +117,14 @@ target_include_directories(VocalChopStudio PRIVATE
     ${SIGNALSMITH_INCLUDE_ROOT}
     ${signalsmith_linear_SOURCE_DIR})
 
+# JUCE_DISPLAY_SPLASH_SCREEN=1 is what makes commercial sales legal on the
+# free JUCE Personal tier (splash shown, revenue under the tier's cap).
+# Only set it back to 0 after buying a JUCE Indie/Pro licence.
 target_compile_definitions(VocalChopStudio PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=0
+    JUCE_DISPLAY_SPLASH_SCREEN=1
     JUCE_MODAL_LOOPS_PERMITTED=1)
 
 target_link_libraries(VocalChopStudio
