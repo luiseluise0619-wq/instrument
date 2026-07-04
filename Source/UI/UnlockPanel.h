@@ -53,6 +53,13 @@ public:
         setWantsKeyboardFocus (true);   // swallow clicks/keys behind the veil
     }
 
+    ~UnlockPanel() override
+    {
+        // Wait for any in-flight activation call: a thread that outlives the
+        // editor (or the module) would crash the host.
+        joinNetThread();
+    }
+
     void resized() override
     {
         auto card = getCardBounds();
@@ -118,20 +125,25 @@ private:
 
         if (vcs::Licensing::looksLikeOfflineKey (key))
         {
-            if (vcs::Licensing::verifyOfflineKey (email, key) && finalize (email, key))
-                activated ("Activated - welcome aboard!");
-            else
+            if (! vcs::Licensing::verifyOfflineKey (email, key))
                 showStatus ("Key and e-mail don't match. Use the exact e-mail "
                             "the key was issued for.", false);
+            else if (! finalize (email, key))
+                showStatus (saveFailedMessage(), false);
+            else
+                activated ("Activated - welcome aboard!");
             return;
         }
 
-        // Gumroad key: one blocking network call on a background thread.
+        // Gumroad key: one blocking network call on a background thread. The
+        // thread is OWNED (joined in the destructor), never detached — a
+        // detached thread can outlive the plugin module and crash the host.
+        joinNetThread();
         activateButton.setEnabled (false);
         showStatus ("Checking key...", true);
 
         juce::Component::SafePointer<UnlockPanel> self (this);
-        std::thread ([self, key]
+        netThread = std::make_unique<std::thread> ([self, key]
         {
             const auto result = vcs::Licensing::activateOnline (key);
             juce::MessageManager::callAsync ([self, result, key]
@@ -139,12 +151,34 @@ private:
                 if (self == nullptr)
                     return;
                 self->activateButton.setEnabled (true);
-                if (result.ok && self->finalize (result.email, key))
-                    self->activated (result.message);
-                else
+                if (! result.ok)
                     self->showStatus (result.message, false);
+                else if (! self->finalize (result.email, key))
+                    // The key verified (and consumed a device slot), but the
+                    // licence file could not be written — say THAT, not
+                    // "invalid key".
+                    self->showStatus (self->saveFailedMessage(), false);
+                else
+                    self->activated (result.message);
             });
-        }).detach();
+        });
+    }
+
+    juce::String saveFailedMessage() const
+    {
+        return "Key verified, but the license file could not be saved to "
+               + vcs::Licensing::licenseFile().getParentDirectory().getFullPathName()
+               + ". Check folder permissions and try again.";
+    }
+
+    void joinNetThread()
+    {
+        if (netThread != nullptr)
+        {
+            if (netThread->joinable())
+                netThread->join();
+            netThread.reset();
+        }
     }
 
     void activated (const juce::String& message)
@@ -166,6 +200,7 @@ private:
     }
 
     std::function<bool (juce::String, juce::String)> finalize;
+    std::unique_ptr<std::thread> netThread;
 
     juce::Label      title, info, status;
     juce::TextEditor emailBox, keyBox;
