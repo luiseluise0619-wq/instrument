@@ -1085,13 +1085,12 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     const auto& theme = ThemeManager::active();
     const float radius = theme.cornerRadius;
 
-    // Soft drop shadow.
-    {
-        juce::DropShadow shadow (theme.shadow.withAlpha (0.35f), 18, { 0, 6 });
-        juce::Path p;
-        p.addRoundedRectangle (bounds, radius);
-        shadow.drawForPath (g, p);
-    }
+    // Soft drop shadow — two cheap offset fills. (A gaussian DropShadow here
+    // cost milliseconds PER CARD per paint and made the whole UI feel laggy.)
+    g.setColour (theme.shadow.withAlpha (0.16f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 5.0f).expanded (2.0f), radius + 2.0f);
+    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f).expanded (0.5f), radius + 1.0f);
 
     // Material fill. On the glow theme the panels are darker glass so the
     // scene shows through without fighting the controls.

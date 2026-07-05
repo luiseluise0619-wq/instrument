@@ -43,6 +43,23 @@ void PitchFormant::process (juce::AudioBuffer<float>& buffer,
 
     mix = juce::jlimit (0.0f, 1.0f, mix);
 
+    // TRUE bypass at neutral settings: the stretcher's ~100 ms latency and
+    // CPU must not tax normal playing. Engage only when a knob leaves zero.
+    const bool wantEngage = std::abs (pitchSemi) > 0.01f
+                         || std::abs (formantSemi) > 0.01f;
+    if (wantEngage != engaged)
+    {
+        engaged = wantEngage;
+        fadePos = 0;               // mask the path switch with a short fade-in
+        if (engaged)
+            stretch.reset();
+    }
+    if (! engaged)
+    {
+        applyToggleFade (buffer, numSamples, numChannels);
+        return;                    // signal passes untouched: zero delay
+    }
+
     // Apply pitch/formant on the audio thread (cheap parameter setters).
     stretch.setTransposeSemitones (pitchSemi);
     stretch.setFormantSemitones (formantSemi, true); // compensate = preserve character
@@ -88,5 +105,20 @@ void PitchFormant::process (juce::AudioBuffer<float>& buffer,
         }
 
         ringWrite = (ringWrite + 1) % ringCap;
+    }
+
+    applyToggleFade (buffer, numSamples, numChannels);
+}
+
+void PitchFormant::applyToggleFade (juce::AudioBuffer<float>& buffer,
+                                    int numSamples, int numChannels)
+{
+    if (fadePos >= kFadeLen)
+        return;
+    for (int n = 0; n < numSamples && fadePos < kFadeLen; ++n, ++fadePos)
+    {
+        const float g = (float) fadePos / (float) kFadeLen;
+        for (int ch = 0; ch < numChannels; ++ch)
+            buffer.setSample (ch, n, buffer.getSample (ch, n) * g);
     }
 }

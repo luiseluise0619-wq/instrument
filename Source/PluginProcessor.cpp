@@ -9,7 +9,11 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+   #if SLYCE_DEMO_GATE
     licensed.store (vcs::Licensing::loadActivation());
+   #else
+    licensed.store (true);   // demo gate disabled at build time: fully open
+   #endif
 
     pitchParam     = apvts.getRawParameterValue ("pitch");
     formantParam   = apvts.getRawParameterValue ("formant");
@@ -208,8 +212,11 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     // Total plugin latency: the pitch/formant engine's inherent latency plus
     // the limiter's look-ahead delay.
-    setLatencySamples (pitchFormant.getLatencySamples()
-                       + limiter.getLatencySamples());
+    // Report only the limiter's tiny look-ahead. The stretch engine is fully
+    // BYPASSED at neutral pitch/formant, so a live player feels ~2 ms; when a
+    // pitch knob is in use its latency is audible but not host-compensated
+    // (re-reporting latency mid-play makes hosts glitch far worse).
+    setLatencySamples (limiter.getLatencySamples());
 
     reassignSampleToEngines();
 }

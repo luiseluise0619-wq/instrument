@@ -302,8 +302,12 @@ void LooperPanel::timerCallback()
         t.undoButton.setButtonText (looper.isRedo (i) ? "REDO" : "UNDO");
         t.undoButton.setEnabled (looper.canUndo (i));
         t.rerecButton.setEnabled (st != LoopStation::Empty && st != LoopStation::Armed);
+
+        // Repaint ONLY the progress rings - a full-panel repaint at 30 Hz
+        // (buttons, sliders, combos and all) was pure wasted CPU.
+        if (! t.ringArea.isEmpty())
+            repaint (t.ringArea);
     }
-    repaint();
 }
 
 void LooperPanel::resized()

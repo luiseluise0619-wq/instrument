@@ -46,5 +46,13 @@ private:
     int    ringCap   = 1;
     int    ringWrite = 0;
 
+    // TRUE bypass at pitch/formant = 0: the stretcher's ~100 ms inherent
+    // latency (and its CPU) must never tax plain playing. A short fade-in
+    // masks the content jump when the path is toggled mid-note.
+    bool   engaged  = false;
+    int    fadePos  = 1 << 20;   // >= fadeLen means "no fade running"
+    static constexpr int kFadeLen = 256;
+    void   applyToggleFade (juce::AudioBuffer<float>&, int numSamples, int numChannels);
+
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmoothed { 1.0f };
 };

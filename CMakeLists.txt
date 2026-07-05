@@ -127,7 +127,10 @@ target_include_directories(VocalChopStudio PRIVATE
 # JUCE_DISPLAY_SPLASH_SCREEN=1 is what makes commercial sales legal on the
 # free JUCE Personal tier (splash shown, revenue under the tier's cap).
 # Only set it back to 0 after buying a JUCE Indie/Pro licence.
+# SLYCE_DEMO_GATE=1 turns on the demo mute + unlock flow for the paid
+# release. 0 ships fully unlocked (current default while testing/free).
 target_compile_definitions(VocalChopStudio PRIVATE
+    SLYCE_DEMO_GATE=0
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=1
     JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
