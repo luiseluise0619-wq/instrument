@@ -18,8 +18,11 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
 
         t.mainButton.onClick = [this, i]
         {
-            // A fresh take starts in this track's pre-picked sound.
-            if (proc.getLooper().getTrackState (i) == LoopStation::Empty)
+            // Every take on this track — fresh recording OR a new overdub
+            // pass — starts in the track's own pre-picked sound, so four
+            // tracks really are four independently-set instruments.
+            const int st = proc.getLooper().getTrackState (i);
+            if (st == LoopStation::Empty || st == LoopStation::Playing)
                 applyTrackInstrument (i);
             proc.getLooper().tapMain (i);
         };
