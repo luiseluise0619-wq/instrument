@@ -556,6 +556,29 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     unlockButton.setVisible (! processor.isLicensed());
     addChildComponent (unlockPanel);
 
+    // --- First-run quick start + "?" help ---
+    helpButton.onClick = [this]
+    {
+        welcomePanel.setVisible (true);
+        welcomePanel.toFront (true);
+    };
+    addAndMakeVisible (helpButton);
+    addChildComponent (welcomePanel);
+
+    // Hover help everywhere a first-timer might hesitate.
+    demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
+    loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
+    engineBox.setTooltip ("Chop = play slices of the loaded audio.  Synth = play the 314 built-in instruments");
+    synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
+    instrumentBox.setTooltip ("314 built-in sounds, organised by category - start with FEATURED");
+    looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
+    themeBox.setTooltip ("Color themes and artwork skins");
+    presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
+    sliceModeBox.setTooltip ("How the audio gets cut: at transients or on a beat grid");
+    gridBox.setTooltip ("Grid density when slicing by beats");
+    helpButton.setTooltip ("Show the quick-start guide again");
+    unlockButton.setTooltip ("Enter your license key (demo mutes 2 s every minute)");
+
     demoButton.setTriggeredOnMouseDown (true);   // instant response
     demoButton.onClick = [this]
     {
@@ -779,6 +802,13 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         content.addChildComponent (getChildComponent (0));
     content.setInterceptsMouseClicks (false, true);   // background clicks reach us
     addAndMakeVisible (content);
+    addAndMakeVisible (tooltipWindow);   // tooltips live OUTSIDE the scaled canvas
+
+    if (! WelcomePanel::hasSeenWelcome())
+    {
+        welcomePanel.setVisible (true);
+        welcomePanel.toFront (false);
+    }
 
     setResizable (true, true);
     if (auto* c = getConstrainer())
@@ -1220,7 +1250,9 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // width; one more px and the LOOPER button lands on this caption.
     subtitleLabel.setBounds (top.removeFromLeft (194).withTrimmedTop (6));
 
-    // Right-aligned: theme, load, demo, preset combo, preset label.
+    // Right-aligned: help, theme, load, demo, preset combo, preset label.
+    helpButton.setBounds (top.removeFromRight (34).withSizeKeepingCentre (34, 30));
+    top.removeFromRight (kGap / 2);
     themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
     top.removeFromRight (kGap / 2);
     loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 30));
@@ -1406,4 +1438,5 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // Licensing: footer button + full-window overlay.
     unlockButton.setBounds (kMargin, kBaseH - 26, 96, 22);
     unlockPanel.setBounds (0, 0, kBaseW, kBaseH);
+    welcomePanel.setBounds (0, 0, kBaseW, kBaseH);
 }

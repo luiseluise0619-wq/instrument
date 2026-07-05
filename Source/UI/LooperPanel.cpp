@@ -90,6 +90,16 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             applyTrackInstrument (i);
         };
 
+        t.instBox.setTooltip ("This track's own sound - applied automatically when you record or overdub here");
+        t.mainButton.setTooltip ("1st tap: record.  2nd tap: lock the loop.  Then tap to stack overdubs / play");
+        t.rerecButton.setTooltip ("Wipe this track and record it again in one tap");
+        t.undoButton.setTooltip ("Remove the last overdub - press again to bring it back (REDO)");
+        t.muteButton.setTooltip ("Mute this track");
+        t.clearButton.setTooltip ("Delete this track's loop");
+        t.revButton.setTooltip ("Play this track backwards");
+        t.panSlider.setTooltip ("Pan left/right (double-click = centre)");
+        t.volSlider.setTooltip ("Track volume");
+
         addAndMakeVisible (t.instBox);
         addAndMakeVisible (t.mainButton);
         addAndMakeVisible (t.rerecButton);
@@ -106,6 +116,12 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     playAllButton.onClick  = [this] { proc.getLooper().tapPlayAll();  };
     stopAllButton.onClick  = [this] { proc.getLooper().tapStopAll();  };
     clearAllButton.onClick = [this] { proc.getLooper().tapClearAll(); };
+    playAllButton.setTooltip ("Restart every track together from the top");
+    stopAllButton.setTooltip ("Stop all tracks (loops are kept)");
+    clearAllButton.setTooltip ("Delete ALL loops");
+    addTrackButton.setTooltip ("Show another loop track (up to 6)");
+    metroButton.setTooltip ("Metronome click - heard, never recorded. First take gets a 1-bar count-in");
+    tapButton.setTooltip ("Tap in time to set the tempo");
     addAndMakeVisible (playAllButton);
     addAndMakeVisible (stopAllButton);
     addAndMakeVisible (clearAllButton);

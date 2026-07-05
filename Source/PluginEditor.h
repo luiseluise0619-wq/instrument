@@ -12,6 +12,7 @@
 #include "UI/MeterComponent.h"
 #include "UI/LooperPanel.h"
 #include "UI/UnlockPanel.h"
+#include "UI/WelcomePanel.h"
 #include "UI/AppleLookAndFeel.h"
 
 //==============================================================================
@@ -133,6 +134,13 @@ private:
     UnlockPanel    unlockPanel { [this] (juce::String e, juce::String k)
                                  { return processor.finalizeActivation (e, k); } };
     juce::TextButton unlockButton { "UNLOCK" };
+
+    // First-run quick start (re-openable from the toolbar "?").
+    WelcomePanel     welcomePanel;
+    juce::TextButton helpButton { "?" };
+
+    // Hover help on every major control.
+    juce::TooltipWindow tooltipWindow { this, 700 };
 
     // Cached card rectangles (populated in resized(), painted in paint()).
     juce::Rectangle<int> macroCardBounds;
