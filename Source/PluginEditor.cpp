@@ -590,7 +590,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // submenu per category - always the same compact menu.
     {
         static const char* featured[] = { "Vox Choir", "Vox Pluck", "Supersaw Lead",
-                                          "Rage Bell", "Memphis 808", "Lov3 Keys",
+                                          "Rage Bell", "Memphis 808", "Soul Keys",
                                           "Future Bass", "Trance Pluck", "Bass Pad",
                                           "Dream Pad", "Syn Grand", "Hyper Saw" };
         const auto names = VocalChopAudioProcessor::getInstrumentNames();
