@@ -55,6 +55,11 @@ private:
         combos, theme and cached waveform that attachments don't cover. */
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
+    /** Lays out and paints on a fixed kBaseW x kBaseH canvas; the whole
+        canvas scales uniformly with the window (see content below). */
+    void layoutContent();
+    void paintContent (juce::Graphics&);
+
     // Draws a rounded "material" card with hairline border and soft shadow.
     void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;
 
@@ -146,6 +151,17 @@ private:
     // Cached Ocean Pluck scene (repainted only on resize / theme change).
     juce::Image backdropCache;
     int backdropTheme = -1;
+
+    // Fixed-size design canvas, scaled as one unit so the window can shrink
+    // to 60% without per-widget cramming. All children live inside it.
+    static constexpr int kBaseW = 1080, kBaseH = 1060;
+    struct ContentComp : juce::Component
+    {
+        explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}
+        void paint (juce::Graphics& g) override { owner.paintContent (g); }
+        VocalChopAudioProcessorEditor& owner;
+    };
+    ContentComp content { *this };
 
     // Hero motion FX: on glow themes every keypress fires neon speed lines
     // and a glow pulse across the artwork band — the "riding" illusion with

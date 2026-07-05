@@ -773,11 +773,19 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (sliceGrid);
     addAndMakeVisible (fxRack);
 
+    // Everything lives on a fixed 1080x1060 canvas that scales as one unit,
+    // so the window can shrink to laptop size without any layout cramming.
+    while (getNumChildComponents() > 0)
+        content.addChildComponent (getChildComponent (0));
+    content.setInterceptsMouseClicks (false, true);   // background clicks reach us
+    addAndMakeVisible (content);
+
     setResizable (true, true);
-    // Minimum width must fit the fixed slice-control row (engine + slicing
-    // combos + wave + instrument + octave buttons) without clipping.
-    setResizeLimits (1020, 900, 1900, 1700);
-    setSize (1080, 1060);
+    if (auto* c = getConstrainer())
+        c->setFixedAspectRatio ((double) kBaseW / (double) kBaseH);
+    setResizeLimits (kBaseW * 60 / 100, kBaseH * 60 / 100,
+                     kBaseW * 160 / 100, kBaseH * 160 / 100);
+    setSize (kBaseW, kBaseH);
 
     refreshChildren();
     startTimerHz (30);   // typing-key watchdog (stuck-note guard)
@@ -954,7 +962,7 @@ void VocalChopAudioProcessorEditor::timerCallback()
     if (processor.isLicensed() && unlockButton.isVisible())
     {
         unlockButton.setVisible (false);
-        repaint (getLocalBounds().removeFromBottom (30));
+        content.repaint (juce::Rectangle<int> (0, 0, kBaseW, kBaseH).removeFromBottom (30));
     }
 
     // Advance the hero motion FX; repaint ONLY the artwork band, and only
@@ -973,7 +981,7 @@ void VocalChopAudioProcessorEditor::timerCallback()
         heroGlow *= 0.86f;
 
         if (! heroRect.isEmpty())
-            repaint (heroRect);
+            content.repaint (heroRect);
     }
 }
 
@@ -1097,34 +1105,39 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
 
 void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
 {
+    // The scaled content canvas covers the window (fixed aspect ratio); this
+    // only shows through for a frame during live-resize rounding.
+    g.fillAll (ThemeManager::active().bgBottom);
+}
+
+void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
+{
     const auto& theme = ThemeManager::active();
 
     if (theme.glow >= 0.9f)
     {
         // Full-glow default theme: the Ocean Pluck scene, cached so knob
         // repaints don't re-render the artwork.
-        if (backdropCache.getWidth()  != getWidth()
-         || backdropCache.getHeight() != getHeight()
+        if (backdropCache.getWidth()  != kBaseW
+         || backdropCache.getHeight() != kBaseH
          || backdropTheme != ThemeManager::current())
         {
-            backdropCache = juce::Image (juce::Image::ARGB,
-                                         juce::jmax (1, getWidth()),
-                                         juce::jmax (1, getHeight()), true);
+            backdropCache = juce::Image (juce::Image::ARGB, kBaseW, kBaseH, true);
             juce::Graphics ig (backdropCache);
 
             const juce::String themeName (theme.name);
             if (themeName == "Neon Rider")
-                paintArtworkBackdrop (ig, getWidth(), getHeight(),
+                paintArtworkBackdrop (ig, kBaseW, kBaseH,
                                       BinaryData::skin_neon_rider_png,
                                       BinaryData::skin_neon_rider_pngSize,
                                       theme.bgBottom);
             else if (themeName == "Neo-Seoul")
-                paintArtworkBackdrop (ig, getWidth(), getHeight(),
+                paintArtworkBackdrop (ig, kBaseW, kBaseH,
                                       BinaryData::skin_neo_seoul_png,
                                       BinaryData::skin_neo_seoul_pngSize,
                                       theme.bgBottom);
             else
-                paintOceanScene (ig, getWidth(), getHeight());
+                paintOceanScene (ig, kBaseW, kBaseH);
 
             backdropTheme = ThemeManager::current();
         }
@@ -1134,7 +1147,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     else
     {
         juce::ColourGradient bg (theme.bgTop, 0.0f, 0.0f,
-                                 theme.bgBottom, 0.0f, (float) getHeight(), false);
+                                 theme.bgBottom, 0.0f, (float) kBaseH, false);
         g.setGradientFill (bg);
         g.fillAll();
     }
@@ -1146,7 +1159,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     octLabel.setColour (juce::Label::textColourId, theme.textSecondary);
 
     // Hairline under the toolbar.
-    const auto full = getLocalBounds().reduced (kMargin, 0);
+    const auto full = juce::Rectangle<int> (0, 0, kBaseW, kBaseH).reduced (kMargin, 0);
     const int toolbarBottom = kMargin + kToolbarH + (kGap / 2);
     g.setColour (theme.separator);
     g.fillRect (full.getX(), toolbarBottom, full.getWidth(), 1);
@@ -1173,21 +1186,32 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
     g.drawText (juce::String ("Play: MIDI / click keys / type Z S X D C V ...   •   drop audio to chop   •   v")
                     + JucePlugin_VersionString,
-                getLocalBounds().removeFromBottom (24).reduced (kMargin, 0),
+                juce::Rectangle<int> (0, 0, kBaseW, kBaseH).removeFromBottom (24)
+                    .reduced (kMargin, 0),
                 juce::Justification::centredRight);
 
     if (! processor.isLicensed())
     {
         g.setColour (juce::Colour (0xffff453a).withAlpha (0.85f));
         g.drawText ("DEMO - output mutes 2 s every minute",
-                    juce::Rectangle<int> (kMargin + 104, getHeight() - 26, 300, 22),
+                    juce::Rectangle<int> (kMargin + 104, kBaseH - 26, 300, 22),
                     juce::Justification::centredLeft);
     }
 }
 
 void VocalChopAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (kMargin);
+    // Uniform scale: the fixed-size canvas fills the (aspect-locked) window.
+    const float scale = juce::jmin (getWidth()  / (float) kBaseW,
+                                    getHeight() / (float) kBaseH);
+    content.setTransform (juce::AffineTransform::scale (scale));
+    content.setBounds (0, 0, kBaseW, kBaseH);
+    layoutContent();
+}
+
+void VocalChopAudioProcessorEditor::layoutContent()
+{
+    auto area = juce::Rectangle<int> (0, 0, kBaseW, kBaseH).reduced (kMargin);
 
     // --- Top toolbar row ---
     auto top = area.removeFromTop (kToolbarH);
@@ -1215,7 +1239,7 @@ void VocalChopAudioProcessorEditor::resized()
     if (ThemeManager::active().glow >= 0.9f)
     {
         const int bandH = juce::jlimit (110, 470, area.getHeight() - 690);
-        heroRect = { 0, 0, getWidth(), area.getY() + bandH };   // motion-FX zone
+        heroRect = { 0, 0, kBaseW, area.getY() + bandH };   // motion-FX zone
         area.removeFromTop (bandH);
     }
     else
@@ -1380,6 +1404,6 @@ void VocalChopAudioProcessorEditor::resized()
     }
 
     // Licensing: footer button + full-window overlay.
-    unlockButton.setBounds (kMargin, getHeight() - 26, 96, 22);
-    unlockPanel.setBounds (getLocalBounds());
+    unlockButton.setBounds (kMargin, kBaseH - 26, 96, 22);
+    unlockPanel.setBounds (0, 0, kBaseW, kBaseH);
 }

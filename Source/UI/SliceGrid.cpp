@@ -336,7 +336,9 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
 {
     if (key < 0)
         return;
-    if (! proc.isSynthMode() && key >= proc.getSliceEngine().getNumSlices())
+    // Keys past the last slice still play — the engine wraps them onto the
+    // available slices, so the top of the keybed is never dead.
+    if (! proc.isSynthMode() && proc.getSliceEngine().getNumSlices() <= 0)
         return;
 
     // Velocity from the strike position, like a real keybed: clicking near

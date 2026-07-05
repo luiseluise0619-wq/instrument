@@ -540,7 +540,13 @@ void VocalChopAudioProcessor::clearVoiceMapping (int voiceIndex)
 
 int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
 {
-    // Audio thread. tryGetSlice() safely no-ops if a re-slice is in progress.
+    // Audio thread. Keys past the last slice WRAP instead of going silent —
+    // a demo with 8 slices must still sound on la/si/do (A, B, high C).
+    const int numSlices = sliceEngine.getNumSlices();
+    if (numSlices > 0)
+        sliceIndex = ((sliceIndex % numSlices) + numSlices) % numSlices;
+
+    // tryGetSlice() safely no-ops if a re-slice is in progress.
     SlicePoint slice;
     if (sliceEngine.tryGetSlice (sliceIndex, slice))
     {
@@ -914,6 +920,16 @@ namespace
     { "HITS",  "Hit Pad",       5, 0.80f,0.1f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  1600, 0.3f,  700, 0,  0, 13.0f, 350,  900, 0.85f, 900, 0.00f, 0.60f, 0.10f, 0, 1.5f },
     { "HITS",  "K-Pop Pluck",   4, 0.60f,0.0f, 0.02f, 0.30f, 3.0f, 0.0f, 0.0f,  3400, 2.2f,  110, 0,  0, 10.0f,   0,  240, 0.08f, 200, 0.10f, 0.35f, 0.25f, 1, 1.35f },
 
+    { "HITS",  "Hook Marimba",  1, 0.00f,0.0f, 0.02f, 0.50f, 4.0f, 0.0f, 0.0f,  2800, 1.5f,  120, 2,  0,  0.0f,   0,  300, 0.05f, 240, 0.05f, 0.30f, 0.12f, 0, 1.2f },
+    { "HITS",  "Log Drum",      1, 0.00f,0.6f, 0.00f, 0.50f, 1.0f, 0.0f, 0.0f,   800, 2.0f,   90, 2, -1,  0.0f,   0,  350, 0.10f, 200, 0.15f, 0.10f, 0.00f, 0, 0.9f },
+    { "HITS",  "Future Chords", 7, 0.90f,0.1f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3500, 0.8f,  300, 0,  0, 20.0f,  15,  400, 0.60f, 350, 0.10f, 0.40f, 0.15f, 0, 1.6f },
+    { "HITS",  "Cloud Bell",    2, 0.30f,0.0f, 0.02f, 0.45f, 3.5f, 0.0f, 0.0f,  4000, 0.3f,  400, 2,  0,  6.0f,   4,  900, 0.10f, 800, 0.00f, 0.60f, 0.25f, 1, 1.4f },
+    { "HITS",  "Phonk Cowbell", 1, 0.00f,0.1f, 0.04f, 0.60f, 1.48f,0.0f, 0.0f,  3500, 0.4f,  150, 1,  0,  0.0f,   0,  200, 0.08f, 130, 0.30f, 0.10f, 0.05f, 0, 1.0f },
+    { "HITS",  "Piano Stab",    2, 0.30f,0.05f,0.02f, 0.20f, 2.0f, 0.0f, 0.0f,  3000, 1.2f,  200, 3,  0,  6.0f,   2,  350, 0.10f, 260, 0.08f, 0.30f, 0.10f, 0, 1.25f },
+    { "HITS",  "Dancehall Pluck",1,0.00f,0.1f, 0.02f, 0.30f, 2.0f, 0.0f, 0.0f,  2400, 1.8f,  130, 1,  0,  0.0f,   0,  220, 0.06f, 180, 0.10f, 0.25f, 0.15f, 0, 1.1f },
+    { "HITS",  "Drill 808",     1, 0.00f,0.9f, 0.00f, 0.35f, 1.0f, 0.0f, 0.0f,   450, 1.5f,  250, 2, -2,  0.0f,   0,  900, 0.40f, 320, 0.30f, 0.04f, 0.00f, 0, 0.75f },
+    { "HITS",  "Slap House",    1, 0.00f,0.7f, 0.00f, 0.40f, 2.0f, 0.0f, 0.0f,   700, 2.2f,  130, 1, -1,  0.0f,   1,  240, 0.20f, 110, 0.25f, 0.06f, 0.00f, 0, 0.85f },
+    { "HITS",  "Sped-Up Pluck", 3, 0.50f,0.0f, 0.02f, 0.30f, 2.0f, 0.0f, 0.0f,  3400, 2.4f,   90, 0,  0,  9.0f,   0,  160, 0.05f, 140, 0.10f, 0.30f, 0.20f, 1, 1.3f },
     { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
     { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
     { "LEAD",  "Acid Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 3.0f,  200, 0,  0,  3.0f,  0,   180, 0.55f,  90, 0.35f, 0.10f, 0.15f, 0, 1.0f },
@@ -998,6 +1014,8 @@ namespace
     { "PIANO", "Syn Tack",     2, 0.2f, 0.05f,0.12f,0.25f,5.0f, 0.0f, 0.0f,  4200, 2.0f,  180, 0,  0, 10.0f,  1,   700, 0.12f,  250, 0.20f, 0.18f, 0.00f, 0, 1.0f },
     { "PIANO", "Ghost Keys",    2, 0.35f,0.15f,0.06f,0.10f,2.0f, 0.8f, 6.0f,  1400, 1.3f,  600, 0,  0,  6.0f,  5,  1400, 0.30f, 1600, 0.05f, 0.75f, 0.35f, 1, 1.5f },
 
+    { "PIANO", "Royal Grand",   2, 0.15f,0.08f,0.015f,0.10f, 3.5f, 0.0f, 0.0f,  3200, 1.3f,  260, 3,  0,  2.5f,   1, 1400, 0.22f, 500, 0.02f, 0.30f, 0.04f, 0, 1.2f },
+    { "PIANO", "Concert Bright",2, 0.20f,0.05f,0.02f, 0.14f, 3.5f, 0.0f, 0.0f,  4200, 1.5f,  220, 3,  0,  3.0f,   1, 1200, 0.20f, 450, 0.05f, 0.32f, 0.05f, 0, 1.25f },
     { "GUITAR","Syn Nylon",     1, 0.0f, 0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  140, 3,  0,  3.0f,  0,   380, 0.10f, 200, 0.00f, 0.25f, 0.08f, 0, 1.0f },
     { "GUITAR","Syn Steel",     1, 0.0f, 0.0f, 0.05f,0.15f,2.0f, 0.0f, 0.0f,  2600, 1.8f,  160, 0,  0,  5.0f,  0,   420, 0.12f, 220, 0.05f, 0.22f, 0.06f, 0, 1.05f },
     { "GUITAR","Syn Clean Gtr",     1, 0.0f, 0.0f, 0.0f, 0.08f,1.0f, 0.0f, 0.0f,  2400, 1.2f,  250, 3,  0,  2.0f,  1,   550, 0.30f, 250, 0.06f, 0.18f, 0.10f, 0, 1.1f },
@@ -1013,6 +1031,9 @@ namespace
     { "GUITAR","Chime Syn", 2, 0.3f, 0.05f,0.02f,0.50f,3.5f, 0.0f, 0.0f,  5000, 1.8f,   90, 3,  1,  5.0f,  0,   700, 0.05f,  500, 0.05f, 0.40f, 0.20f, 1, 1.3f },
     { "GUITAR","Syn Bass Gtr",    1, 0.0f, 0.40f,0.03f,0.30f,2.0f, 0.0f, 0.0f,   700, 1.7f,  150, 3, -1,  0.0f,  0,   500, 0.25f,  180, 0.25f, 0.05f, 0.00f, 0, 0.7f },
 
+    { "GUITAR","Pop Mute Gtr",  1, 0.00f,0.05f,0.03f, 0.30f, 2.0f, 0.0f, 0.0f,  2100, 1.6f,  110, 3,  0,  0.0f,   0,  190, 0.04f, 150, 0.10f, 0.18f, 0.08f, 0, 1.05f },
+    { "GUITAR","Tropic Gtr",    2, 0.25f,0.0f, 0.02f, 0.35f, 2.0f, 0.0f, 0.0f,  2600, 1.4f,  140, 3,  0,  5.0f,   0,  260, 0.06f, 220, 0.06f, 0.28f, 0.12f, 0, 1.15f },
+    { "GUITAR","Syn Acoustic",  2, 0.20f,0.0f, 0.04f, 0.30f, 3.0f, 0.0f, 0.0f,  3400, 1.1f,  180, 3,  0,  4.0f,   1,  700, 0.12f, 380, 0.03f, 0.25f, 0.06f, 0, 1.2f },
     { "PAD",   "Dream Pad",        5, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2600, 0.0f,  200, 0,  0, 18.0f, 450,  800, 0.80f, 1000, 0.00f, 0.60f, 0.00f, 0, 1.6f },
     { "PAD",   "Warm Strings",     5, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 4.5f,  6.0f, 3400, 0.0f,  200, 0,  0, 12.0f, 220,  500, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.3f },
     { "PAD",   "Dark Pad",         5, 0.8f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   900, 0.0f,  200, 0, -1, 15.0f, 600, 1000, 0.85f, 1200, 0.00f, 0.70f, 0.00f, 0, 1.4f },
@@ -1232,6 +1253,19 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name == "Syn Conga")   { p.pitchEnvOct = 0.5f; p.pitchEnvMs = 28.0f; }
     if (name == "Clave")       { p.pitchEnvOct = 0.3f; p.pitchEnvMs = 10.0f; }
     if (name == "Chart 808")   { p.pitchEnvOct = 1.8f; p.pitchEnvMs = 50.0f; }
+    if (name == "Log Drum")    { p.pitchEnvOct = 0.8f; p.pitchEnvMs = 60.0f; }
+    if (name == "Drill 808")   { p.pitchEnvOct = 1.2f; p.pitchEnvMs = 80.0f; }
+    if (name == "Slap House")  { p.pitchEnvOct = 0.6f; p.pitchEnvMs = 45.0f; }
+
+    // Flagship grands: hammer chirp, hard velocity->brightness, no wobble.
+    if (name == "Royal Grand" || name == "Concert Bright")
+    {
+        p.pitchEnvOct = 0.04f; p.pitchEnvMs = 6.0f;    // hammer strike transient
+        p.velToFilterOct = 1.8f;                        // soft = felt, hard = glass
+        p.driftCents = 0.6f;
+        chorus = 0.04f;
+        p.filterQ = 0.8f;
+    }
     if (name == "Impact Hit")  { p.pitchEnvOct = 1.5f; p.pitchEnvMs = 150.0f; }
 
     p.chorusMix = chorus;
