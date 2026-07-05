@@ -49,6 +49,24 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             proc.getLooper().setTrackVolume (i, (float) trackUI[i].volSlider.getValue());
         };
 
+        t.revButton.setClickingTogglesState (true);
+        t.revButton.setToggleState (proc.getLooper().isReversed (i),
+                                    juce::dontSendNotification);
+        t.revButton.onClick = [this, i]
+        {
+            proc.getLooper().setReversed (i, trackUI[i].revButton.getToggleState());
+        };
+
+        t.panSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        t.panSlider.setRange (-1.0, 1.0, 0.01);
+        t.panSlider.setValue (proc.getLooper().getPan (i), juce::dontSendNotification);
+        t.panSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+        t.panSlider.setDoubleClickReturnValue (true, 0.0);   // centre on dbl-click
+        t.panSlider.onValueChange = [this, i]
+        {
+            proc.getLooper().setPan (i, (float) trackUI[i].panSlider.getValue());
+        };
+
         populateInstrumentBox (t.instBox, false);
         t.instBox.setTextWhenNothingSelected ("Sound " + juce::String (i + 1));
         t.instBox.onChange = [this, i]
@@ -75,6 +93,8 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         addAndMakeVisible (t.undoButton);
         addAndMakeVisible (t.clearButton);
         addAndMakeVisible (t.muteButton);
+        addAndMakeVisible (t.revButton);
+        addAndMakeVisible (t.panSlider);
         addAndMakeVisible (t.volSlider);
     }
 
@@ -104,6 +124,26 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         proc.getLooper().setMetronomeOn (metroButton.getToggleState());
     };
     addAndMakeVisible (metroButton);
+
+    tapButton.setTriggeredOnMouseDown (true);   // tap timing must be exact
+    tapButton.onClick = [this]
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        const double gap = now - lastTapMs;
+        lastTapMs = now;
+        if (gap > 60.0 && gap < 2000.0)   // 30..1000 BPM taps count
+        {
+            // Smooth over the last few taps so one sloppy hit doesn't yank
+            // the tempo around.
+            tapIntervalMs = tapCount == 0 ? gap : (tapIntervalMs * 0.6 + gap * 0.4);
+            ++tapCount;
+            const double bpm = juce::jlimit (40.0, 240.0, 60000.0 / tapIntervalMs);
+            bpmSlider.setValue (bpm, juce::sendNotificationSync);
+        }
+        else
+            tapCount = 0;   // too long a pause: start a fresh measurement
+    };
+    addAndMakeVisible (tapButton);
 
     bpmSlider.setSliderStyle (juce::Slider::LinearHorizontal);
     bpmSlider.setRange (40.0, 240.0, 1.0);
@@ -205,6 +245,8 @@ void LooperPanel::updateTrackVisibility()
         t.undoButton.setVisible (on);
         t.clearButton.setVisible (on);
         t.muteButton.setVisible (on);
+        t.revButton.setVisible (on);
+        t.panSlider.setVisible (on);
         t.volSlider.setVisible (on);
     }
     addTrackButton.setEnabled (visibleTracks < LoopStation::kNumTracks);
@@ -235,10 +277,12 @@ void LooperPanel::timerCallback()
             case LoopStation::Playing:   t.mainButton.setButtonText ("OVERDUB"); break;
             case LoopStation::Overdub:   t.mainButton.setButtonText ("PLAY");    break;
             case LoopStation::Stopped:   t.mainButton.setButtonText ("GO");      break;
+            case LoopStation::Armed:     t.mainButton.setButtonText ("WAIT..."); break;
             default: break;
         }
+        t.undoButton.setButtonText (looper.isRedo (i) ? "REDO" : "UNDO");
         t.undoButton.setEnabled (looper.canUndo (i));
-        t.rerecButton.setEnabled (st != LoopStation::Empty);
+        t.rerecButton.setEnabled (st != LoopStation::Empty && st != LoopStation::Armed);
     }
     repaint();
 }
@@ -260,7 +304,9 @@ void LooperPanel::resized()
     auto mStrip = master.withSizeKeepingCentre (juce::jmin (860, master.getWidth()), 36);
     metroButton.setBounds (mStrip.removeFromLeft (58));
     mStrip.removeFromLeft (8);
-    bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (170, mStrip.getWidth() / 4)));
+    tapButton.setBounds (mStrip.removeFromLeft (52));
+    mStrip.removeFromLeft (8);
+    bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (150, mStrip.getWidth() / 4)));
     mStrip.removeFromLeft (12);
     addTrackButton.setBounds (mStrip.removeFromRight (86));
     mStrip.removeFromRight (12);
@@ -295,6 +341,11 @@ void LooperPanel::resized()
 
         auto vol = strip.removeFromBottom (22);
         t.volSlider.setBounds (vol.reduced (4, 0));
+
+        auto revpan = strip.removeFromBottom (24);
+        t.revButton.setBounds (revpan.removeFromLeft (44));
+        revpan.removeFromLeft (4);
+        t.panSlider.setBounds (revpan.reduced (2, 2));
 
         auto small = strip.removeFromBottom (28);
         const int sw = (small.getWidth() - 18) / 4;
@@ -359,6 +410,7 @@ void LooperPanel::paint (juce::Graphics& g)
 
         const juce::Colour stateColour =
             st == LoopStation::Recording ? juce::Colour (0xffff453a)
+          : st == LoopStation::Armed     ? juce::Colour (0xffffd60a)
           : st == LoopStation::Overdub   ? theme.waveform
           : st == LoopStation::Playing   ? theme.accent
           : theme.textSecondary;
@@ -387,6 +439,7 @@ void LooperPanel::paint (juce::Graphics& g)
         const juce::String stateText =
             st == LoopStation::Empty     ? "-"
           : st == LoopStation::Recording ? "REC"
+          : st == LoopStation::Armed     ? "ARM"
           : st == LoopStation::Overdub   ? "DUB"
           : st == LoopStation::Playing   ? (muted ? "MUTE" : "PLAY")
           : "STOP";
@@ -408,7 +461,7 @@ void LooperPanel::paint (juce::Graphics& g)
     // --- How-to line ---------------------------------------------------------
     g.setColour (theme.textSecondary);
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText ("Pick each track's sound up top, then REC > SET > OVERDUB.   RE re-records a track.   MET = click at your BPM (never recorded).",
+    g.drawText ("REC waits for the loop top (or a 1-bar count-in with MET on).   UNDO flips to REDO.   REV plays a track backwards.   TAP sets the BPM.",
                 card.reduced (14.0f).removeFromBottom (64.0f).removeFromTop (16.0f),
                 juce::Justification::centred);
 }

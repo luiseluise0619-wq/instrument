@@ -33,7 +33,7 @@
 class LoopStation
 {
 public:
-    enum State { Empty = 0, Recording, Playing, Overdub, Stopped };
+    enum State { Empty = 0, Recording, Playing, Overdub, Stopped, Armed };
     static constexpr int kNumTracks = 6;
 
     void prepare (double sampleRate, int /*maxBlock*/)
@@ -56,6 +56,10 @@ public:
             t.undoEnd = 0;
             t.cmdWrite.store (0);
             t.cmdRead = 0;
+            t.redoState.store (false);
+            t.reversed.store (false);
+            t.pan.store (0.0f);
+            t.armCountdown = 0;
         }
         masterLen.store (0);
         transport = 0;
@@ -91,6 +95,12 @@ public:
 
     void setMuted (int track, bool m)   { trk (track).muted.store (m); }
     bool isMuted (int track) const      { return trk (track).muted.load(); }
+    void setReversed (int track, bool r) { trk (track).reversed.store (r); }
+    bool isReversed (int track) const    { return trk (track).reversed.load(); }
+    void setPan (int track, float p)     { trk (track).pan.store (juce::jlimit (-1.0f, 1.0f, p)); }
+    float getPan (int track) const       { return trk (track).pan.load(); }
+    /** After UNDO the same button REDOES (the dub is parked, not gone). */
+    bool  isRedo (int track) const       { return trk (track).redoState.load(); }
     void setTrackVolume (int track, float v)
     {
         trk (track).volume.store (juce::jlimit (0.0f, 1.5f, v));
@@ -185,6 +195,25 @@ public:
                 if (st == Empty || st == Stopped)
                     continue;
 
+                if (st == Armed)
+                {
+                    // Armed tracks are silent and don't drive the transport.
+                    if (t.armCountdown > 0)              // metronome count-in
+                    {
+                        if (--t.armCountdown <= 0)
+                            t.state.store (Recording);
+                    }
+                    else                                  // wait for the loop top
+                    {
+                        const int master = masterLen.load (std::memory_order_relaxed);
+                        if (master <= 0)
+                            t.state.store (Recording);
+                        else if ((int) (((transport - masterStamp) % master + master) % master) == 0)
+                            t.state.store (Recording);
+                    }
+                    continue;
+                }
+
                 advance = true;
                 float* L  = t.loop.getWritePointer (0);
                 float* R  = t.loop.getWritePointer (1);
@@ -206,7 +235,9 @@ public:
                     if (len <= 0)
                         continue;
 
-                    const int idx = (int) (((transport - t.startStamp) % len + len) % len);
+                    int idx = (int) (((transport - t.startStamp) % len + len) % len);
+                    if (t.reversed.load (std::memory_order_relaxed))
+                        idx = len - 1 - idx;   // read AND overdub run backwards
 
                     if (st == Overdub)
                     {
@@ -221,15 +252,18 @@ public:
                         }
                         L[idx] += inL;
                         R[idx] += inR;
-                        if (idx == len - 1)
-                            t.layers.fetch_add (1);   // one full pass = one layer
+                        // One full pass = one layer (wrap point flips when
+                        // the track runs backwards).
+                        if (idx == (t.reversed.load (std::memory_order_relaxed) ? 0 : len - 1))
+                            t.layers.fetch_add (1);
                     }
 
                     if (! t.muted.load (std::memory_order_relaxed))
                     {
                         const float vol = t.volume.load (std::memory_order_relaxed);
-                        outL += L[idx] * vol;
-                        outR += R[idx] * vol;
+                        const float pn  = t.pan.load (std::memory_order_relaxed);
+                        outL += L[idx] * vol * (pn > 0.0f ? 1.0f - pn : 1.0f);
+                        outR += R[idx] * vol * (pn < 0.0f ? 1.0f + pn : 1.0f);
                     }
                 }
             }
@@ -283,11 +317,16 @@ private:
         std::atomic<int>   cmdWrite { 0 };
         int     cmdRead = 0;       // audio thread only
 
+        std::atomic<bool>  redoState { false };   // dub currently parked in shadow
+        std::atomic<bool>  reversed { false };
+        std::atomic<float> pan { 0.0f };          // -1 L .. +1 R
+
         int     recPos = 0;        // write head while Recording (audio thread)
         int64_t startStamp = 0;    // transport value that maps to sample 0
         int     targetLen = 0;     // quantised finalise point (0 = free take)
         int     dubSamples = 0;    // samples visited in the current dub session
         int     undoEnd = 0;       // loop index where the last dub session ended
+        int     armCountdown = 0;  // count-in samples left (0 = sync to loop top)
     };
 
     Track&       trk (int i)       { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
@@ -304,7 +343,10 @@ private:
     int idxOf (const Track& t) const   // current play index (audio thread)
     {
         const int len = t.lenSamples.load (std::memory_order_relaxed);
-        return len > 0 ? (int) (((transport - t.startStamp) % len + len) % len) : 0;
+        if (len <= 0)
+            return 0;
+        const int fwd = (int) (((transport - t.startStamp) % len + len) % len);
+        return t.reversed.load (std::memory_order_relaxed) ? len - 1 - fwd : fwd;
     }
 
     void finalizeTake (Track& t)
@@ -313,7 +355,10 @@ private:
                                                  : t.recPos);
         const int master = masterLen.load (std::memory_order_relaxed);
         if (master <= 0)
+        {
             masterLen.store (len);
+            masterStamp = transport - (int64_t) t.recPos;   // grid top = take start
+        }
 
         t.lenSamples.store (len);
         t.layers.store (1);
@@ -347,9 +392,33 @@ private:
             {
                 t.recPos = 0;
                 t.targetLen = 0;
-                if (! anyLength())
-                    metroResetReq.store (true);   // click grid starts with the take
-                t.state.store (Recording);
+                const int master = masterLen.load (std::memory_order_relaxed);
+
+                if (master > 0 && anyRunning())
+                {
+                    // Other loops are rolling: wait for the loop top so the
+                    // take starts dead on the grid.
+                    t.armCountdown = 0;
+                    t.state.store (Armed);
+                }
+                else if (metroOn.load (std::memory_order_relaxed))
+                {
+                    // First take with the click on: one bar of count-in.
+                    t.armCountdown = (int) std::llround (
+                        4.0 * srHz * 60.0 / (double) metroBpm.load (std::memory_order_relaxed));
+                    metroResetReq.store (true);
+                    t.state.store (Armed);
+                }
+                else
+                {
+                    if (! anyLength())
+                        metroResetReq.store (true);   // click grid starts with the take
+                    t.state.store (Recording);
+                }
+            }
+            else if (st == Armed)
+            {
+                t.state.store (Empty);   // second tap cancels the arm
             }
             else if (st == Recording)
             {
@@ -376,6 +445,7 @@ private:
             else if (st == Playing)
             {
                 t.dubSamples = 0;
+                t.redoState.store (false);   // a new dub claims the shadow
                 t.undoAvail.store (true);
                 t.state.store (Overdub);
             }
@@ -401,8 +471,12 @@ private:
             t.recPos = 0;
             t.targetLen = 0;
             t.dubSamples = 0;
+            t.redoState.store (false);
             if (! anyLength())
+            {
                 masterLen.store (0);   // last loop gone: next take re-defines it
+                masterStamp = 0;
+            }
         }
         else if (cmd == 4)     // re-record: wipe this track and roll again
         {
@@ -412,38 +486,55 @@ private:
             t.recPos = 0;
             t.targetLen = 0;
             t.dubSamples = 0;
+            t.redoState.store (false);
             if (! anyLength())
             {
                 masterLen.store (0);
+                masterStamp = 0;
                 metroResetReq.store (true);
             }
             t.state.store (Recording);
         }
-        else if (cmd == 3)     // undo the current / latest dub pass
+        else if (cmd == 3)     // undo <-> redo the latest dub session
         {
             if (t.undoAvail.load() && (st == Overdub || st == Playing))
             {
                 const int len = t.lenSamples.load (std::memory_order_relaxed);
                 if (len > 0 && t.dubSamples > 0)
                 {
+                    if (st == Overdub)
+                        t.undoEnd = idxOf (t);   // freeze the session end here
+
                     const int count = juce::jmin (t.dubSamples, len);
-                    // The dubbed region ends where the dub STOPPED, not where
-                    // playback happens to be now.
-                    const int idx   = (st == Overdub) ? idxOf (t) : t.undoEnd;
-                    int start = idx - count;   // region we walked through
+                    const int idx   = t.undoEnd;
+                    // Forward dubs walked (idx-count, idx]; reversed dubs
+                    // walked [idx+1, idx+count] — both contiguous mod len.
+                    int start = t.reversed.load (std::memory_order_relaxed)
+                                    ? (idx + 1) % len
+                                    : idx - count;
                     while (start < 0) start += len;
                     const int first = juce::jmin (count, len - start);
+
+                    // SWAP loop <-> shadow so the same button REDOES: the
+                    // removed dub is parked in the shadow, not thrown away.
                     for (int ch = 0; ch < 2; ++ch)
                     {
-                        t.loop.copyFrom (ch, start, t.shadow, ch, start, first);
-                        if (count > first)   // wrapped region
-                            t.loop.copyFrom (ch, 0, t.shadow, ch, 0, count - first);
+                        float* a = t.loop.getWritePointer (ch);
+                        float* b = t.shadow.getWritePointer (ch);
+                        for (int k = 0; k < first; ++k)
+                            std::swap (a[start + k], b[start + k]);
+                        for (int k = 0; k < count - first; ++k)   // wrapped part
+                            std::swap (a[k], b[k]);
                     }
-                    if (t.dubSamples >= len && t.layers.load() > 1)
-                        t.layers.fetch_sub (1);
+
+                    const bool nowRemoved = ! t.redoState.load();
+                    t.redoState.store (nowRemoved);
+                    if (t.dubSamples >= len)
+                    {
+                        if (nowRemoved && t.layers.load() > 1) t.layers.fetch_sub (1);
+                        else if (! nowRemoved)                 t.layers.fetch_add (1);
+                    }
                 }
-                t.dubSamples = 0;
-                t.undoAvail.store (false);
                 if (st == Overdub)
                     t.state.store (Playing);
             }
@@ -466,6 +557,10 @@ private:
                     if (t.lenSamples.load() > 0) t.state.store (Stopped);
                     else                         t.state.store (Empty);
                 }
+                else if (st == Armed)
+                {
+                    t.state.store (Empty);
+                }
                 else if (st == Playing || st == Overdub)
                 {
                     if (st == Overdub)
@@ -477,6 +572,7 @@ private:
         else if (cmd == 2)     // play all, re-synced from the top
         {
             transport = 0;
+            masterStamp = 0;
             metroResetReq.store (true);
             for (auto& t : tracks)
                 if (t.lenSamples.load() > 0)
@@ -519,6 +615,7 @@ private:
     Track tracks[kNumTracks];
     int maxLenSamples = 1;
     int64_t transport = 0;
+    int64_t masterStamp = 0;   // transport value at the master grid's loop top
 
     std::atomic<int> masterLen { 0 };
     std::atomic<int> pendingMaster { 0 };

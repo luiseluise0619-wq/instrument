@@ -45,6 +45,8 @@ private:
         juce::TextButton undoButton  { "UNDO" };
         juce::TextButton clearButton { "X" };
         juce::TextButton muteButton  { "M" };
+        juce::TextButton revButton   { "REV" };
+        juce::Slider     panSlider;
         juce::Slider     volSlider;
         juce::Rectangle<int> ringArea;   // painted by the panel
         int chosenInstrument = -1;       // -1 = keep whatever is loaded
@@ -57,7 +59,11 @@ private:
     juce::TextButton clearAllButton { "CLEAR ALL" };
     juce::TextButton addTrackButton { "+ TRACK" };
     juce::TextButton metroButton    { "MET" };
+    juce::TextButton tapButton      { "TAP" };
     juce::Slider     bpmSlider;
+    double lastTapMs = 0.0;
+    double tapIntervalMs = 0.0;
+    int    tapCount = 0;
 
     // Pick the CURRENT sound without leaving the looper.
     juce::ComboBox engineBox;      // Chop / Synth
