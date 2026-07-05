@@ -5,6 +5,13 @@ project(VocalChopStudio VERSION 2.2.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Link the MSVC runtime statically: user machines without the VC++
+# redistributable would otherwise fail to load the plugin with no error
+# message at all - the #1 cause of "the DAW can't see it" reports.
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 # ---------------------------------------------------------------------------
 # JUCE
 #

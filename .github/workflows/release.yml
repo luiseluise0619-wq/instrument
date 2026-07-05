@@ -85,6 +85,33 @@ jobs:
           curl -sL https://www.gnu.org/licenses/gpl-3.0.txt -o dist/COPYING \
             || echo "See https://www.gnu.org/licenses/gpl-3.0.txt" > dist/COPYING
           cp README.md LICENSE.md dist/
+          cat > dist/INSTALL.txt <<'EOF'
+          SLYCE - HOW TO INSTALL
+          ======================
+
+          WINDOWS (FL Studio, Ableton, etc.)
+            1. Copy the ENTIRE "Slyce.vst3" folder to:
+                 C:\Program Files\Common Files\VST3
+            2. FL Studio: Options > Manage plugins > "Find more plugins".
+               Slyce appears under Installed > Generators (it is an
+               instrument, so add it to the Channel Rack, not the mixer).
+
+          NOTE: there is no .dll - that is the old VST2 format, which was
+          discontinued by Steinberg. VST3 is the current standard and every
+          modern DAW (FL 20.7+, Ableton 10.1+, Studio One...) loads it.
+
+          MACOS
+            Copy "Slyce.vst3" to /Library/Audio/Plug-Ins/VST3
+            (and "Slyce.component" to /Library/Audio/Plug-Ins/Components
+            for Logic/GarageBand). If macOS blocks the first launch:
+            System Settings > Privacy & Security > Open Anyway.
+
+          LINUX
+            Copy "Slyce.vst3" to ~/.vst3
+
+          STANDALONE
+            The Slyce app runs on its own without any DAW - just open it.
+          EOF
           cd dist
           cmake -E tar cf "../Slyce-${RELEASE_TAG}-${RUNNER_OS}.zip" --format=zip -- .
 
