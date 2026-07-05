@@ -655,7 +655,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
             processor.applyInstrument (id - 1000);   // featured shelf
         else if (id > 0)
             processor.applyInstrument (id - 1);
-        refreshChildren();
+        // NO refreshChildren() here: an instrument change touches neither the
+        // waveform, the slice grid nor the layout - the knob attachments
+        // update themselves. The full refresh made every pick stutter.
         grabKeysSoon();   // pick a patch, play it immediately
     };
     addAndMakeVisible (instrumentBox);
@@ -815,7 +817,21 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         c->setFixedAspectRatio ((double) kBaseW / (double) kBaseH);
     setResizeLimits (kBaseW * 60 / 100, kBaseH * 60 / 100,
                      kBaseW * 160 / 100, kBaseH * 160 / 100);
-    setSize (kBaseW, kBaseH);
+
+    // Open at a size that FITS the screen - never taller than the work area
+    // and capped at 85% canvas so laptops aren't hit with a wall of plugin.
+    {
+        float fit = 0.8f;
+        if (auto* disp = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
+            const auto ua = disp->userArea;
+            fit = juce::jmin (0.85f,
+                              (float) (ua.getWidth()  - 60) / (float) kBaseW,
+                              (float) (ua.getHeight() - 80) / (float) kBaseH);
+            fit = juce::jmax (0.6f, fit);
+        }
+        setSize ((int) (kBaseW * fit), (int) (kBaseH * fit));
+    }
 
     refreshChildren();
     startTimerHz (30);   // typing-key watchdog (stuck-note guard)
