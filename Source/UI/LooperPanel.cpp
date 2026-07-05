@@ -217,10 +217,10 @@ void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShel
 
     if (withQuickShelf)
     {
-        static const char* featured[] = { "Vox Choir", "Vox Pluck", "Supersaw Lead",
-                                          "Rage Bell", "Memphis 808", "Soul Keys",
-                                          "Kick 808", "Hat Closed", "Snare 808",
-                                          "Clap", "Bass Pad", "Syn Grand" };
+        static const char* featured[] = { "Drum Kit", "Vox Choir", "Vox Pluck",
+                                          "Supersaw Lead", "Rage Bell", "Memphis 808",
+                                          "Soul Keys", "Kick 808", "Snare 808",
+                                          "Clap", "Bass Pad", "Royal Grand" };
         root->addSectionHeader ("QUICK");
         for (auto* f : featured)
         {

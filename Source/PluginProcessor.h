@@ -217,6 +217,26 @@ private:
     static int defaultInstrumentIndex();   // boot patch, found by name
     int  currentInstrument = 0;
 
+    // "Drum Kit" instrument: every semitone is a different drum (C=kick,
+    // D=snare, E=clap, F=hat...). Pieces are snapshotted on the message
+    // thread when the kit is selected; note-ons swap the patch atomically
+    // per hit on the audio thread (voices snapshot at start, so ringing
+    // drums keep their own sound).
+    struct KitPiece
+    {
+        int   unison = 1, wave = 2, playNote = 60;
+        float spread = 0, sub = 0, noise = 0, fm = 0, fmRatio = 2,
+              vibHz = 0, vibCents = 0,
+              fltHz = 20000, fltEnvOct = 0, fltEnvMs = 200, filterQ = 0.71f,
+              drift = 0, velFlt = 1.0f, pitchEnvOct = 0, pitchEnvMs = 60,
+              atk = 0, dec = 200, sus = 0, rel = 150;
+    };
+    std::array<KitPiece, 12> kitPieces {};
+    std::atomic<bool> kitMode { false };
+    bool buildingKit = false;
+    void buildKitPieces();                              // message thread
+    void kitNoteOn (int note, float velocity, bool tap); // audio thread
+
     // Module values applyEnginePatch resolved for the current instrument.
     // applyInstrument mirrors THESE into the knob params — reading them back
     // from synthEngine.patch() would race the audio thread, which rewrites

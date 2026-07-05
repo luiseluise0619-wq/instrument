@@ -345,7 +345,8 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     synthEngine.setEnvelope (attackParam->load(), decayParam->load(),
                              sustainParam->load(), releaseParam->load());
-    synthEngine.setWave ((int) synthWaveParam->load());
+    synthEngine.setWave (kitMode.load() ? (int) SynthEngine::Sine
+                                        : (int) synthWaveParam->load());
     synthEngine.setDetuneCents (synthDetuneParam->load());
     synthEngine.setOctave ((int) synthOctaveParam->load());
 
@@ -477,7 +478,10 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
         {
             if (synth)
             {
-                synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
+                if (kitMode.load (std::memory_order_relaxed))
+                    kitNoteOn (note, msg.getVelocity() / 127.0f, false);
+                else
+                    synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
             }
             else
             {
@@ -615,8 +619,12 @@ void VocalChopAudioProcessor::drainPadQueue()
 
         if (synth)
         {
-            if (type == padOn) synthEngine.noteOn (note, vel);
-            else               synthEngine.tapNote (note, vel);
+            if (kitMode.load (std::memory_order_relaxed))
+                kitNoteOn (note, vel, type != padOn);
+            else if (type == padOn)
+                synthEngine.noteOn (note, vel);
+            else
+                synthEngine.tapNote (note, vel);
         }
         else
         {
@@ -866,6 +874,7 @@ namespace
     { "BASS",  "UK Bass",       2, 0.30f,0.7f, 0.00f, 0.30f, 2.0f, 0.0f, 0.0f,   500, 2.0f,  180, 1, -1,  8.0f,   1,  300, 0.45f, 130, 0.25f, 0.06f, 0.00f, 0, 0.8f },
     { "BASS",  "Growl Sub",     1, 0.00f,0.9f, 0.00f, 0.40f, 2.0f, 0.0f, 0.0f,   350, 1.2f,  450, 2, -2,  0.0f,   3,  500, 0.70f, 220, 0.30f, 0.05f, 0.00f, 0, 0.65f },
     { "BASS",  "Metal Bass",    3, 0.40f,0.3f, 0.00f, 0.55f, 3.5f, 0.0f, 0.0f,   600, 2.2f,  240, 0, -1, 14.0f,   1,  320, 0.60f, 140, 0.50f, 0.08f, 0.00f, 0, 0.95f },
+    { "DRUMS", "Drum Kit",     1, 0.00f,0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,   0,  500, 0.00f, 200, 0.30f, 0.02f, 0.00f, 0, 0.7f },
     { "DRUMS", "Kick 808",      1, 0.0f, 0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,  0,  500, 0.00f, 200, 0.30f, 0.02f, 0.0f, 0, 0.7f },
     { "DRUMS", "Kick Punch",    1, 0.0f, 0.0f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  4000, 0.0f,  200, 2, -1,  0.0f,  0,  260, 0.00f, 120, 0.45f, 0.02f, 0.0f, 0, 0.7f },
     { "DRUMS", "Snare 808",     1, 0.0f, 0.15f,0.85f, 0.00f, 2.0f, 0.0f, 0.0f,  7000, 0.6f,  120, 2,  0,  0.0f,  0,  220, 0.00f, 140, 0.25f, 0.12f, 0.0f, 0, 1.0f },
@@ -1181,8 +1190,85 @@ juce::StringArray VocalChopAudioProcessor::getInstrumentCategories()
     return cats;
 }
 
+void VocalChopAudioProcessor::buildKitPieces()
+{
+    // C=kick up to B=cowbell; the layout repeats every octave.
+    static const char* pieceNames[12] = {
+        "Kick 808", "Kick Punch", "Snare 808", "Snare Tight", "Clap",
+        "Hat Closed", "Hat Open", "Tom Low", "Tom High", "Rim Perc",
+        "Shaker", "Cowbell 808" };
+
+    const auto names = getInstrumentNames();
+    auto& p = synthEngine.patch();
+
+    for (int k = 0; k < 12; ++k)
+    {
+        const int idx = names.indexOf (pieceNames[k]);
+        if (idx < 0)
+            continue;
+
+        applyEnginePatch (idx);   // writes the piece into the live patch...
+        const auto& d = kInstruments[idx];
+        auto& kp = kitPieces[(size_t) k];
+
+        // ...which we snapshot into plain floats the audio thread can use.
+        kp.unison  = p.unison.load();        kp.spread   = p.stereoSpread.load();
+        kp.sub     = p.subLevel.load();      kp.noise    = p.noiseLevel.load();
+        kp.fm      = p.fmAmount.load();      kp.fmRatio  = p.fmRatio.load();
+        kp.vibHz   = p.vibRateHz.load();     kp.vibCents = p.vibDepthCents.load();
+        kp.fltHz   = p.filterCutoff.load();  kp.fltEnvOct= p.filterEnvOct.load();
+        kp.fltEnvMs= p.filterEnvMs.load();   kp.filterQ  = p.filterQ.load();
+        kp.drift   = p.driftCents.load();    kp.velFlt   = p.velToFilterOct.load();
+        kp.pitchEnvOct = p.pitchEnvOct.load();
+        kp.pitchEnvMs  = p.pitchEnvMs.load();
+        kp.wave     = d.wave;
+        kp.playNote = 60 + d.octave * 12;    // natural drum pitch, key-independent
+        kp.atk = d.atk; kp.dec = d.dec; kp.sus = d.sus; kp.rel = d.rel;
+    }
+}
+
+void VocalChopAudioProcessor::kitNoteOn (int note, float velocity, bool tap)
+{
+    // Audio thread: atomic stores only, no allocations. The voice snapshots
+    // everything at start, so each drum keeps its sound while others ring.
+    const auto& kp = kitPieces[(size_t) (((note % 12) + 12) % 12)];
+    auto& p = synthEngine.patch();
+
+    p.unison.store (kp.unison);          p.stereoSpread.store (kp.spread);
+    p.subLevel.store (kp.sub);           p.noiseLevel.store (kp.noise);
+    p.fmAmount.store (kp.fm);            p.fmRatio.store (kp.fmRatio);
+    p.vibRateHz.store (kp.vibHz);        p.vibDepthCents.store (kp.vibCents);
+    p.filterCutoff.store (kp.fltHz);     p.filterEnvOct.store (kp.fltEnvOct);
+    p.filterEnvMs.store (kp.fltEnvMs);   p.filterQ.store (kp.filterQ);
+    p.driftCents.store (kp.drift);       p.velToFilterOct.store (kp.velFlt);
+    p.pitchEnvOct.store (kp.pitchEnvOct);
+    p.pitchEnvMs.store (kp.pitchEnvMs);
+
+    synthEngine.setWave (kp.wave);
+    synthEngine.setEnvelope (kp.atk, kp.dec, kp.sus, kp.rel);
+
+    if (tap) synthEngine.tapNote (note, velocity, kp.playNote);
+    else     synthEngine.noteOn (note, velocity, kp.playNote);
+}
+
 void VocalChopAudioProcessor::applyEnginePatch (int i)
 {
+    // Drum Kit: build the 12 per-key piece snapshots first (recursive calls
+    // guarded), then fall through and apply this row's base patch normally.
+    {
+        const juce::String nm (kInstruments[juce::jlimit (0, (int) (sizeof (kInstruments) / sizeof (kInstruments[0])) - 1, i)].name);
+        if (! buildingKit)
+        {
+            if (nm == "Drum Kit")
+            {
+                buildingKit = true;
+                buildKitPieces();
+                buildingKit = false;
+            }
+            kitMode.store (nm == "Drum Kit");
+        }
+    }
+
     i = juce::jlimit (0, kNumInstruments - 1, i);
     const auto& d = kInstruments[i];
 

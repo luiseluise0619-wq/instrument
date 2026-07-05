@@ -81,9 +81,11 @@ public:
 
     Patch& patch() { return patchSettings; }
 
-    void noteOn  (int midiNote, float velocity);
+    /** pitchNoteOverride >= 0 plays THAT pitch while the voice stays keyed to
+        midiNote for note-off matching (drum-kit mode: fixed drum pitches). */
+    void noteOn  (int midiNote, float velocity, int pitchNoteOverride = -1);
     void noteOff (int midiNote);
-    void tapNote (int midiNote, float velocity);
+    void tapNote (int midiNote, float velocity, int pitchNoteOverride = -1);
     void releaseAll();
 
     void render (juce::AudioBuffer<float>& out, int numSamples);
@@ -140,7 +142,8 @@ private:
 
     float  renderOsc (double phase, double inc) const;
     Voice* findFreeVoice();
-    void   startVoice (Voice&, int midiNote, float velocity, int autoOffSamples);
+    void   startVoice (Voice&, int midiNote, float velocity, int autoOffSamples,
+                       int pitchNoteOverride = -1);
     void   processBus (int numSamples);   // saturation + chorus on the scratch
 
     static constexpr int kMaxVoices = 16;

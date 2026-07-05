@@ -124,9 +124,13 @@ SynthEngine::Voice* SynthEngine::findFreeVoice()
     return best;
 }
 
-void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOffSamples)
+void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOffSamples,
+                              int pitchNoteOverride)
 {
-    const double baseNote = juce::jlimit (0, 127, midiNote) + octave * 12;
+    // Drum-kit mode plays a FIXED pitch per piece while the voice stays keyed
+    // to the pressed note (so note-off still matches).
+    const int pitchNote   = pitchNoteOverride >= 0 ? pitchNoteOverride : midiNote;
+    const double baseNote = juce::jlimit (0, 127, pitchNote) + octave * 12;
     const double hz       = midiToHz (baseNote);
 
     v.note     = midiNote;
@@ -212,15 +216,16 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     v.autoOffCounter = autoOffSamples;
 }
 
-void SynthEngine::noteOn (int midiNote, float velocity)
+void SynthEngine::noteOn (int midiNote, float velocity, int pitchNoteOverride)
 {
-    startVoice (*findFreeVoice(), midiNote, velocity, -1);
+    startVoice (*findFreeVoice(), midiNote, velocity, -1, pitchNoteOverride);
 }
 
-void SynthEngine::tapNote (int midiNote, float velocity)
+void SynthEngine::tapNote (int midiNote, float velocity, int pitchNoteOverride)
 {
     // Long enough for chord previews to ring musically before releasing.
-    startVoice (*findFreeVoice(), midiNote, velocity, (int) (1.0 * sampleRate));
+    startVoice (*findFreeVoice(), midiNote, velocity, (int) (1.0 * sampleRate),
+                pitchNoteOverride);
 }
 
 void SynthEngine::noteOff (int midiNote)
