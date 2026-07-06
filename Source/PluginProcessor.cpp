@@ -144,7 +144,7 @@ VocalChopAudioProcessor::createParameterLayout()
 
     // Synth engine mode: play oscillators instead of sample slices.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "engine", "Engine", juce::StringArray { "Chop", "Synth" }, 0));
+        "engine", "Engine", juce::StringArray { "Chop", "Synth", "Sampled" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "synthWave", "Synth Wave",
         juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
@@ -198,6 +198,7 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     voicePool.prepare (spec);
     synthEngine.prepare (spec);
+    samplerEngine.prepare (sampleRate, samplesPerBlock);
     pitchFormant.prepare (sampleRate, samplesPerBlock, juce::jmax (1, getTotalNumOutputChannels()));
     granularEngine.prepare (spec);
     fxChain.prepare (spec);
@@ -403,6 +404,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //    switching modes mid-note never clicks).
     voicePool.renderNextBlock (buffer, numSamples);
     synthEngine.render (buffer, numSamples);
+    samplerEngine.render (buffer, numSamples);
 
     // 3) Pitch / formant transformation.
     pitchFormant.process (buffer,
@@ -483,7 +485,11 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {
-            if (synth)
+            if (isSamplerMode())
+            {
+                samplerEngine.noteOn (note, msg.getVelocity() / 127.0f);
+            }
+            else if (synth)
             {
                 if (kitMode.load (std::memory_order_relaxed))
                     kitNoteOn (note, msg.getVelocity() / 127.0f, false);
@@ -505,10 +511,11 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
         }
         else if (msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0))
         {
-            // Release BOTH engines regardless of the current mode: the note
+            // Release EVERY engine regardless of the current mode: the note
             // may have started before an engine switch, and each call is a
             // safe no-op when that engine holds nothing for this note.
             synthEngine.noteOff (note);
+            samplerEngine.noteOff (note);
 
             if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
             {
@@ -526,6 +533,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
                 voicePool.releaseAll();
 
             synthEngine.releaseAll();
+            samplerEngine.releaseAll();
             noteToVoice.fill (-1);
             padKeyToVoice.fill (-1);
         }
@@ -615,6 +623,7 @@ void VocalChopAudioProcessor::drainPadQueue()
             // Release both engines: the pad may have been pressed before an
             // engine switch (each call safely no-ops when not applicable).
             synthEngine.noteOff (note);
+            samplerEngine.noteOff (note);
 
             if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
             {
@@ -624,7 +633,11 @@ void VocalChopAudioProcessor::drainPadQueue()
             return;
         }
 
-        if (synth)
+        if (isSamplerMode())
+        {
+            samplerEngine.noteOn (note, vel);   // taps ring out naturally
+        }
+        else if (synth)
         {
             if (kitMode.load (std::memory_order_relaxed))
                 kitNoteOn (note, vel, type != padOn);
@@ -1421,6 +1434,7 @@ void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     // reopening the project restores everything, not just the knobs.
     juce::XmlElement root ("VocalChopState");
     root.setAttribute ("samplePath",  loadedSampleFile.getFullPathName());
+    root.setAttribute ("sfzPath",     loadedSfzFile.getFullPathName());
     root.setAttribute ("sliceMode",   (int) sliceEngine.getMode());
     root.setAttribute ("gridDiv",     sliceEngine.getGridDivision());
     root.setAttribute ("sensitivity", (double) sliceEngine.getSensitivity());
@@ -1508,6 +1522,15 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         loadSampleFromFile (sample, false);
     else
         sliceEngine.rebuildSlices();
+
+    // Restore the SFZ bank (quietly skipped if the files moved).
+    const juce::File sfz (xml->getStringAttribute ("sfzPath"));
+    if (sfz.existsAsFile())
+    {
+        juce::String ignored;
+        if (samplerEngine.loadSfz (sfz, ignored))
+            loadedSfzFile = sfz;
+    }
 
     // Let an open editor re-sync its combos / theme / cached waveform
     // (sendChangeMessage is async and safe from any thread).

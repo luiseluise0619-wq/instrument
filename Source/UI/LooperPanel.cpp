@@ -178,6 +178,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     // --- Current-sound pickers (mirror the studio's engine + instrument) ---
     engineBox.addItem ("Chop", 1);
     engineBox.addItem ("Synth", 2);
+    engineBox.addItem ("Sampled", 3);
     engineAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.getAPVTS(), "engine", engineBox);
     addAndMakeVisible (engineBox);

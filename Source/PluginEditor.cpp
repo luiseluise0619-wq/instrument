@@ -568,9 +568,10 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // Hover help everywhere a first-timer might hesitate.
     demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
-    engineBox.setTooltip ("Chop = play slices of the loaded audio.  Synth = play the 314 built-in instruments");
+    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 315 built-in sounds.  "
+                          "Sampled = load an SFZ bank of REAL recordings (Load button)");
     synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
-    instrumentBox.setTooltip ("314 built-in sounds, organised by category - start with FEATURED");
+    instrumentBox.setTooltip ("315 built-in sounds, organised by category - start with FEATURED");
     looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
     themeBox.setTooltip ("Color themes and artwork skins");
     presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
@@ -594,6 +595,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // --- Engine mode: sample chopping vs. built-in synth ---
     engineBox.addItem ("Chop",  1);
     engineBox.addItem ("Synth", 2);
+    engineBox.addItem ("Sampled", 3);   // SFZ multisample banks (real recordings)
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "engine", engineBox));
     engineBox.onChange = [this] { refreshChildren(); grabKeysSoon(); };
@@ -860,13 +862,35 @@ void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& kno
 
 void VocalChopAudioProcessorEditor::openFileChooser()
 {
+    const auto flags = juce::FileBrowserComponent::openMode
+                     | juce::FileBrowserComponent::canSelectFiles;
+
+    // In Sampled mode the Load button loads an SFZ multisample bank
+    // (real recorded instruments: Salamander grand, acoustic guitars...).
+    if (processor.isSamplerMode())
+    {
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Select an SFZ instrument (.sfz)", juce::File{}, "*.sfz");
+
+        fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (! file.existsAsFile())
+                return;
+
+            juce::String error;
+            if (! processor.loadSfzBank (file, error))
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon, "SFZ load failed", error);
+            grabKeysSoon();
+        });
+        return;
+    }
+
     fileChooser = std::make_unique<juce::FileChooser> (
         "Select an audio file to chop",
         juce::File{},
         "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
-
-    const auto flags = juce::FileBrowserComponent::openMode
-                     | juce::FileBrowserComponent::canSelectFiles;
 
     fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
     {

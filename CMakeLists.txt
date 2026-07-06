@@ -106,6 +106,7 @@ target_sources(VocalChopStudio PRIVATE
     Source/AudioEngine/PitchFormant.cpp
     Source/AudioEngine/GranularEngine.cpp
     Source/AudioEngine/SynthEngine.cpp
+    Source/AudioEngine/SamplerEngine.cpp
     Source/AudioEngine/FXChain.cpp
     Source/AudioEngine/VoicePool.cpp
     Source/UI/ThemeManager.cpp
