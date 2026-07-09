@@ -1,12 +1,3 @@
-/*  [초보자 안내]
-    이 플러그인의 '심장'을 선언하는 파일이에요. DAW(로직·에이블톤 같은 음악
-    프로그램)는 이 클래스를 통해 우리 플러그인과 대화합니다.
-    안에 모든 엔진(슬라이스·신스·피치·FX·리미터)이 부품처럼 꽂혀 있고,
-    processBlock() 이 '오디오 스레드'에서 초당 수백 번 불리며 소리를 만듭니다.
-    오디오 스레드 = 마감이 밀리초 단위인 특급 배달원. 한 번이라도 늦으면
-    스피커에서 '뚝' 하는 잡음이 나요. 그래서 이 경로의 코드는 특별하게 씁니다.
-*/
-
 #pragma once
 
 #include <JuceHeader.h>
@@ -18,6 +9,7 @@
 #include "AudioEngine/GranularEngine.h"
 #include "AudioEngine/FXChain.h"
 #include "AudioEngine/LoopStation.h"
+#include "AudioEngine/SamplerEngine.h"
 #include "DSP/Limiter.h"
 #include "Licensing.h"
 
@@ -91,6 +83,26 @@ public:
         return engineParam != nullptr && engineParam->load() >= 0.5f;
     }
 
+    /** True when the Sampled (SFZ multisample) engine is selected. */
+    bool isSamplerMode() const
+    {
+        return engineParam != nullptr && engineParam->load() >= 1.5f;
+    }
+
+    /** Loads an SFZ multisample bank (message thread; heavy - decodes all
+        samples). On success switches to Sampled mode and remembers the path
+        in the session state. */
+    bool loadSfzBank (const juce::File& f, juce::String& error)
+    {
+        if (! samplerEngine.loadSfz (f, error))
+            return false;
+        loadedSfzFile = f;
+        if (auto* p = apvts.getParameter ("engine"))
+            p->setValueNotifyingHost (1.0f);   // choice index 2 of 0..2
+        return true;
+    }
+    SamplerEngine& getSampler() { return samplerEngine; }
+
     /** Applies a named factory preset's parameter values. */
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
@@ -136,6 +148,8 @@ private:
 
     VoicePool      voicePool;
     SynthEngine    synthEngine;
+    SamplerEngine  samplerEngine;
+    juce::File     loadedSfzFile;   // persisted so reload restores the bank
     SliceEngine    sliceEngine;
     PitchFormant   pitchFormant;
     GranularEngine granularEngine;

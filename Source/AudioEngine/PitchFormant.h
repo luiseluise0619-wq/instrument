@@ -1,12 +1,3 @@
-/*  [초보자 안내]
-    음정(pitch)과 포먼트(formant)를 따로따로 바꾸는 장치예요.
-    포먼트 = 목소리의 '몸집' 같은 울림 특성. 음정만 올리면 다람쥐 소리가 되는데,
-    포먼트를 보정하면 음만 높아지고 목소리 성격은 그대로 남습니다.
-    내부는 Signalsmith Stretch 라는 스펙트럼(주파수 영역) 엔진을 씁니다.
-    이런 처리는 소리를 조금 '늦게' 내보낼 수밖에 없어서(지연, latency),
-    그 지연량을 DAW에 알려주고 원음 경로도 같은 만큼 늦춰 위상을 맞춥니다.
-*/
-
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -54,6 +45,14 @@ private:
     std::vector<float>       dryRing[2];      // latency-matched dry for the mix
     int    ringCap   = 1;
     int    ringWrite = 0;
+
+    // TRUE bypass at pitch/formant = 0: the stretcher's ~100 ms inherent
+    // latency (and its CPU) must never tax plain playing. A short fade-in
+    // masks the content jump when the path is toggled mid-note.
+    bool   engaged  = false;
+    int    fadePos  = 1 << 20;   // >= fadeLen means "no fade running"
+    static constexpr int kFadeLen = 256;
+    void   applyToggleFade (juce::AudioBuffer<float>&, int numSamples, int numChannels);
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmoothed { 1.0f };
 };

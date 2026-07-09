@@ -1,12 +1,3 @@
-/*  [초보자 안내]
-    얼굴(UI)의 실제 구현. 버튼 클릭·노브 드래그 같은 사용자 입력을 받아
-    파라미터(APVTS)에 반영하면, 오디오 쪽이 다음 블록에서 그 값을 읽어가요.
-    즉 UI → 파라미터 → 오디오 스레드로 한 방향으로만 흐르고,
-    UI가 오디오 스레드를 직접 부르는 일은 절대 없습니다.
-    무거운 일(샘플 로드, 슬라이스 재계산)도 전부 이쪽(메시지 스레드)에서 하고,
-    오디오 스레드에는 완성된 결과만 안전하게 건네줍니다.
-*/
-
 #include "PluginEditor.h"
 #include "UI/ThemeManager.h"
 #include "BinaryData.h"
@@ -577,9 +568,10 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // Hover help everywhere a first-timer might hesitate.
     demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
-    engineBox.setTooltip ("Chop = play slices of the loaded audio.  Synth = play the 314 built-in instruments");
+    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 315 built-in sounds.  "
+                          "Sampled = load an SFZ bank of REAL recordings (Load button)");
     synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
-    instrumentBox.setTooltip ("314 built-in sounds, organised by category - start with FEATURED");
+    instrumentBox.setTooltip ("315 built-in sounds, organised by category - start with FEATURED");
     looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
     themeBox.setTooltip ("Color themes and artwork skins");
     presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
@@ -603,6 +595,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // --- Engine mode: sample chopping vs. built-in synth ---
     engineBox.addItem ("Chop",  1);
     engineBox.addItem ("Synth", 2);
+    engineBox.addItem ("Sampled", 3);   // SFZ multisample banks (real recordings)
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "engine", engineBox));
     engineBox.onChange = [this] { refreshChildren(); grabKeysSoon(); };
@@ -664,7 +657,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
             processor.applyInstrument (id - 1000);   // featured shelf
         else if (id > 0)
             processor.applyInstrument (id - 1);
-        refreshChildren();
+        // NO refreshChildren() here: an instrument change touches neither the
+        // waveform, the slice grid nor the layout - the knob attachments
+        // update themselves. The full refresh made every pick stutter.
         grabKeysSoon();   // pick a patch, play it immediately
     };
     addAndMakeVisible (instrumentBox);
@@ -824,7 +819,21 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         c->setFixedAspectRatio ((double) kBaseW / (double) kBaseH);
     setResizeLimits (kBaseW * 60 / 100, kBaseH * 60 / 100,
                      kBaseW * 160 / 100, kBaseH * 160 / 100);
-    setSize (kBaseW, kBaseH);
+
+    // Open at a size that FITS the screen - never taller than the work area
+    // and capped at 85% canvas so laptops aren't hit with a wall of plugin.
+    {
+        float fit = 0.8f;
+        if (auto* disp = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
+            const auto ua = disp->userArea;
+            fit = juce::jmin (0.85f,
+                              (float) (ua.getWidth()  - 60) / (float) kBaseW,
+                              (float) (ua.getHeight() - 80) / (float) kBaseH);
+            fit = juce::jmax (0.6f, fit);
+        }
+        setSize ((int) (kBaseW * fit), (int) (kBaseH * fit));
+    }
 
     refreshChildren();
     startTimerHz (30);   // typing-key watchdog (stuck-note guard)
@@ -853,13 +862,35 @@ void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& kno
 
 void VocalChopAudioProcessorEditor::openFileChooser()
 {
+    const auto flags = juce::FileBrowserComponent::openMode
+                     | juce::FileBrowserComponent::canSelectFiles;
+
+    // In Sampled mode the Load button loads an SFZ multisample bank
+    // (real recorded instruments: Salamander grand, acoustic guitars...).
+    if (processor.isSamplerMode())
+    {
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Select an SFZ instrument (.sfz)", juce::File{}, "*.sfz");
+
+        fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (! file.existsAsFile())
+                return;
+
+            juce::String error;
+            if (! processor.loadSfzBank (file, error))
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon, "SFZ load failed", error);
+            grabKeysSoon();
+        });
+        return;
+    }
+
     fileChooser = std::make_unique<juce::FileChooser> (
         "Select an audio file to chop",
         juce::File{},
         "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
-
-    const auto flags = juce::FileBrowserComponent::openMode
-                     | juce::FileBrowserComponent::canSelectFiles;
 
     fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
     {
@@ -1094,13 +1125,12 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     const auto& theme = ThemeManager::active();
     const float radius = theme.cornerRadius;
 
-    // Soft drop shadow.
-    {
-        juce::DropShadow shadow (theme.shadow.withAlpha (0.35f), 18, { 0, 6 });
-        juce::Path p;
-        p.addRoundedRectangle (bounds, radius);
-        shadow.drawForPath (g, p);
-    }
+    // Soft drop shadow — two cheap offset fills. (A gaussian DropShadow here
+    // cost milliseconds PER CARD per paint and made the whole UI feel laggy.)
+    g.setColour (theme.shadow.withAlpha (0.16f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 5.0f).expanded (2.0f), radius + 2.0f);
+    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f).expanded (0.5f), radius + 1.0f);
 
     // Material fill. On the glow theme the panels are darker glass so the
     // scene shows through without fighting the controls.
