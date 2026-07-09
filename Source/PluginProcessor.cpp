@@ -1,3 +1,13 @@
+/*  [초보자 안내]
+    심장의 실제 구현. 여기서 제일 중요한 규칙 하나만 기억하세요:
+    processBlock() 안에서는 메모리 할당(malloc/new)도, 잠금(lock)도, 파일도
+    금지입니다. 이유: 그런 작업은 '얼마나 걸릴지 보장이 없어서', 밀리초 마감을
+    가진 오디오 스레드를 세워버릴 수 있거든요(= 소리 끊김, 글리치).
+    그래서 버퍼는 prepareToPlay() 에서 미리 다 만들어 두고, UI와의 데이터
+    교환은 lock 대신 std::atomic(끼어들 수 없는 원자적 읽기/쓰기)과
+    try-lock(못 잡으면 그냥 건너뜀)으로만 합니다. 이 파일 전체가 그 연습장이에요.
+*/
+
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "AudioEngine/SampleLoader.h"
