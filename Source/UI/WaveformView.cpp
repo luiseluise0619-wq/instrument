@@ -1,3 +1,4 @@
+// [파일 역할] WaveformView.h의 구현. 파형 포락선 계산 + 카드/파형/슬라이스선/재생선 그리기 + 파일 드롭.
 #include "WaveformView.h"
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
@@ -7,10 +8,11 @@
 
 namespace
 {
-    // Inner padding between the card edge and the waveform drawing.
+    // 카드 가장자리와 파형 사이 안쪽 여백.
     constexpr float kCardPadding = 12.0f;
 }
 
+// [생성자] 24Hz의 낮은 빈도 타이머 시작(잔잔한 애니메이션/재생선 갱신).
 WaveformView::WaveformView (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
@@ -18,22 +20,27 @@ WaveformView::WaveformView (VocalChopAudioProcessor& processor)
     startTimerHz (24);
 }
 
+// [소멸자] 타이머 정지.
 WaveformView::~WaveformView()
 {
     stopTimer();
 }
 
+// [함수] refresh — 포락선을 다시 만들고 화면 갱신.
 void WaveformView::refresh()
 {
     rebuildEnvelope();
     repaint();
 }
 
+// [함수] rebuildEnvelope — 샘플을 화면 폭만큼의 세로 막대(열)로 요약해 각 열의 최소/최대값을 캐시.
+//   [왜] 수십만 샘플을 매번 다 그리면 느림 → 화면 픽셀 수만큼만 미리 요약해 두면 그리기가 빨라짐.
 void WaveformView::rebuildEnvelope()
 {
     minEnv.clear();
     maxEnv.clear();
 
+    // 로드된 샘플을 가져옴(없으면 그릴 것 없음).
     auto sample = proc.getLoadedSample();
     if (sample == nullptr || sample->getNumSamples() == 0)
         return;
@@ -50,8 +57,10 @@ void WaveformView::rebuildEnvelope()
     minEnv.assign ((size_t) numColumns, 0.0f);
     maxEnv.assign ((size_t) numColumns, 0.0f);
 
+    // 한 열이 담당할 원본 샘플 수.
     const int samplesPerColumn = juce::jmax (1, numSamples / numColumns);
 
+    // 각 열마다 담당 구간의 최소/최대값을 찾아 저장.
     for (int col = 0; col < numColumns; ++col)
     {
         const int start = col * samplesPerColumn;
@@ -72,11 +81,13 @@ void WaveformView::rebuildEnvelope()
     }
 }
 
+// [함수] resized — 크기가 바뀌면 폭이 달라지므로 포락선을 다시 계산.
 void WaveformView::resized()
 {
     rebuildEnvelope();
 }
 
+// [함수] timerCallback — 아주 느린 위상 전진(미세 반짝임) + 재생선 갱신을 위해 다시 그림.
 void WaveformView::timerCallback()
 {
     // Very slow breathing phase; used only for a near-invisible shimmer.
@@ -86,6 +97,8 @@ void WaveformView::timerCallback()
     repaint();
 }
 
+// [함수] paint — 카드 배경 + 파형(채움/윤곽/반사) + 슬라이스 경계선 + 실시간 재생선 + 빈 상태 안내를 그림.
+//   재생선 위치는 VoicePool이 atomic으로 게시한 값을 (Processor 경유로) 읽어와 그립니다(오디오↔UI 안전 통신).
 void WaveformView::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
@@ -490,6 +503,7 @@ void WaveformView::paint (juce::Graphics& g)
     }
 }
 
+// [함수] isInterestedInFileDrag — 드래그된 파일 중 지원 오디오 확장자가 있으면 받겠다고(true) 함.
 bool WaveformView::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
@@ -500,6 +514,7 @@ bool WaveformView::isInterestedInFileDrag (const juce::StringArray& files)
     return false;
 }
 
+// [함수] fileDragEnter/Exit — 파일을 끌고 들어오거나 나갈 때 강조 표시(fileHover) 토글.
 void WaveformView::fileDragEnter (const juce::StringArray&, int, int)
 {
     fileHover = true;
@@ -512,6 +527,7 @@ void WaveformView::fileDragExit (const juce::StringArray&)
     repaint();
 }
 
+// [함수] filesDropped — 파일을 놓으면 첫 파일을 로드하고, 성공 시 새로고침 + 콜백 실행(에디터도 갱신).
 void WaveformView::filesDropped (const juce::StringArray& files, int, int)
 {
     fileHover = false;
@@ -521,6 +537,7 @@ void WaveformView::filesDropped (const juce::StringArray& files, int, int)
     if (proc.loadSampleFromFile (juce::File (files[0])))
     {
         refresh();
+        // 드롭 후 처리 콜백이 등록돼 있으면 호출(건반/슬라이스 컨트롤 갱신용).
         if (onSampleDropped != nullptr)
             onSampleDropped();
     }
