@@ -1,18 +1,22 @@
+// [파일 역할] AppleLookAndFeel.h의 구현. 버튼/콤보/메뉴를 실제로 그리는 규칙들.
 #include "AppleLookAndFeel.h"
 #include "ThemeManager.h"
 
+// [생성자] 팝업 메뉴 배경을 투명으로(우리가 직접 drawPopupMenuBackground에서 그림).
 AppleLookAndFeel::AppleLookAndFeel()
 {
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
 }
 
 //==============================================================================
+// [함수] getTextButtonFont — 버튼 높이에 맞춘 세미볼드 글꼴 반환.
 juce::Font AppleLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
 {
     return juce::Font (juce::FontOptions ((float) juce::jmin (15, buttonHeight - 8))
                            .withStyle ("Semibold"));
 }
 
+// [함수] drawButtonBackground — 버튼의 배경(채움+그림자+테두리+글로우)을 상태(hover/down/toggle)에 맞게 그림.
 void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,
                                              const juce::Colour&,
                                              bool highlighted, bool down)
@@ -26,6 +30,7 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
 
     const float radius = juce::jmin (theme.cornerRadius, bounds.getHeight() * 0.5f);
 
+    // 상태에 따른 채움색 결정: 켜짐=강조색, 눌림=진한 강조, 마우스오버=살짝 밝게.
     juce::Colour fill = theme.materialStrong;
     if (button.getToggleState())          fill = theme.accent;
     else if (down)                        fill = theme.accentSoft.withMultipliedAlpha (2.0f);
@@ -94,6 +99,7 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     g.drawRoundedRectangle (bounds, radius, glowTheme ? 1.2f : 1.0f);
 }
 
+// [함수] drawButtonText — 버튼 글자를 그림. 켜진 버튼은 배경이 강조색이라 글자색을 대비되게 바꿈.
 void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
                                        bool, bool)
 {
@@ -113,11 +119,13 @@ void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& butt
 }
 
 //==============================================================================
+// [함수] getComboBoxFont — 콤보박스 글꼴.
 juce::Font AppleLookAndFeel::getComboBoxFont (juce::ComboBox&)
 {
     return juce::Font (juce::FontOptions (14.0f).withStyle ("Medium"));
 }
 
+// [함수] drawComboBox — 콤보박스 배경/테두리와 오른쪽 아래 화살표(v 모양)를 그림.
 void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
                                      bool, int, int, int, int, juce::ComboBox& box)
 {
@@ -166,6 +174,7 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
                                                  juce::PathStrokeType::rounded));
 }
 
+// [함수] positionComboBoxText — 콤보박스 안에 표시되는 선택 텍스트(라벨)의 위치/색을 정함.
 void AppleLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
 {
     label.setBounds (12, 1, box.getWidth() - 30, box.getHeight() - 2);
@@ -175,6 +184,7 @@ void AppleLookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& l
 }
 
 //==============================================================================
+// [함수] drawPopupMenuBackground — 콤보를 펼쳤을 때 뜨는 메뉴의 배경(둥근 카드)을 그림.
 void AppleLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, int height)
 {
     const auto& theme = ThemeManager::active();
@@ -186,11 +196,13 @@ void AppleLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, in
     g.drawRoundedRectangle (bounds, 10.0f, 1.0f);
 }
 
+// [함수] getPopupMenuFont — 팝업 메뉴 글꼴.
 juce::Font AppleLookAndFeel::getPopupMenuFont()
 {
     return juce::Font (juce::FontOptions (14.0f).withStyle ("Medium"));
 }
 
+// [함수] drawPopupMenuItem — 메뉴 항목 하나를 그림(구분선/하이라이트/체크표시/글자).
 void AppleLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area,
                                           bool isSeparator, bool isActive, bool isHighlighted,
                                           bool isTicked, bool, const juce::String& text,
