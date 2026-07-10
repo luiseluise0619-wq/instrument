@@ -1,30 +1,37 @@
+// [파일 역할] MeterComponent.h의 구현. 레벨 읽기 + 탄도/피크홀드 + 막대 그리기.
 #include "MeterComponent.h"
 
+// [생성자] 레벨 참조를 저장하고 60Hz 타이머 시작(미터는 즉각적으로 느껴져야 함).
 MeterComponent::MeterComponent (std::atomic<float>& levelSource)
     : level (levelSource)
 {
     startTimerHz (60);   // meters must feel instantaneous
 }
 
+// [소멸자] 타이머 정지.
 MeterComponent::~MeterComponent()
 {
     stopTimer();
 }
 
+// [함수] timerCallback — 레벨을 읽어 막대/피크홀드를 갱신하고 다시 그림.
 void MeterComponent::timerCallback()
 {
     // Consume the processor's peak latch (exchange-to-zero): whatever peak
     // happened since the last frame shows up on THIS frame.
+    // [스레드] exchange(0): 값을 읽으면서 동시에 0으로 비움. 지난 프레임 사이의 최고 피크를 이번에 표시.
     const float target = juce::jlimit (0.0f, 1.0f,
                                        level.exchange (0.0f, std::memory_order_relaxed));
 
     // Instant attack: jump up immediately. Musical release: ease down.
+    // 어택은 즉시(위로 확 튐), 릴리즈는 부드럽게(아래로 서서히) — 진짜 미터의 탄도 느낌.
     if (target >= displayed)
         displayed = target;
     else
         displayed += (target - displayed) * 0.16f;   // per-frame at 60 Hz
 
     // Peak-hold catches the top and then falls slowly.
+    // 피크홀드는 최고점을 붙잡았다가 아주 천천히 떨어짐.
     if (displayed >= peakHold)
         peakHold = displayed;
     else
@@ -35,6 +42,7 @@ void MeterComponent::timerCallback()
     repaint();
 }
 
+// [함수] paint — 카드 배경, 트랙, 채워지는 막대, 피크홀드 선, 'OUT' 캡션을 그림.
 void MeterComponent::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
@@ -115,6 +123,7 @@ void MeterComponent::paint (juce::Graphics& g)
     }
 
     // Active fill from the bottom, height proportional to displayed level.
+    // 아래에서부터 현재 레벨 비율만큼 막대를 채움(그라디언트: 아래=강조색, 위=뜨거운색, 꼭대기=빨강 경고).
     const float level01 = juce::jlimit (0.0f, 1.0f, displayed);
     if (level01 > 0.0f)
     {
@@ -155,6 +164,7 @@ void MeterComponent::paint (juce::Graphics& g)
     }
 
     // Peak-hold marker: a thin line at the held level.
+    // 잡아둔 최고점 위치에 얇은 선을 그림(글로우 테마면 네온, 아니면 강조→빨강 보간색).
     if (peakHold > 0.0f)
     {
         const float peakY = barArea.getBottom() - barArea.getHeight() * juce::jlimit (0.0f, 1.0f, peakHold);
