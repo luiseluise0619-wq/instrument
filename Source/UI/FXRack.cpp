@@ -1,6 +1,8 @@
+// [파일 역할] FXRack.h의 구현. 이펙트 노브 3개(Drive/Reverb/Delay) 생성·배치·그리기.
 #include "FXRack.h"
 #include "ThemeManager.h"
 
+// [생성자] 세 개의 이펙트 모듈을 파라미터 id와 함께 추가.
 FXRack::FXRack (juce::AudioProcessorValueTreeState& apvts)
 {
     addModule (apvts, "drive",  "Drive");
@@ -8,6 +10,7 @@ FXRack::FXRack (juce::AudioProcessorValueTreeState& apvts)
     addModule (apvts, "delay",  "Delay");
 }
 
+// [함수] addModule — 노브를 만들고 파라미터에 연결한 뒤 모듈 목록에 추가.
 void FXRack::addModule (juce::AudioProcessorValueTreeState& apvts,
                         const juce::String& paramID, const juce::String& caption)
 {
@@ -20,6 +23,7 @@ void FXRack::addModule (juce::AudioProcessorValueTreeState& apvts,
     // Keep the rack's neon value tracks in sync while the knob moves.
     // (KnobComponent leaves onValueChange free for clients; attachments use
     // Slider::Listener, so this callback is ours.)
+    // [콜백] 노브를 돌릴 때 네온 값 트랙을 다시 그리도록(글로우 테마에서만). onValueChange는 우리 몫.
     m.knob->getSlider().onValueChange = [this]
     {
         if (ThemeManager::active().glow >= 0.9f)
@@ -29,6 +33,7 @@ void FXRack::addModule (juce::AudioProcessorValueTreeState& apvts,
     modules.push_back (std::move (m));
 }
 
+// [함수] paint — 카드 배경 + 'FX' 제목 + (글로우 테마면 네온 값 트랙, 아니면 얇은 구분선)을 그림.
 void FXRack::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
@@ -175,6 +180,7 @@ void FXRack::paint (juce::Graphics& g)
     }
 }
 
+// [함수] resized — 카드 안쪽을 패딩만큼 줄이고 제목 자리를 뺀 뒤, 모듈들을 같은 높이로 세로 분배.
 void FXRack::resized()
 {
     auto area = getLocalBounds().reduced (2);   // match the card inset
@@ -184,6 +190,7 @@ void FXRack::resized()
     if (modules.empty())
         return;
 
+    // 모듈 수와 간격을 빼고 남은 높이를 균등 분배.
     const int count       = (int) modules.size();
     const int totalGaps    = (count - 1) * moduleGap;
     const int slotHeight   = (area.getHeight() - totalGaps) / count;
