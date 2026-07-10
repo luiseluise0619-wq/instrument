@@ -1,3 +1,4 @@
+// [파일 역할] SliceGrid.h의 구현. 피아노 건반 그리기 + 마우스 입력으로 슬라이스 트리거 + 물방울 연출.
 #include "SliceGrid.h"
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
@@ -7,27 +8,32 @@
 
 namespace
 {
+    // 건반 위 클래식한 펠트 띠의 높이.
     constexpr float kFeltHeight = 5.0f;   // classic felt strip above the keys
 }
 
+// [생성자] Processor를 저장하고 60Hz 타이머 시작(빛/물방울 애니메이션용).
 SliceGrid::SliceGrid (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
     startTimerHz (60);
 }
 
+// [소멸자] 타이머 정지.
 SliceGrid::~SliceGrid()
 {
     stopTimer();
 }
 
 //==============================================================================
+// [함수] isBlackKey — 반음 값이 검은건반(C#,D#,F#,G#,A#)인지 판정. %12로 옥타브 무관하게.
 bool SliceGrid::isBlackKey (int semitone)
 {
     const int s = semitone % 12;
     return s == 1 || s == 3 || s == 6 || s == 8 || s == 10;
 }
 
+// [함수] keySpan — 그릴 건반 개수(반음 단위) 결정. 신스는 3옥타브 고정, 찹은 슬라이스 수에 맞춤.
 int SliceGrid::keySpan() const
 {
     // Synth mode: a three-octave keyboard (every key makes sound); the
@@ -41,12 +47,14 @@ int SliceGrid::keySpan() const
     return octaves * 12;
 }
 
+// [함수] keysArea — 건반들이 그려질 전체 영역(여백/펠트 제외).
 juce::Rectangle<float> SliceGrid::keysArea() const
 {
     return getLocalBounds().toFloat().reduced (8.0f, 8.0f)
                            .withTrimmedTop (kFeltHeight + 2.0f);
 }
 
+// [함수] keyRect — 특정 건반 하나의 사각형 위치/크기 계산(흰건반은 폭 균등, 검은건반은 경계에 얹힘).
 juce::Rectangle<float> SliceGrid::keyRect (int semitone, int span) const
 {
     const auto area = keysArea();
@@ -74,6 +82,7 @@ juce::Rectangle<float> SliceGrid::keyRect (int semitone, int span) const
     return { x, area.getY(), blackW, area.getHeight() * 0.615f };
 }
 
+// [함수] keyAt — 마우스 좌표가 어느 건반 위인지 반환. 검은건반이 위에 있으므로 먼저 검사.
 int SliceGrid::keyAt (juce::Point<float> p) const
 {
     const int span = keySpan();
@@ -89,6 +98,7 @@ int SliceGrid::keyAt (juce::Point<float> p) const
 }
 
 //==============================================================================
+// [함수] paint — 펠트/흰건반/검은건반/눌린 빛/슬라이스 번호 등을 그림(가장 긴 함수, 순수 그리기).
 void SliceGrid::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
@@ -332,6 +342,7 @@ void SliceGrid::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+// [함수] pressKey — 건반 하나를 눌러 소리 냄. 누른 위치로 세기(velocity)를 정하고 게이트로 잡아둠.
 void SliceGrid::pressKey (int key, juce::Point<float> position)
 {
     if (key < 0)
@@ -352,6 +363,7 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
     // gated — it sounds until the mouse button is released, like a real key.
     // Only one mouse-held key is tracked, so a second press (multi-touch)
     // must let go of the first or its note would never receive a release.
+    // [게이트] 마우스로 잡는 건반은 한 번에 하나만 추적. 새 건반을 누르면 이전 것을 먼저 놓아야 음이 안 물림.
     if (pressedKey >= 0 && pressedKey != key)
         proc.releaseSlicePad (pressedKey);
 
@@ -365,11 +377,13 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
     repaint();
 }
 
+// [함수] mouseDown — 누른 지점의 건반을 재생.
 void SliceGrid::mouseDown (const juce::MouseEvent& e)
 {
     pressKey (keyAt (e.position), e.position);
 }
 
+// [함수] mouseDrag — 글리산도: 건반 위를 미끄러지면 이전 건반을 놓고 손 아래 건반을 재생.
 void SliceGrid::mouseDrag (const juce::MouseEvent& e)
 {
     // Glissando: sliding across the keybed releases the old key and plays
@@ -385,6 +399,7 @@ void SliceGrid::mouseDrag (const juce::MouseEvent& e)
     pressKey (key, e.position);
 }
 
+// [함수] mouseUp — 마우스를 떼면 잡고 있던 건반을 놓음(음 끝).
 void SliceGrid::mouseUp (const juce::MouseEvent&)
 {
     if (pressedKey >= 0)
@@ -394,6 +409,7 @@ void SliceGrid::mouseUp (const juce::MouseEvent&)
     }
 }
 
+// [함수] flashKey — 바깥(컴퓨터 키보드 등)에서 건반을 빛나게 + 물방울 연출.
 void SliceGrid::flashKey (int semitone, float strength)
 {
     if (juce::isPositiveAndBelow (semitone, (int) keyFlash.size()))
@@ -406,8 +422,10 @@ void SliceGrid::flashKey (int semitone, float strength)
     }
 }
 
+// [함수] spawnSplash — 물방울 연출 생성: 퍼지는 파문 링 1개 + 위로 튀었다 떨어지는 방울 6개.
 void SliceGrid::spawnSplash (int /*semitone*/, juce::Point<float> at)
 {
+    // [람다] rnd — 간단한 결정론적 난수(0~1). 방울의 무작위 방향/크기에 사용.
     auto rnd = [this]
     {
         splashSeed = splashSeed * 1664525u + 1013904223u;
@@ -431,6 +449,7 @@ void SliceGrid::spawnSplash (int /*semitone*/, juce::Point<float> at)
         drops.erase (drops.begin(), drops.begin() + (long) (drops.size() - 140));
 }
 
+// [함수] mouseMove — 마우스가 올라간 건반이 바뀌면 다시 그림(호버 표시).
 void SliceGrid::mouseMove (const juce::MouseEvent& e)
 {
     const int key = keyAt (e.position);
@@ -441,6 +460,7 @@ void SliceGrid::mouseMove (const juce::MouseEvent& e)
     }
 }
 
+// [함수] mouseExit — 마우스가 영역을 벗어나면 호버 해제.
 void SliceGrid::mouseExit (const juce::MouseEvent&)
 {
     if (hoveredKey != -1)
@@ -450,6 +470,7 @@ void SliceGrid::mouseExit (const juce::MouseEvent&)
     }
 }
 
+// [함수] timerCallback — 눌린 건반은 계속 빛나게 두고, 놓인 건반의 빛과 물방울을 서서히 줄임.
 void SliceGrid::timerCallback()
 {
     bool any = false;
