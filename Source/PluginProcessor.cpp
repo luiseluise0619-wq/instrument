@@ -1819,11 +1819,15 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 }
 
 //==============================================================================
+// [getStateInformation] 호스트가 프로젝트를 저장할 때 호출. 현재 상태 전부를 바이트로 직렬화해 넘김.
+//   [왜 필요] DAW가 이 데이터를 프로젝트 파일에 넣어 뒀다가, 다음에 열 때 그대로 돌려줍니다(setState).
 void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // Full session state: parameters + sample path + slicing + theme, so that
     // reopening the project restores everything, not just the knobs.
+    // 노브 값뿐 아니라 샘플 경로·슬라이싱·테마까지 전부 XML로 담아, 프로젝트를 다시 열면 완전히 복원되게.
     juce::XmlElement root ("VocalChopState");
+    // 각 상태를 이름=값 속성으로 저장. setAttribute = XML에 항목 추가.
     root.setAttribute ("samplePath",  loadedSampleFile.getFullPathName());
     root.setAttribute ("sfzPath",     loadedSfzFile.getFullPathName());
     root.setAttribute ("sliceMode",   (int) sliceEngine.getMode());
@@ -1832,43 +1836,55 @@ void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     root.setAttribute ("theme",       ThemeManager::current());
     // Like the instrument: the NAME is authoritative — the theme list grows
     // and indices drift across versions.
+    // 테마도 '이름'을 기준으로 저장 — 목록이 늘면 번호(인덱스)는 밀리지만 이름은 그대로라 안전.
     root.setAttribute ("themeName",   ThemeManager::active().name);
     root.setAttribute ("instrument",  currentInstrument);
     // The name is authoritative across plugin versions — the table grows and
     // indices drift, but "Syn Grand" is forever.
+    // 악기도 이름을 함께 저장(버전이 올라 표가 커져도 이름으로 정확히 찾으려고).
     root.setAttribute ("instrumentName", getInstrumentNames()[currentInstrument]);
 
+    // 파라미터 트리(모든 노브 값)를 XML로 만들어 자식으로 붙임. release()로 소유권을 XML에 넘김.
     if (auto params = apvts.copyState().createXml())
         root.addChildElement (params.release());
 
+    // 완성한 XML을 호스트가 요구한 바이트 블록(destData)으로 변환.
     copyXmlToBinary (root, destData);
 }
 
+// [setStateInformation] 호스트가 프로젝트를 열 때 호출. 저장했던 바이트를 받아 상태를 원래대로 복원.
 void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    // 바이트를 다시 XML로 변환. 실패하면(손상 등) 아무것도 안 함.
     auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml == nullptr)
         return;
 
     // Legacy format: bare parameter tree.
+    // 옛 저장 형식(파라미터 트리만 있는 경우) 호환: 그대로 파라미터만 복원하고 끝.
     if (xml->hasTagName (apvts.state.getType()))
     {
         apvts.replaceState (juce::ValueTree::fromXml (*xml));
         return;
     }
 
+    // 우리 형식이 아니면 무시.
     if (! xml->hasTagName ("VocalChopState"))
         return;
 
+    // 파라미터 트리 자식을 찾아 노브 값들을 복원.
     if (auto* params = xml->getChildByName (apvts.state.getType()))
         apvts.replaceState (juce::ValueTree::fromXml (*params));
 
     // Prefer the saved theme NAME; sessions saved before the Studio themes
     // were prepended carry only an index into the OLD 7-theme list, which
     // now sits shifted by 8 (Neon Rider was 0, is 8).
+    // 테마 복원: 저장된 '이름'을 우선 사용. 이름이 없던 옛 세션은 번호만 있는데, 그동안 목록 앞에 8개가
+    //   추가돼 번호가 8만큼 밀렸으므로 보정해서 찾음.
     {
         int themeIdx = -1;
         const auto savedTheme = xml->getStringAttribute ("themeName");
+        // 이름이 있으면 목록에서 같은 이름을 찾음.
         if (savedTheme.isNotEmpty())
         {
             const auto& list = ThemeManager::themes();
@@ -1876,6 +1892,7 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
                 if (list[(size_t) i].name == savedTheme)
                     { themeIdx = i; break; }
         }
+        // 이름으로 못 찾았고 옛 번호만 있으면, 밀린 만큼(+8) 보정.
         if (themeIdx < 0 && xml->hasAttribute ("theme"))
             themeIdx = xml->getIntAttribute ("theme")
                        + (savedTheme.isEmpty() ? 8 : 0);   // legacy index -> shifted list
@@ -1887,6 +1904,8 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     // from the restored parameter tree above, not the instrument defaults.
     // Prefer the saved NAME (indices drift as the table grows across
     // versions); fall back to the index for old sessions.
+    // 악기 복원: '구조(엔진 아키텍처)'만 되돌림 — 노브 값은 위에서 복원한 파라미터 트리가 담당.
+    //   여기서도 이름 우선, 없으면 번호로 대체.
     {
         int idx = xml->getIntAttribute ("instrument", 0);
         const auto savedName = xml->getStringAttribute ("instrumentName");
@@ -1900,6 +1919,7 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         applyEnginePatch (idx);
     }
 
+    // 슬라이싱 설정 복원(값이 없으면 기본값 사용).
     sliceEngine.setMode ((SliceEngine::Mode) xml->getIntAttribute ("sliceMode",
                                                                    (int) SliceEngine::Transient));
     sliceEngine.setGridDivision (xml->getIntAttribute ("gridDiv", 16));
@@ -1908,6 +1928,8 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     // Reload the sample from disk; loadSampleFromFile re-slices with the
     // settings restored above. If the file moved/was deleted, keep running
     // with no sample rather than failing state restore.
+    // 저장된 경로에서 샘플을 다시 로드(위에서 복원한 설정으로 재슬라이스됨). 파일이 사라졌으면
+    //   복원을 실패시키지 않고 '샘플 없이' 계속 동작하게 둠(안전).
     const juce::File sample (xml->getStringAttribute ("samplePath"));
     if (sample.existsAsFile())
         loadSampleFromFile (sample, false);
@@ -1915,6 +1937,7 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         sliceEngine.rebuildSlices();
 
     // Restore the SFZ bank (quietly skipped if the files moved).
+    // SFZ 악기도 복원(파일이 옮겨졌으면 조용히 건너뜀).
     const juce::File sfz (xml->getStringAttribute ("sfzPath"));
     if (sfz.existsAsFile())
     {
@@ -1925,16 +1948,20 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
 
     // Let an open editor re-sync its combos / theme / cached waveform
     // (sendChangeMessage is async and safe from any thread).
+    // 열려 있는 에디터에게 '상태가 바뀌었으니 화면을 다시 맞추라'고 알림(비동기라 어느 스레드에서도 안전).
     sendChangeMessage();
 }
 
 //==============================================================================
+// [createEditor] 호스트가 플러그인 창을 열 때 호출. 우리 에디터(화면)를 새로 만들어 반환.
+//   [메모리] new로 만들지만 호스트가 소유·삭제하므로 여기선 delete하지 않음(JUCE 규약).
 juce::AudioProcessorEditor* VocalChopAudioProcessor::createEditor()
 {
     return new VocalChopAudioProcessorEditor (*this);
 }
 
 //==============================================================================
+// [createPluginFilter] JUCE의 진입점. 호스트가 플러그인 인스턴스를 만들 때 이 함수를 불러 프로세서를 생성.
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new VocalChopAudioProcessor();
