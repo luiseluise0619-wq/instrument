@@ -1,12 +1,24 @@
+// [파일 역할] PluginEditor.h에서 선언한 '화면(UI)'을 실제로 그리고 동작시키는 파일.
+// [무엇이 들어있나]
+//   1) 이름 없는 namespace: 배경(네온 도시/바다 풍경)을 그리는 순수 그림 도우미들.
+//   2) 생성자: 모든 위젯(노브·콤보·버튼)을 만들고 파라미터에 '부착(attachment)'하고 배치.
+//   3) 입력 처리: 컴퓨터 키보드로 연주(scanTypingKeys), 마우스, 파일 열기.
+//   4) Timer/그리기: 주기적으로 상태를 훔쳐보고 화면을 다시 그림.
+// [스레드 그림] 이 파일의 코드는 전부 '메시지 스레드'(느긋한 UI 스레드)에서 돕니다.
+//   소리를 만드는 '오디오 스레드'와는 다른 세계라, 값은 파라미터(APVTS)와 atomic으로만 주고받아요.
+//   UI가 오디오를 직접 붙잡거나 무겁게 만들면 소리가 끊기므로, 그리기는 가볍게·필요한 부분만.
 #include "PluginEditor.h"
 #include "UI/ThemeManager.h"
+// BinaryData: 앱에 내장(compile된)된 이미지/샘플 등 바이너리 자원.
 #include "BinaryData.h"
 
 #include <algorithm>
 
+// [내부 전용] 이 파일에서만 쓰는 상수와 배경 그림 도우미들(다른 파일과 이름 충돌 방지).
 namespace
 {
     // Consistent outer margin / inner padding for the Apple-style layout.
+    // 레이아웃 여백/안쪽 패딩/간격 상수(애플풍 정돈된 배치용).
     constexpr int kMargin  = 22;
     constexpr int kPadding = 18;
     constexpr int kGap     = 16;
@@ -18,6 +30,8 @@ namespace
 
     // Cheap deterministic pseudo-random for the starfield (no <random> on
     // the paint path, same sky every frame).
+    // [도우미] hash01 — 정수 n을 넣으면 항상 같은 0~1 난수를 뱉음(결정론적). 매 프레임 같은 별하늘을
+    //   그리려고, 그리기 경로에서 무거운 <random> 대신 이 싼 해시를 씀.
     float hash01 (int n)
     {
         unsigned int u = (unsigned int) n;
@@ -28,6 +42,8 @@ namespace
 
     // Neon megacity skyline rising from the horizon: dark towers, lit window
     // grids, rooftop antennas with warning lights, the occasional neon edge.
+    // [도우미] drawCitySkyline — 배경의 네온 도시 실루엣(건물·창문불빛·안테나·간판)을 그림.
+    //   순수 그림 함수라 소리와 무관. hash01로 매번 같은 도시를 재현.
     void drawCitySkyline (juce::Graphics& g, float w, float horizonY,
                           int seed, float maxH, float alpha)
     {
@@ -134,6 +150,7 @@ namespace
     }
 
     // A hover-car light streak: bright head dot with a fading tail.
+    // [도우미] drawLightStreak — 배경의 '지나가는 불빛'(밝은 머리점 + 흐려지는 꼬리)을 그림.
     void drawLightStreak (juce::Graphics& g, juce::Point<float> head,
                           float length, float angleRadians, juce::Colour c)
     {
@@ -155,6 +172,8 @@ namespace
     // The full-bleed "Ocean Pluck" scene for the default glow theme: night
     // sky, stars, neon mountains, a sun ring, the perspective sea grid and
     // a neon megacity with hover-car streaks. Painted once into a cached image.
+    // [도우미] paintOceanScene — 기본 글로우 테마의 배경 전체(밤하늘·별·네온산·태양링·바다격자·도시)를 그림.
+    //   [성능] 무거우므로 매 프레임이 아니라 캐시 이미지에 '한 번만' 그려 재사용(아래 backdropCache).
     void paintOceanScene (juce::Graphics& g, int wi, int hi)
     {
         const float w = (float) wi;
@@ -403,6 +422,8 @@ namespace
     // fitted to the window width so the hero (the bike) stays completely
     // unobstructed; only its lower part fades into the panel zone, and
     // everything below the image is solid background.
+    // [도우미] paintArtworkBackdrop — 내장 아트워크 이미지를 상단에 맞춰 그리고, 아래쪽은 컨트롤 영역으로
+    //   자연스럽게 페이드시키는 배경. (테마에 따라 위 도시풍경 대신 이 이미지 배경을 씀.)
     void paintArtworkBackdrop (juce::Graphics& g, int wi, int hi,
                                const void* data, int dataSize,
                                juce::Colour bgBottom)
@@ -449,10 +470,14 @@ namespace
     // FL-style typing keys: bottom row = C3 octave, top row = C4 octave.
     // ',' is deliberately NOT mapped: it would duplicate Q's C4, and two keys
     // driving one note means releasing either kills the other's sound.
+    // [연주 키] FL Studio식 타이핑 건반 배열. 각 글자 = 반음 하나. ','는 일부러 뺌(중복 매핑이면 한 키를
+    //   떼면 다른 키 소리도 꺼지는 문제가 생김).
     const juce::String kTypingKeys ("zsxdcvgbhnjmq2w3er5t6y7u");
 
+    // [도우미] typingKeySemitone — 키 인덱스를 반음 값으로(여기선 그대로 = 연속 배치).
     int typingKeySemitone (int i)     { return i; }   // 12 keys per row, contiguous
 
+    // [도우미] physicalKeyDown — OS 전역 키 상태로 이 글자가 지금 눌려 있는지 확인(대문자도 함께 검사).
     bool physicalKeyDown (juce::juce_wchar c)
     {
         if (juce::KeyPress::isKeyCurrentlyDown ((int) c))
@@ -463,6 +488,9 @@ namespace
 }
 
 //==============================================================================
+// [생성자] 에디터가 만들어질 때 한 번 실행. 모든 위젯을 생성·설정·배치하고 파라미터에 연결.
+// [문법] ': AudioProcessorEditor(&p), processor(p), ...' = '멤버 초기화 목록'. 본문 { } 실행 전에
+//   부모 클래스와 멤버들을 초기화. 참조 멤버(processor)는 반드시 여기서 초기화해야 함.
 VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProcessor& p)
     : AudioProcessorEditor (&p),
       processor (p),
@@ -473,9 +501,11 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
       fxRack (p.getAPVTS())
 {
     // Restyle all buttons / combos / menus with the shared Apple look.
+    // 공통 애플풍 룩앤필을 이 에디터 전체에 적용.
     setLookAndFeel (&appleLaf);
 
     // The editor itself plays notes from the computer keyboard.
+    // 이 에디터가 키보드 입력을 받도록 함(컴퓨터 자판으로 연주하려고).
     setWantsKeyboardFocus (true);
 
     // --- Title: lowercase wordmark + quiet category caption ---
@@ -502,6 +532,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
             presetBox.addItem (name, presetId++);
         presetBox.setSelectedId (1, juce::dontSendNotification);
         presetBox.setJustificationType (juce::Justification::centred);
+        // [콜백] onChange에 람다를 넣으면 사용자가 프리셋을 바꿀 때 이 코드가 실행됨.
+        // [this]로 에디터 멤버(processor 등)에 접근. 프리셋 적용 후 화면 갱신.
         presetBox.onChange = [this]
         {
             processor.applyPreset (presetBox.getSelectedId() - 1);
@@ -841,6 +873,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     processor.addChangeListener (this);
 }
 
+// [소멸자] 창이 닫힐 때 정리(순서 중요). 리스너 해제 → 타이머 정지 → 눌린 음 모두 해제 → 룩앤필 해제.
+// [메모리·안전] setLookAndFeel(nullptr): 우리 룩앤필을 떼어내지 않으면 이미 사라진 객체를 참조할 위험.
 VocalChopAudioProcessorEditor::~VocalChopAudioProcessorEditor()
 {
     processor.removeChangeListener (this);
@@ -850,6 +884,9 @@ VocalChopAudioProcessorEditor::~VocalChopAudioProcessorEditor()
 }
 
 //==============================================================================
+// [함수] addKnob — 노브 하나를 만들고, 그 슬라이더를 paramID 파라미터에 '부착'하고, 화면에 추가.
+// [부착이란?] SliderAttachment가 노브↔파라미터를 자동 동기화. 노브를 돌리면 파라미터가 바뀌고,
+//   파라미터가 바뀌면(오토메이션 등) 노브도 따라 움직임. 부착 객체는 멤버 벡터에 보관해 살려둠.
 void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& knob,
                                              const juce::String& paramID,
                                              const juce::String& caption)
@@ -860,8 +897,11 @@ void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& kno
     addAndMakeVisible (*knob);
 }
 
+// [함수] openFileChooser — '파일 열기' 대화상자를 띄움. 모드에 따라 SFZ 악기 또는 오디오 파일을 로드.
+// [비동기] launchAsync + 람다 콜백: 대화상자가 닫힌 뒤 결과를 콜백에서 처리(메인 스레드를 막지 않음).
 void VocalChopAudioProcessorEditor::openFileChooser()
 {
+    // 열기 모드 + 파일 선택 가능 플래그.
     const auto flags = juce::FileBrowserComponent::openMode
                      | juce::FileBrowserComponent::canSelectFiles;
 
@@ -904,6 +944,7 @@ void VocalChopAudioProcessorEditor::openFileChooser()
     });
 }
 
+// [함수] applySlicing — 현재 콤보/노브 값을 슬라이스 엔진에 반영하고 다시 자름.
 void VocalChopAudioProcessorEditor::applySlicing()
 {
     auto& engine = processor.getSliceEngine();
@@ -915,6 +956,7 @@ void VocalChopAudioProcessorEditor::applySlicing()
     refreshChildren();
 }
 
+// [함수] syncSliceControls — 반대로, 엔진의 현재 모드/그리드를 콤보에 반영(화면을 실제 상태와 맞춤).
 void VocalChopAudioProcessorEditor::syncSliceControls()
 {
     auto& engine = processor.getSliceEngine();
@@ -926,6 +968,7 @@ void VocalChopAudioProcessorEditor::syncSliceControls()
         gridBox.setSelectedId (div, juce::dontSendNotification);
 }
 
+// [함수] refreshChildren — 자식 뷰들(파형·패드·코드바)을 갱신하고 다시 그림. 상태 변화 후 호출.
 void VocalChopAudioProcessorEditor::refreshChildren()
 {
     resized();   // the artwork hero band depends on the active theme
@@ -936,6 +979,8 @@ void VocalChopAudioProcessorEditor::refreshChildren()
 }
 
 //==============================================================================
+// [함수] grabKeysSoon — 콤보 팝업이 훔쳐간 키보드 포커스를 잠시 뒤 되찾아옴(다시 자판 연주 가능하게).
+// [안전] SafePointer: 80ms 뒤 실행될 때 에디터가 이미 사라졌을 수 있으므로, 죽은 객체 접근을 막는 스마트 포인터.
 void VocalChopAudioProcessorEditor::grabKeysSoon()
 {
     // Combo popups steal focus; take it back once they've closed so the
@@ -948,11 +993,14 @@ void VocalChopAudioProcessorEditor::grabKeysSoon()
     });
 }
 
+// [함수] mouseDown — 어디를 클릭하든 키보드 포커스를 가져와 바로 자판 연주가 되게 함.
 void VocalChopAudioProcessorEditor::mouseDown (const juce::MouseEvent&)
 {
     grabKeyboardFocus();
 }
 
+// [함수] keyPressed — 연주에 매핑된 키는 '삼켜서'(true 반환) 다른 데로 안 넘기고, 나머지는 통과.
+// (실제 소리는 keyStateChanged→scanTypingKeys가 처리. 그쪽이 '떼는 것'도 보기 때문.)
 bool VocalChopAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 {
     // Swallow mapped musical keys (sound is driven by keyStateChanged, which
@@ -962,8 +1010,12 @@ bool VocalChopAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     return kTypingKeys.indexOfChar (c) >= 0;
 }
 
+// [함수] scanTypingKeys — 자판의 눌림/뗌 변화를 감지해 음을 켜고 끔. keyStateChanged와 Timer 양쪽에서 호출.
+// [왜 중요] 키를 누른 채 포커스가 딴 데(팝업/다른 창)로 가면 '뗌' 이벤트를 놓쳐 음이 계속 울릴 수 있음.
+//   그래서 Timer(감시견)가 주기적으로 OS 전역 키 상태와 대조해 '뗌'을 반드시 처리 → 음이 안 물림.
 bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
 {
+    // 이번 호출에서 뭔가 처리했는지(음을 켜거나 끔).
     bool handled = false;
 
     // New presses require our keyboard focus — otherwise typing in the
@@ -971,29 +1023,38 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
     // counts our own children though, so exclude text editors (knob value
     // boxes): typing "25" into Attack must not play C#4/F#4. Releases are
     // always honoured (that's the watchdog's whole job).
+    // 새 '누름'은 우리 포커스가 있을 때만 허용. 단, 노브 값 입력창(TextEditor)에 타이핑할 때는 연주 금지
+    //  (예: Attack에 "25" 입력 중 C#4/F#4가 울리면 안 됨). '뗌'은 아래에서 항상 처리.
     auto* focusOwner = juce::Component::getCurrentlyFocusedComponent();
     const bool focused = hasKeyboardFocus (true)
                       && dynamic_cast<juce::TextEditor*> (focusOwner) == nullptr;
 
+    // 매핑된 모든 키를 검사.
     for (int i = 0; i < kTypingKeys.length(); ++i)
     {
+        // 지금 눌려 있는지(강제 해제 요청이면 무조건 안 눌림 취급).
         const bool down = ! forceReleaseAll && physicalKeyDown (kTypingKeys[i]);
+        // 이전 상태와 같으면 변화 없음 → 건너뜀.
         if (down == typingKeyHeld[(size_t) i])
             continue;
+        // 새로 누른 건데 포커스가 없으면 무시(딴 데 타이핑을 연주로 오인 방지).
         if (down && ! focused)
             continue;
 
+        // 상태 갱신 후 해당 반음 계산.
         typingKeyHeld[(size_t) i] = down;
         const int semitone = typingKeySemitone (i);
 
         if (down)
         {
+            // 눌림: 슬라이스 패드를 눌러 소리 냄 + 화면 반짝 + 연출 FX.
             processor.pressSlicePad (semitone, 0.85f);
             sliceGrid.flashKey (semitone, 0.9f);
             spawnHeroFx (0.85f);
         }
         else
         {
+            // 뗌: 해당 패드 해제.
             processor.releaseSlicePad (semitone);
         }
         handled = true;
@@ -1002,11 +1063,13 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
     return handled;
 }
 
+// [함수] keyStateChanged — 키 상태가 바뀔 때 JUCE가 부름. 실제 처리는 scanTypingKeys에 위임.
 bool VocalChopAudioProcessorEditor::keyStateChanged (bool)
 {
     return scanTypingKeys();
 }
 
+// [함수] changeListenerCallback — Processor가 상태를 되돌렸을 때(프로젝트 열기/프리셋) 화면을 다시 맞춤.
 void VocalChopAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     // The processor restored its state behind our back (project revert,
@@ -1020,6 +1083,9 @@ void VocalChopAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcas
     refreshChildren();
 }
 
+// [함수] timerCallback — Timer가 주기적으로 부름(초당 여러 번). UI의 '심장 박동'.
+//   ① 키 뗌 감시(포커스 이동으로 놓친 뗌 처리) ② 잠금해제 버튼 숨김 ③ 히어로 FX 애니메이션 진행.
+// [성능] 반드시 필요한 부분만 다시 그림(heroRect 등). 매번 전체를 그리면 무거워 소리·조작이 버벅임.
 void VocalChopAudioProcessorEditor::timerCallback()
 {
     // Watchdog: key releases are lost when focus moves mid-press (combo
@@ -1037,6 +1103,7 @@ void VocalChopAudioProcessorEditor::timerCallback()
 
     // Advance the hero motion FX; repaint ONLY the artwork band, and only
     // while something is actually moving.
+    // 속도선/글로우가 살아있을 때만 한 프레임 전진시키고, 죽은 선은 제거(erase-remove), 아트워크 밴드만 다시 그림.
     if (! speedLines.empty() || heroGlow > 0.02f)
     {
         for (auto& s : speedLines)
@@ -1055,8 +1122,10 @@ void VocalChopAudioProcessorEditor::timerCallback()
     }
 }
 
+// [함수] spawnHeroFx — 키를 누를 때 네온 속도선 몇 개와 글로우 펄스를 생성(달리는 느낌 연출).
 void VocalChopAudioProcessorEditor::spawnHeroFx (float velocity)
 {
+    // 아트워크 영역이 없거나 글로우 테마가 아니면 연출 생략.
     if (heroRect.isEmpty() || ThemeManager::active().glow < 0.9f)
         return;
 
@@ -1079,6 +1148,7 @@ void VocalChopAudioProcessorEditor::spawnHeroFx (float velocity)
     heroGlow = juce::jmin (1.0f, heroGlow + 0.45f + 0.4f * velocity);
 }
 
+// [함수] drawHeroFx — 생성된 속도선/글로우를 실제로 그림(paintContent에서 호출).
 void VocalChopAudioProcessorEditor::drawHeroFx (juce::Graphics& g)
 {
     if (heroRect.isEmpty())
@@ -1119,6 +1189,8 @@ void VocalChopAudioProcessorEditor::drawHeroFx (juce::Graphics& g)
 }
 
 //==============================================================================
+// [함수] drawCard — 둥근 모서리 카드(그림자+테두리)를 그림. 컨트롤들을 담는 '패널' 배경.
+// [성능 메모] 진짜 가우시안 그림자는 카드마다 수 ms씩 먹어 UI가 버벅여서, 싼 오프셋 사각형 2장으로 대체.
 void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
                                               juce::Rectangle<float> bounds) const
 {
@@ -1155,6 +1227,7 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
 }
 
+// [함수] drawCaption — 카드 위쪽에 작은 대문자 제목(캡션)을 그림.
 void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
                                                  const juce::String& text,
                                                  juce::Rectangle<int> cardBounds) const
@@ -1172,6 +1245,7 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
     g.drawText (text.toUpperCase(), strip, juce::Justification::centredLeft);
 }
 
+// [함수] paint — 에디터 자체의 그리기. 실제 내용은 scaled content가 덮으므로 배경색만 채움.
 void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
 {
     // The scaled content canvas covers the window (fixed aspect ratio); this
@@ -1179,6 +1253,7 @@ void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
     g.fillAll (ThemeManager::active().bgBottom);
 }
 
+// [함수] paintContent — 실제 화면 내용을 고정 캔버스(kBaseW×kBaseH)에 그림: 배경 + 카드들 + 히어로 FX.
 void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
@@ -1268,9 +1343,11 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     }
 }
 
+// [함수] resized — 창 크기 변경 시 호출. 고정 캔버스를 창에 맞춰 균일 배율로 확대/축소.
 void VocalChopAudioProcessorEditor::resized()
 {
     // Uniform scale: the fixed-size canvas fills the (aspect-locked) window.
+    // 가로/세로 배율 중 작은 쪽을 골라 비율을 지키며 스케일. AffineTransform=화면 변환(확대/이동) 행렬.
     const float scale = juce::jmin (getWidth()  / (float) kBaseW,
                                     getHeight() / (float) kBaseH);
     content.setTransform (juce::AffineTransform::scale (scale));
@@ -1278,8 +1355,11 @@ void VocalChopAudioProcessorEditor::resized()
     layoutContent();
 }
 
+// [함수] layoutContent — 모든 위젯의 위치/크기를 정함. removeFromTop/Left 등으로 영역을 잘라 배치하는 관용구.
+// [배치 관용구] area.removeFromTop(h)는 area 위쪽 h만큼을 '떼어' 반환하고 area는 그만큼 줄어듦 → 차곡차곡 배치.
 void VocalChopAudioProcessorEditor::layoutContent()
 {
+    // 전체 캔버스에서 바깥 여백을 뺀 작업 영역.
     auto area = juce::Rectangle<int> (0, 0, kBaseW, kBaseH).reduced (kMargin);
 
     // --- Top toolbar row ---
