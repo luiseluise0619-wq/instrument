@@ -1,3 +1,8 @@
+// [초보자 안내 — 신호 체인에서 담당]
+// 이 파일은 소리가 아니라 '첫 실행 환영 화면'이에요. 처음 켠 사용자가 10초 안에 소리를 내도록
+// 세 단계(PLAY / SOUNDS / LOOP)를 큼직하게 안내합니다. 한 번 보면 플래그 파일에 기록해 다시 안 뜨고,
+// 툴바의 '?' 버튼으로 언제든 다시 열 수 있습니다.
+
 #pragma once
 
 #include <JuceHeader.h>
@@ -9,9 +14,11 @@
     so a first-time user makes sound within ten seconds. Shown once (a
     flag file remembers), and re-openable any time from the toolbar "?".
 */
+// [클래스] WelcomePanel — 창을 덮는 안내 오버레이.
 class WelcomePanel : public juce::Component
 {
 public:
+    // [생성자] '시작' 버튼을 만들고, 누르면 봤음을 기록한 뒤 닫히도록 연결.
     WelcomePanel()
     {
         startButton.onClick = [this]
@@ -23,10 +30,12 @@ public:
         setWantsKeyboardFocus (true);   // swallow keys behind the veil
     }
 
+    // [함수] seenFile — '봤음' 표시 플래그 파일 경로(라이선스 파일 옆에 둠).
     static juce::File seenFile()
     {
         return vcs::Licensing::licenseFile().getSiblingFile ("welcomed.flag");
     }
+    // 봤는지 확인 / 봤다고 기록(파일 생성).
     static bool hasSeenWelcome()   { return seenFile().existsAsFile(); }
     static void markSeen()
     {
@@ -35,6 +44,7 @@ public:
         f.replaceWithText ("1");
     }
 
+    // [함수] resized — 카드 아래쪽에 시작 버튼을 배치.
     void resized() override
     {
         auto card = getCardBounds();
@@ -42,6 +52,7 @@ public:
                                    .withSizeKeepingCentre (220, 40));
     }
 
+    // [함수] mouseDown — 카드 바깥을 클릭하면 봤음 기록 후 닫음.
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (! getCardBounds().contains (e.getPosition()))
@@ -51,6 +62,7 @@ public:
         }
     }
 
+    // [함수] paint — 어두운 배경 + 카드 + 제목/부제 + 3단계 안내 + 하단 문구를 그림.
     void paint (juce::Graphics& g) override
     {
         const auto& theme = ThemeManager::active();
@@ -75,6 +87,7 @@ public:
                     area.removeFromTop (24), juce::Justification::centred);
         area.removeFromTop (14);
 
+        // [데이터] 3단계 안내 항목(번호/제목/본문). 아래 루프가 각 항목을 한 줄씩 그림.
         struct Step { const char* num; const char* title; const char* body; };
         const Step steps[] = {
             { "1", "PLAY",
@@ -117,12 +130,14 @@ public:
     }
 
 private:
+    // [함수] getCardBounds — 화면 중앙의 카드 사각형(최대 560, 창보다 살짝 작게).
     juce::Rectangle<int> getCardBounds() const
     {
         return getLocalBounds().withSizeKeepingCentre (juce::jmin (560, getWidth() - 60),
                                                        juce::jmin (560, getHeight() - 60));
     }
 
+    // 시작 버튼.
     juce::TextButton startButton { "START MAKING BEATS" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WelcomePanel)
