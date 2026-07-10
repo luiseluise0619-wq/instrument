@@ -1,12 +1,22 @@
+// [파일 역할] ThemeManager.h의 정적 데이터 정의. 아래 표(all)가 실제 테마 색 모음입니다.
+// [읽는 법] 각 { ... } 블록이 Theme 하나. 값의 순서는 헤더의 Theme 구조체 필드 선언 순서와 똑같습니다.
+//   juce::Colour(0xAARRGGBB): AA=투명도, RR/GG/BB=빨강/초록/파랑(16진수). 예: 0xff8b5cf6 = 불투명 보라.
+//   맨 끝 두 숫자는 cornerRadius(모서리)와 glow(빛번짐). 색 값 자체는 디자인 데이터라 줄마다 설명하지 않습니다.
 #include "ThemeManager.h"
 
+// [정적 정의] 현재 선택 인덱스. 기본은 0번(평평한 'Studio' 룩).
 int ThemeManager::idx = 0; // default to the flat "Studio" look
 
+// [정적 정의] 테마 배열. {{ ... }}의 바깥 { }는 std::array, 안쪽 { }는 그 안의 실제 원소 목록.
 std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
     // ---- Studio (default): near-black, violet accent, flat pro look --------
     // Modelled on modern commercial instruments: matte panels, one restrained
     // accent, zero glow. The artwork skins below stay available as options.
     {
+        // [필드 순서 안내 — 아래 모든 테마가 이 순서를 따릅니다]
+        // name, dark, bgTop, bgBottom, material, materialStrong, separator,
+        // control, controlTrack, accent, accentSoft, waveform, text,
+        // textSecondary, shadow, cornerRadius, glow
         "Studio Violet", true,
         juce::Colour (0xff101014), juce::Colour (0xff09090b),   // bg gradient
         juce::Colour (0x0affffff), juce::Colour (0xf018181d),   // material / controls
