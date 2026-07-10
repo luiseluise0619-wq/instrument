@@ -1,15 +1,21 @@
+// [파일 역할] KnobComponent.h의 구현. 노브 '그리기'와 잔상 애니메이션.
 #include "KnobComponent.h"
 #include "ThemeManager.h"
 
 //==============================================================================
+// [함수] drawRotarySlider — 노브 한 개를 그림. 순수 그리기(소리와 무관).
+//   sliderPos(0~1)=현재 값 비율, rotaryStart/EndAngle=다이얼이 도는 시작/끝 각도.
+//   아래 (a0)~(e) 단계로 층층이 그림: 뒤광→그림자→원반→링→진행아크→표시선.
 void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     juce::Graphics& g, int x, int y, int width, int height,
     float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
     juce::Slider& slider)
 {
+    // 현재 테마 색을 읽어옴.
     const auto& theme = ThemeManager::active();
 
     // Leave a little breathing room for the shadow and arc.
+    // 그림자/아크 여유를 위해 살짝 줄인 영역, 중심점, 반지름, 그리고 현재 값에 해당하는 각도 계산.
     auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (6.0f);
     const auto centre  = bounds.getCentre();
     const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
@@ -176,8 +182,10 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
 }
 
 //==============================================================================
+// [생성자] 슬라이더를 회전형으로 설정하고 캡션 라벨을 붙인 뒤, 값 변화 리스너로 자기 자신을 등록.
 KnobComponent::KnobComponent (const juce::String& caption)
 {
+    // 상하/좌우 드래그로 도는 회전 슬라이더 스타일.
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
 
     // ~270 degree sweep in the Apple style.
@@ -199,15 +207,18 @@ KnobComponent::KnobComponent (const juce::String& caption)
     slider.addListener (this);
 }
 
+// [함수] sliderValueChanged — 값이 바뀌면 잔상을 최대로 켜고, 30Hz 타이머로 서서히 줄임.
 void KnobComponent::sliderValueChanged (juce::Slider*)
 {
     dragGlow = 1.0f;
+    // 그리기 쪽(drawRotarySlider)이 읽어갈 수 있게 슬라이더 속성에 값 저장.
     slider.getProperties().set ("dragGlow", dragGlow);
     if (! isTimerRunning())
         startTimerHz (30);
     slider.repaint();
 }
 
+// [함수] timerCallback — 매 프레임 잔상을 조금씩 줄이고, 0이 되면 타이머를 멈춤(CPU 절약).
 void KnobComponent::timerCallback()
 {
     dragGlow = juce::jmax (0.0f, dragGlow - 0.07f);
@@ -217,6 +228,7 @@ void KnobComponent::timerCallback()
         stopTimer();
 }
 
+// [소멸자] 타이머 정지 + 리스너 해제 + 룩앤필 해제(사라진 객체 참조 방지).
 KnobComponent::~KnobComponent()
 {
     stopTimer();
@@ -224,6 +236,7 @@ KnobComponent::~KnobComponent()
     slider.setLookAndFeel (nullptr);
 }
 
+// [함수] resized — 아래 18px는 캡션, 나머지는 다이얼에 배치.
 void KnobComponent::resized()
 {
     auto area = getLocalBounds();
@@ -231,6 +244,7 @@ void KnobComponent::resized()
     slider.setBounds (area);
 }
 
+// [함수] paint — 테마에 맞춰 캡션/값 글자 색만 갱신(다이얼 자체는 룩앤필이 그림).
 void KnobComponent::paint (juce::Graphics& /*g*/)
 {
     const auto& theme = ThemeManager::active();
