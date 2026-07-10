@@ -8,6 +8,7 @@
 
 namespace
 {
+    // Inner padding between the card edge and the waveform drawing.
     // 카드 가장자리와 파형 사이 안쪽 여백.
     constexpr float kCardPadding = 12.0f;
 }
