@@ -1,12 +1,17 @@
+// [파일 역할] LooperPanel.h의 구현. 루퍼 화면의 버튼/슬라이더 생성·콜백 연결, 상태 표시, 배치, 그리기.
+// [핵심 패턴] 버튼 콜백들은 대부분 proc.getLooper().tapXxx(i) 를 부릅니다 = LoopStation에 '명령'만 전달.
+//   실제 녹음/재생은 오디오 스레드의 LoopStation이 처리하고, 이 패널은 그 상태를 타이머로 읽어 표시만 합니다.
 #include "LooperPanel.h"
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
 
+// [생성자] 트랙별 버튼/슬라이더와 마스터 컨트롤을 만들고 콜백을 연결.
 LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
     // Looper controls must fire the instant the mouse goes down — timing IS
     // the feature.
+    // 루퍼 버튼은 '누르는 순간' 동작해야 함(타이밍 자체가 기능이라 뗄 때까지 기다리면 안 됨).
     for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
         auto& t = trackUI[i];
@@ -16,6 +21,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         t.undoButton.setTriggeredOnMouseDown (true);
         t.clearButton.setTriggeredOnMouseDown (true);
 
+        // 메인 버튼(REC/OVERDUB/PLAY...): 상태에 따라 이 트랙의 미리 고른 악기를 적용하고 tapMain 명령.
         t.mainButton.onClick = [this, i]
         {
             // Every take on this track — fresh recording OR a new overdub
@@ -147,6 +153,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     tapButton.setTriggeredOnMouseDown (true);   // tap timing must be exact
     tapButton.onClick = [this]
     {
+        // [탭 템포] 버튼을 두드린 간격(ms)으로 BPM을 계산. 지금 시각과 지난 탭 시각의 차이가 한 박자.
         const double now = juce::Time::getMillisecondCounterHiRes();
         const double gap = now - lastTapMs;
         lastTapMs = now;
@@ -154,6 +161,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         {
             // Smooth over the last few taps so one sloppy hit doesn't yank
             // the tempo around.
+            // 최근 몇 번을 평균 내 한 번 삐끗해도 템포가 확 흔들리지 않게(60% 옛값 + 40% 새값).
             tapIntervalMs = tapCount == 0 ? gap : (tapIntervalMs * 0.6 + gap * 0.4);
             ++tapCount;
             const double bpm = juce::jlimit (40.0, 240.0, 60000.0 / tapIntervalMs);
@@ -205,11 +213,13 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     startTimerHz (30);
 }
 
+// [소멸자] 타이머 정지.
 LooperPanel::~LooperPanel()
 {
     stopTimer();
 }
 
+// [함수] populateInstrumentBox — 악기 콤보를 채움. (옵션) 자주 쓰는 'QUICK' 목록 + 카테고리별 하위 메뉴.
 void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShelf)
 {
     const auto names = VocalChopAudioProcessor::getInstrumentNames();
@@ -246,6 +256,7 @@ void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShel
     }
 }
 
+// [함수] applyTrackInstrument — 이 트랙이 미리 고른 악기가 있으면(그리고 현재와 다르면) 그 악기로 전환.
 void LooperPanel::applyTrackInstrument (int track)
 {
     const int instr = trackUI[track].chosenInstrument;
@@ -253,6 +264,7 @@ void LooperPanel::applyTrackInstrument (int track)
         proc.applyInstrument (instr);
 }
 
+// [함수] updateTrackVisibility — 지금 보여줄 트랙 수(visibleTracks)에 맞춰 각 트랙 위젯을 켜고 끔.
 void LooperPanel::updateTrackVisibility()
 {
     for (int i = 0; i < LoopStation::kNumTracks; ++i)
@@ -272,6 +284,8 @@ void LooperPanel::updateTrackVisibility()
     addTrackButton.setEnabled (visibleTracks < LoopStation::kNumTracks);
 }
 
+// [함수] timerCallback — 30Hz로 LoopStation의 트랙 상태를 읽어 버튼 글자/활성화를 갱신하고 진행 링만 다시 그림.
+//   [스레드] 오디오 스레드가 바꾼 상태를 UI가 '읽기만' 함(직접 개입 없이 표시만).
 void LooperPanel::timerCallback()
 {
     // Mirror an instrument change made anywhere else. Compare INDICES, not
@@ -306,11 +320,13 @@ void LooperPanel::timerCallback()
 
         // Repaint ONLY the progress rings - a full-panel repaint at 30 Hz
         // (buttons, sliders, combos and all) was pure wasted CPU.
+        // [성능] 30Hz로 패널 전체를 다시 그리면 낭비 → 움직이는 진행 링 영역만 골라 다시 그림.
         if (! t.ringArea.isEmpty())
             repaint (t.ringArea);
     }
 }
 
+// [함수] resized — 위쪽 악기 픽커, 아래쪽 마스터 트랜스포트, 가운데 트랙 줄들을 차례로 배치.
 void LooperPanel::resized()
 {
     auto area = getLocalBounds().reduced (20);
@@ -389,6 +405,7 @@ void LooperPanel::resized()
     }
 }
 
+// [함수] paint — 패널 카드 배경과 각 트랙의 진행 링(재생 위치를 나타내는 원형 게이지)을 그림.
 void LooperPanel::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
