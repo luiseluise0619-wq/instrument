@@ -404,6 +404,10 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     //    switching modes mid-note never clicks).
     voicePool.renderNextBlock (buffer, numSamples);
     synthEngine.render (buffer, numSamples);
+    // Leaving Sampled mode must actually silence it - long piano samples
+    // otherwise keep ringing over the newly picked instrument.
+    if (! isSamplerMode())
+        samplerEngine.releaseAll();
     samplerEngine.render (buffer, numSamples);
 
     // 3) Pitch / formant transformation.
@@ -635,7 +639,8 @@ void VocalChopAudioProcessor::drainPadQueue()
 
         if (isSamplerMode())
         {
-            samplerEngine.noteOn (note, vel);   // taps ring out naturally
+            if (type == padOn) samplerEngine.noteOn (note, vel);
+            else               samplerEngine.tapNote (note, vel);   // self-releasing
         }
         else if (synth)
         {

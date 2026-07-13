@@ -46,7 +46,13 @@ public:
     }
 
     // Audio thread ----------------------------------------------------------
-    void noteOn (int midiNote, float velocity);
+    void noteOn (int midiNote, float velocity, int autoOffSamples = -1);
+    /** One-shot tap (chord bar / pad taps): holds ~1.2 s then releases —
+        without this a tapped piano note rings its FULL 30 s sample. */
+    void tapNote (int midiNote, float velocity)
+    {
+        noteOn (midiNote, velocity, (int) (1.2 * sr));
+    }
     void noteOff (int midiNote);
     void releaseAll();
     void render (juce::AudioBuffer<float>& out, int numSamples);
@@ -62,6 +68,9 @@ private:
         float  volumeDb  = 0.0f;
         bool   loop = false;
         int    loopStart = 0, loopEnd = 0;
+        int    offset = 0;              // sample start position
+        int    seqLen = 1, seqPos = 1;  // round-robin slot
+        bool   onAttack = true;         // false: trigger=release/legato region
         float  releaseSeconds = 0.35f;
     };
 
@@ -81,14 +90,16 @@ private:
         bool   releasing = false;
         float  env = 1.0f, relCoeff = 0.0f;
         int    fadeIn = 0;
+        int    autoOff = -1;   // samples until self-release (-1 = held note)
 
         bool active() const { return region != nullptr; }
     };
 
     static constexpr int kMaxVoices = 24;
 
-    const Region* findRegion (const Bank&, int note, int vel127) const;
+    const Region* findRegion (const Bank&, int note, int vel127);
     Voice* findFreeVoice();
+    int rrCounter = 0;   // round-robin step (audio thread only)
 
     std::shared_ptr<const Bank> bank;   // swapped atomically
     std::array<Voice, kMaxVoices> voices;

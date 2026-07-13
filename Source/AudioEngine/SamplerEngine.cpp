@@ -63,6 +63,44 @@ namespace
     }
 } // namespace
 
+namespace
+{
+    // Recursively inlines #include "file" lines (ARIA extension used by the
+    // big free banks: Ivy Audio, Pianobook...).
+    bool gatherSfzText (const juce::File& f, juce::StringArray& out,
+                        juce::String& error, int depth)
+    {
+        if (depth > 8)
+        {
+            error = "#include nesting too deep in " + f.getFileName();
+            return false;
+        }
+        if (! f.existsAsFile())
+        {
+            error = "File not found: " + f.getFullPathName();
+            return false;
+        }
+
+        juce::StringArray lines;
+        lines.addLines (f.loadFileAsString());
+        for (const auto& line : lines)
+        {
+            const auto t = line.trim();
+            if (t.startsWith ("#include"))
+            {
+                const auto inc = t.fromFirstOccurrenceOf ("\"", false, false)
+                                  .upToFirstOccurrenceOf ("\"", false, false)
+                                  .replaceCharacter ('\\', '/');
+                if (! gatherSfzText (f.getSiblingFile (inc), out, error, depth + 1))
+                    return false;
+            }
+            else
+                out.add (line);
+        }
+        return true;
+    }
+} // namespace
+
 bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
 {
     if (! sfzFile.existsAsFile())
@@ -84,7 +122,44 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
     constexpr int64_t kMaxBytes = (int64_t) 1600 * 1024 * 1024;   // 1.6 GB decoded cap
 
     juce::StringArray lines;
-    lines.addLines (sfzFile.loadFileAsString());
+    if (! gatherSfzText (sfzFile, lines, error, 0))
+        return false;
+
+    // #define $NAME value substitution (longest names first so $CC_ATTACK
+    // never gets mangled by $CC).
+    {
+        juce::StringArray names;
+        juce::StringArray values;
+        for (auto& line : lines)
+        {
+            const auto t = line.trim();
+            if (t.startsWith ("#define"))
+            {
+                const auto rest = t.fromFirstOccurrenceOf ("#define", false, false).trim();
+                const auto name = rest.upToFirstOccurrenceOf (" ", false, false).trim();
+                const auto val  = rest.fromFirstOccurrenceOf (" ", false, false).trim();
+                if (name.startsWith ("$") && name.length() > 1)
+                {
+                    names.add (name);
+                    values.add (val);
+                }
+                line = {};   // consume the directive
+            }
+        }
+        // longest-first substitution order
+        for (int i = 0; i < names.size(); ++i)
+            for (int j = i + 1; j < names.size(); ++j)
+                if (names[j].length() > names[i].length())
+                {
+                    names.getReference (i).swapWith (names.getReference (j));
+                    values.getReference (i).swapWith (values.getReference (j));
+                }
+        if (! names.isEmpty())
+            for (auto& line : lines)
+                if (line.containsChar ('$'))
+                    for (int i = 0; i < names.size(); ++i)
+                        line = line.replace (names[i], values[i]);
+    }
 
     juce::String pendingSample;   // path of the region being built
     juce::String groupSample;
@@ -108,6 +183,10 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
         else if (name == "loop_end")        r.loopEnd   = value.getIntValue();
         else if (name == "ampeg_release")   r.releaseSeconds = juce::jlimit (0.01f, 8.0f,
                                                                              value.getFloatValue());
+        else if (name == "offset")          r.offset = value.getIntValue();
+        else if (name == "seq_length")      r.seqLen = juce::jmax (1, value.getIntValue());
+        else if (name == "seq_position")    r.seqPos = juce::jmax (1, value.getIntValue());
+        else if (name == "trigger")         r.onAttack = value.trim().equalsIgnoreCase ("attack");
     };
 
     auto finishRegion = [&]() -> bool
@@ -119,6 +198,8 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
         auto path = pendingSample.isNotEmpty() ? pendingSample : groupSample;
         if (path.isEmpty())
             return true;   // header-only region: ignore
+        if (! current.onAttack)
+            return true;   // key-up / legato sample: not playable by this engine
 
         const auto audioFile = defaultPath.getChildFile (path.replaceCharacter ('\\', '/'));
         std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (audioFile));
@@ -218,15 +299,23 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
     return true;
 }
 
-const SamplerEngine::Region* SamplerEngine::findRegion (const Bank& b, int note, int vel127) const
+const SamplerEngine::Region* SamplerEngine::findRegion (const Bank& b, int note, int vel127)
 {
     const Region* best = nullptr;
     for (const auto& r : b.regions)
-        if (note >= r.lokey && note <= r.hikey && vel127 >= r.lovel && vel127 <= r.hivel)
+        if (note >= r.lokey && note <= r.hikey && vel127 >= r.lovel && vel127 <= r.hivel
+            && (r.seqLen <= 1 || (rrCounter % r.seqLen) + 1 == r.seqPos))
         {
             best = &r;
             break;
         }
+    if (best == nullptr)   // no RR slot hit: take any key/vel match
+        for (const auto& r : b.regions)
+            if (note >= r.lokey && note <= r.hikey && vel127 >= r.lovel && vel127 <= r.hivel)
+            {
+                best = &r;
+                break;
+            }
     if (best == nullptr)   // fall back to nearest key range, any velocity
     {
         int bestDist = 1 << 20;
@@ -258,7 +347,7 @@ SamplerEngine::Voice* SamplerEngine::findFreeVoice()
     return steal;
 }
 
-void SamplerEngine::noteOn (int midiNote, float velocity)
+void SamplerEngine::noteOn (int midiNote, float velocity, int autoOffSamples)
 {
     auto b = std::atomic_load (&bank);
     if (b == nullptr)
@@ -269,14 +358,18 @@ void SamplerEngine::noteOn (int midiNote, float velocity)
     if (r == nullptr)
         return;
 
+    ++rrCounter;   // advance the round-robin step per hit
+
     auto& v = *findFreeVoice();
     v.hold      = b;
     v.region    = r;
-    v.pos       = 0.0;
+    v.pos       = (double) juce::jlimit (0, juce::jmax (0, r->data.getNumSamples() - 2),
+                                         r->offset);
     v.note      = midiNote;
     v.releasing = false;
     v.env       = 1.0f;
     v.fadeIn    = 64;
+    v.autoOff   = autoOffSamples;
     v.relCoeff  = std::exp (-1.0f / (float) (juce::jmax (0.01f, r->releaseSeconds) * sr));
     v.gain      = velocity * juce::Decibels::decibelsToGain (r->volumeDb);
     v.ratio     = std::pow (2.0, (midiNote - r->root + r->tuneCents / 100.0) / 12.0)
@@ -333,6 +426,8 @@ void SamplerEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 g *= 1.0f - (float) v.fadeIn / 64.0f;
                 --v.fadeIn;
             }
+            if (v.autoOff > 0 && --v.autoOff == 0)
+                v.releasing = true;
             if (v.releasing)
                 v.env *= v.relCoeff;
 
