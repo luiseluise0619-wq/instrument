@@ -285,6 +285,24 @@ void LooperPanel::timerCallback()
                                          juce::dontSendNotification);
     }
 
+    // Keep the linear sliders on the theme accent (the stock JUCE blue thumb
+    // clashes with every one of our palettes).
+    {
+        const auto& th = ThemeManager::active();
+        auto styleSlider = [&th] (juce::Slider& s)
+        {
+            s.setColour (juce::Slider::thumbColourId, th.accent);
+            s.setColour (juce::Slider::trackColourId, th.accent.withAlpha (0.45f));
+            s.setColour (juce::Slider::backgroundColourId, th.controlTrack);
+        };
+        styleSlider (bpmSlider);
+        for (auto& t : trackUI)
+        {
+            styleSlider (t.volSlider);
+            styleSlider (t.panSlider);
+        }
+    }
+
     auto& looper = proc.getLooper();
     for (int i = 0; i < visibleTracks; ++i)
     {

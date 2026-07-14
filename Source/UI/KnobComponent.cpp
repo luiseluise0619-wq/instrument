@@ -154,10 +154,23 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     }
 
     //--------------------------------------------------------------------------
+    // Value readout inside the disc, only while the user is looking at it —
+    // a permanent "0.000" under every knob was pure noise.
+    if (hover || trail > 0.03f)
+    {
+        g.setColour (theme.text.withAlpha (juce::jmin (1.0f, 0.55f + trail)));
+        g.setFont (juce::Font (juce::FontOptions (
+            juce::jlimit (9.0f, 13.0f, discRadius * 0.55f)).withStyle ("Medium")));
+        g.drawText (slider.getTextFromValue (slider.getValue()),
+                    discBounds, juce::Justification::centred);
+    }
+
+    //--------------------------------------------------------------------------
     // (e) Small crisp indicator: a short rounded line from mid-disc to the rim.
     {
+        // Short tick near the rim only - the value readout lives mid-disc now.
         const float indicatorOuter = discRadius - 3.0f;
-        const float indicatorInner = discRadius * 0.45f;
+        const float indicatorInner = discRadius * 0.68f;
         const float thickness = juce::jmax (2.0f, radius * 0.06f);
 
         juce::Point<float> p1 (centre.x + indicatorInner * std::cos (angle - juce::MathConstants<float>::halfPi),
@@ -185,7 +198,9 @@ KnobComponent::KnobComponent (const juce::String& caption)
                                 juce::MathConstants<float>::pi * 2.75f,
                                 true);
 
-    slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
+    // No permanent text row: the dial takes the whole cell, and the value
+    // appears INSIDE the disc while hovering or dragging.
+    slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     slider.setLookAndFeel (&lookAndFeel);
     slider.setRepaintsOnMouseActivity (true);   // hover glow
     addAndMakeVisible (slider);

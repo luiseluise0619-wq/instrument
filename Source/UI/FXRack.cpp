@@ -60,10 +60,9 @@ void FXRack::paint (juce::Graphics& g)
     }
     else
     {
-        // Material fill with a gentle top-to-bottom vibrancy gradient.
-        juce::ColourGradient fill (theme.materialStrong, card.getX(), card.getY(),
-                                   theme.material,       card.getX(), card.getBottom(), false);
-        g.setGradientFill (fill);
+        // Flat material fill - the same surface as every other card (the old
+        // strong->clear gradient made this one column look broken).
+        g.setColour (theme.material);
         g.fillRoundedRectangle (card, radius);
 
         // 1px hairline border, picking up a whisper of accent on glow themes.

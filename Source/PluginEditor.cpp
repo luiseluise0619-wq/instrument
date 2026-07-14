@@ -1253,7 +1253,9 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     // Footer hint.
     g.setColour (theme.textSecondary);
     g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText (juce::String ("Play: MIDI / click keys / type Z S X D C V ...   •   drop audio to chop   •   v")
+    // ASCII only: char literals go through the wrong decoder on some
+    // platforms and render as mojibake ("ar!" instead of a bullet).
+    g.drawText (juce::String ("Play: MIDI / click keys / type Z S X D C V ...   |   drop audio to chop   |   v")
                     + JucePlugin_VersionString,
                 juce::Rectangle<int> (0, 0, kBaseW, kBaseH).removeFromBottom (24)
                     .reduced (kMargin, 0),

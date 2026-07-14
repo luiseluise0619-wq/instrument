@@ -34,6 +34,7 @@ private:
         void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
                                float sliderPos, float rotaryStartAngle,
                                float rotaryEndAngle, juce::Slider&) override;
+
     };
 
     // Light-trail: turning the knob flares the glow, which then decays.

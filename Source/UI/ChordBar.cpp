@@ -124,7 +124,7 @@ void ChordBar::refreshKeyLabel()
     const int root = proc.getDetectedKeyRoot();
 
     if (root >= 0 && root < 12)
-        caption.setText (juce::String ("CHORDS \xc2\xb7 ") + names[root]
+        caption.setText (juce::String ("CHORDS - ") + names[root]
                              + (proc.isDetectedKeyMinor() ? "m" : ""),
                          juce::dontSendNotification);
     else

@@ -154,7 +154,7 @@ void SliceGrid::paint (juce::Graphics& g)
     auto drawWhite = [&] (int s)
     {
         auto r = keyRect (s, span).reduced (1.2f, 0.0f);
-        const bool  enabled = synthMode || s < numSlices;
+        const bool  enabled = synthMode || numSlices > 0;
         const float flash   = keyFlash[(size_t) s];
         const bool  hover   = (s == hoveredKey && enabled);
         const float pressed = flash;   // 0..1 visual press amount
@@ -233,7 +233,7 @@ void SliceGrid::paint (juce::Graphics& g)
     auto drawBlack = [&] (int s)
     {
         auto r = keyRect (s, span);
-        const bool  enabled = synthMode || s < numSlices;
+        const bool  enabled = synthMode || numSlices > 0;
         const float flash   = keyFlash[(size_t) s];
         const bool  hover   = (s == hoveredKey && enabled);
 
