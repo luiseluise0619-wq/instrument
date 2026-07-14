@@ -143,6 +143,63 @@ void WaveformView::paint (juce::Graphics& g)
         g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
     }
 
+    // --- Synth / Sampled modes: live output oscilloscope ---------------------
+    // The static sample waveform is a CHOP-mode tool; while playing
+    // instruments this card shows what you actually hear, in real time.
+    if (proc.isSynthMode() || proc.isSamplerMode())
+    {
+        const auto area = card.reduced (kCardPadding);
+        const auto& ring = proc.getScopeRing();
+        const int   ringSize = (int) ring.size();
+        const int   writePos = proc.getScopeWritePos();
+        const int   span = juce::jmin (1024, ringSize - 256);
+
+        // Simple rising-zero-cross trigger so the trace holds still.
+        int start = writePos - span;
+        for (int back = 0; back < 256; ++back)
+        {
+            const float a = ring[(size_t) ((start - back - 1) & (ringSize - 1))];
+            const float b = ring[(size_t) ((start - back)     & (ringSize - 1))];
+            if (a <= 0.0f && b > 0.0f)
+            {
+                start -= back;
+                break;
+            }
+        }
+
+        // Centre line.
+        g.setColour (theme.separator);
+        g.fillRect (area.getX(), area.getCentreY() - 0.5f, area.getWidth(), 1.0f);
+
+        juce::Path trace;
+        const int points = juce::jmax (2, (int) (area.getWidth() / 2.0f));
+        for (int i = 0; i < points; ++i)
+        {
+            const int idx = start + (i * span) / points;
+            const float v = juce::jlimit (-1.0f, 1.0f,
+                                          ring[(size_t) (idx & (ringSize - 1))]);
+            const float px = area.getX() + area.getWidth() * (float) i / (float) (points - 1);
+            const float py = area.getCentreY() - v * area.getHeight() * 0.46f;
+            if (i == 0) trace.startNewSubPath (px, py);
+            else        trace.lineTo (px, py);
+        }
+
+        if (glow > 0.5f)
+        {
+            g.setColour (theme.waveform.withAlpha (0.25f));
+            g.strokePath (trace, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved));
+        }
+        g.setColour (theme.waveform);
+        g.strokePath (trace, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved));
+
+        g.setColour (theme.textSecondary.withAlpha (0.8f));
+        g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold"))
+                       .withExtraKerningFactor (0.12f));
+        g.drawText ("LIVE OUTPUT", area.reduced (4.0f).removeFromTop (14.0f),
+                    juce::Justification::topRight);
+        return;
+    }
+
     // --- Empty state ---------------------------------------------------------
     if (maxEnv.empty())
     {

@@ -77,6 +77,11 @@ public:
     /** Live output level (0..1, peak-ish) for the UI meter. */
     std::atomic<float>& getOutputLevelRef() { return outputLevel; }
 
+    /** Mono output ring for the live oscilloscope (Synth/Sampled modes).
+        Size is a power of two; readers index with (i & (size-1)). */
+    const std::array<float, 2048>& getScopeRing() const { return scopeRing; }
+    int getScopeWritePos() const { return scopeWritePos.load (std::memory_order_acquire); }
+
     /** True when the Synth engine is selected (keyboard plays synth notes). */
     bool isSynthMode() const
     {
@@ -200,6 +205,10 @@ private:
     std::atomic<float>* macroDirtParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
+
+    // Live-output oscilloscope ring (audio thread writes, UI paint reads).
+    std::array<float, 2048> scopeRing {};
+    std::atomic<int>        scopeWritePos { 0 };
 
     // Licensing (loaded once in the constructor; demo gate in processBlock).
     std::atomic<bool> licensed { false };

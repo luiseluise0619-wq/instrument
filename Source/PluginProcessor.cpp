@@ -461,6 +461,25 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         demoClock += numSamples;
     }
 
+    // Feed the oscilloscope ring (mono average of the final output). The UI
+    // reads it lock-free; only the write position needs release ordering.
+    {
+        const int   chans = juce::jmax (1, buffer.getNumChannels());
+        const float norm  = 1.0f / (float) chans;
+        int w = scopeWritePos.load (std::memory_order_relaxed);
+        for (int n = 0; n < numSamples; ++n)
+        {
+            float s = 0.0f;
+            for (int ch = 0; ch < chans; ++ch)
+                s += buffer.getReadPointer (ch)[n];
+            scopeRing[(size_t) (w & (int) (scopeRing.size() - 1))] = s * norm;
+            ++w;
+        }
+        // Mask to a large power-of-two multiple of the ring size: the counter
+        // stays positive forever and every (x & (size-1)) read stays valid.
+        scopeWritePos.store (w & 0x3fffffff, std::memory_order_release);
+    }
+
     // Publish the output level as a PEAK LATCH: keep the maximum until the
     // meter consumes it (exchange-to-zero), so no transient between two UI
     // frames is ever missed and the bar reacts on the very next frame.
