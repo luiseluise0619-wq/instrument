@@ -1311,7 +1311,9 @@ void VocalChopAudioProcessorEditor::layoutContent()
     //     fully visible (grows with the window); modules live BELOW it. ---
     if (ThemeManager::active().glow >= 0.9f)
     {
-        const int bandH = juce::jlimit (110, 470, area.getHeight() - 690);
+        // 750 (not 690): the extra 60px goes to the knob rows below - with the
+        // old value each dial had ~14px of height and simply vanished.
+        const int bandH = juce::jlimit (110, 470, area.getHeight() - 796);
         heroRect = { 0, 0, kBaseW, area.getY() + bandH };   // motion-FX zone
         area.removeFromTop (bandH);
     }
@@ -1346,7 +1348,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
     area.removeFromBottom (24 + kGap / 2);
 
     // --- Waveform row: waveform + meter column on the right ---
-    auto waveRow = area.removeFromTop (juce::jmax (150, area.getHeight() * 30 / 100));
+    auto waveRow = area.removeFromTop (juce::jmax (140, area.getHeight() * 26 / 100));
     const auto waveTop = waveRow;   // remembered for the LOOPER overlay
     meter.setBounds (waveRow.removeFromRight (kMeterW));
     waveRow.removeFromRight (kGap);
@@ -1465,11 +1467,13 @@ void VocalChopAudioProcessorEditor::layoutContent()
             inner.removeFromRight (kGap);
 
             auto controlsCol = inner;
-            const int rowH = 30;
+            // Fit three rows into whatever height the card actually has -
+            // fixed 30px rows overflowed and stacked on top of each other.
+            const int rowH = juce::jlimit (18, 30, controlsCol.getHeight() / 3 - 2);
             reverseButton.setBounds  (controlsCol.removeFromTop (rowH));
-            controlsCol.removeFromTop (kGap / 2);
+            controlsCol.removeFromTop (2);
             pingpongButton.setBounds (controlsCol.removeFromTop (rowH));
-            controlsCol.removeFromTop (kGap / 2);
+            controlsCol.removeFromTop (2);
             playModeBox.setBounds    (controlsCol.removeFromTop (rowH)
                                           .withSizeKeepingCentre (
                                               juce::jmin (200, controlsCol.getWidth()), 30));

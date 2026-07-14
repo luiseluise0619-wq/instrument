@@ -10,7 +10,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     const auto& theme = ThemeManager::active();
 
     // Leave a little breathing room for the shadow and arc.
-    auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (6.0f);
+    auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (3.0f);
     const auto centre  = bounds.getCentre();
     const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
     const float angle  = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
@@ -26,7 +26,9 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     //--------------------------------------------------------------------------
     // (a0) Ambient neon bloom behind the whole knob — the control itself
     //      reads as a light source. Flares while dragging / hovering.
-    if (theme.glow >= 0.5f)
+    const bool mini = radius < 24.0f;   // tiny cells: crisp dial, no light show
+
+    if (theme.glow >= 0.5f && ! mini)
     {
         const float bloomR = radius * 1.45f;
         const float bloomA = juce::jlimit (0.0f, 0.45f,
@@ -42,6 +44,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
 
     //--------------------------------------------------------------------------
     // (a) Soft drop shadow beneath the disc.
+    if (! mini)
     {
         juce::DropShadow shadow (theme.shadow, 8, { 0, 2 });
         juce::Path discPath;
@@ -50,8 +53,10 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     }
 
     //--------------------------------------------------------------------------
-    // (b) Base disc.
-    g.setColour (theme.control);
+    // (b) Base disc. Glow themes need a clearly lighter disc - control
+    // colour vs the dark glass card was invisible in practice.
+    g.setColour (theme.glow >= 0.9f ? theme.materialStrong.withAlpha (1.0f).brighter (0.25f)
+                                    : theme.control);
     g.fillEllipse (discBounds);
 
     // (f) Very subtle glassy top inner highlight (dark themes only).
@@ -67,7 +72,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
 
     // Rim on the disc: neon-tinted on glow themes, hairline elsewhere.
     if (theme.glow >= 0.9f)
-        g.setColour (theme.accent.withAlpha (0.35f + 0.25f * trail));
+        g.setColour (theme.accent.withAlpha (0.60f + 0.25f * trail));
     else
         g.setColour (theme.separator);
     g.drawEllipse (discBounds, theme.glow >= 0.9f ? 1.2f : 1.0f);
@@ -82,7 +87,8 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         juce::Path track;
         track.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f,
                              rotaryStartAngle, rotaryEndAngle, true);
-        g.setColour (theme.controlTrack);
+        g.setColour (theme.glow >= 0.9f ? theme.accent.withAlpha (0.22f)
+                                        : theme.controlTrack);
         g.strokePath (track, juce::PathStrokeType (ringThickness,
                                                    juce::PathStrokeType::curved,
                                                    juce::PathStrokeType::rounded));
@@ -112,7 +118,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
                                       bounds.getRight(), bounds.getY(), false);
 
         // Layered outer halo (widest & faintest first) so the arc "emits" light.
-        if (glowNow > 0.0f)
+        if (glowNow > 0.0f && ! mini)
         {
             for (int layer = 5; layer >= 1; --layer)
             {
@@ -135,7 +141,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
                                                       juce::PathStrokeType::rounded));
 
         // Glowing tip dot at the value position (synthwave signature).
-        if (theme.glow >= 0.5f)
+        if (theme.glow >= 0.5f && ! mini)
         {
             const juce::Point<float> tip (
                 centre.x + ringRadius * std::cos (angle - juce::MathConstants<float>::halfPi),
@@ -242,7 +248,7 @@ KnobComponent::~KnobComponent()
 void KnobComponent::resized()
 {
     auto area = getLocalBounds();
-    label.setBounds (area.removeFromBottom (18));
+    label.setBounds (area.removeFromBottom (14));
     slider.setBounds (area);
 }
 
