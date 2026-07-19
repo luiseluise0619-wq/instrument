@@ -508,7 +508,10 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {
-            if (isSamplerMode())
+            // Sampled mode without a loaded bank falls through to the synth
+            // branch below (isSynthMode() is true there too): keys must
+            // NEVER be silent - dead keys read as "the plugin is broken".
+            if (isSamplerMode() && samplerEngine.hasBank())
             {
                 samplerEngine.noteOn (note, msg.getVelocity() / 127.0f);
             }
@@ -518,6 +521,12 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
                     kitNoteOn (note, msg.getVelocity() / 127.0f, false);
                 else
                     synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
+            }
+            else if (sliceEngine.getNumSlices() == 0)
+            {
+                // Chop mode with no sample loaded (a freshly inserted
+                // instance): play the current synth patch instead of nothing.
+                synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
             }
             else
             {
@@ -656,14 +665,16 @@ void VocalChopAudioProcessor::drainPadQueue()
             return;
         }
 
-        if (isSamplerMode())
+        // Same never-silent policy as handleMidi: an empty sampler bank or a
+        // chop mode with no sample both fall back to the synth patch.
+        if (isSamplerMode() && samplerEngine.hasBank())
         {
             if (type == padOn) samplerEngine.noteOn (note, vel);
             else               samplerEngine.tapNote (note, vel);   // self-releasing
         }
-        else if (synth)
+        else if (synth || sliceEngine.getNumSlices() == 0)
         {
-            if (kitMode.load (std::memory_order_relaxed))
+            if (synth && kitMode.load (std::memory_order_relaxed))
                 kitNoteOn (note, vel, type != padOn);
             else if (type == padOn)
                 synthEngine.noteOn (note, vel);
@@ -1555,6 +1566,12 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         if (samplerEngine.loadSfz (sfz, ignored))
             loadedSfzFile = sfz;
     }
+
+    // A session saved in Sampled mode whose SFZ files are gone would leave
+    // every key silent - drop that session back onto the Synth engine.
+    if (isSamplerMode() && ! samplerEngine.hasBank())
+        if (auto* p = apvts.getParameter ("engine"))
+            p->setValueNotifyingHost (p->convertTo0to1 (1.0f));
 
     // Let an open editor re-sync its combos / theme / cached waveform
     // (sendChangeMessage is async and safe from any thread).
