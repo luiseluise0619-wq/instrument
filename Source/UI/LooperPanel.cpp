@@ -179,6 +179,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     engineBox.addItem ("Chop", 1);
     engineBox.addItem ("Synth", 2);
     engineBox.addItem ("Sampled", 3);
+    engineBox.addItem ("Melody", 4);
     engineAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.getAPVTS(), "engine", engineBox);
     addAndMakeVisible (engineBox);
@@ -334,16 +335,16 @@ void LooperPanel::resized()
     auto area = getLocalBounds().reduced (20);
 
     // Current-sound pickers along the top of the panel.
-    auto pickers = area.removeFromTop (34);
-    auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (440, pickers.getWidth()), 30);
+    auto pickers = area.removeFromTop (38);
+    auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (460, pickers.getWidth()), 34);
     engineBox.setBounds (pickStrip.removeFromLeft (110));
     pickStrip.removeFromLeft (12);
     instrumentBox.setBounds (pickStrip);
 
     // Master transport row at the bottom: MET + BPM, then the big three,
     // then + TRACK.
-    auto master = area.removeFromBottom (44);
-    auto mStrip = master.withSizeKeepingCentre (juce::jmin (860, master.getWidth()), 36);
+    auto master = area.removeFromBottom (50);
+    auto mStrip = master.withSizeKeepingCentre (juce::jmin (880, master.getWidth()), 42);
     metroButton.setBounds (mStrip.removeFromLeft (58));
     mStrip.removeFromLeft (8);
     tapButton.setBounds (mStrip.removeFromLeft (52));
@@ -378,18 +379,18 @@ void LooperPanel::resized()
         if (i < visibleTracks - 1)
             area.removeFromLeft (gap);
 
-        t.instBox.setBounds (strip.removeFromTop (26));
+        t.instBox.setBounds (strip.removeFromTop (30));
         strip.removeFromTop (4);
 
-        auto vol = strip.removeFromBottom (22);
+        auto vol = strip.removeFromBottom (24);
         t.volSlider.setBounds (vol.reduced (4, 0));
 
-        auto revpan = strip.removeFromBottom (24);
-        t.revButton.setBounds (revpan.removeFromLeft (44));
+        auto revpan = strip.removeFromBottom (28);
+        t.revButton.setBounds (revpan.removeFromLeft (48));
         revpan.removeFromLeft (4);
         t.panSlider.setBounds (revpan.reduced (2, 2));
 
-        auto small = strip.removeFromBottom (28);
+        auto small = strip.removeFromBottom (34);
         const int sw = (small.getWidth() - 18) / 4;
         t.rerecButton.setBounds (small.removeFromLeft (sw));
         small.removeFromLeft (6);
@@ -400,7 +401,7 @@ void LooperPanel::resized()
         t.clearButton.setBounds (small);
 
         strip.removeFromBottom (6);
-        t.mainButton.setBounds (strip.removeFromBottom (40));
+        t.mainButton.setBounds (strip.removeFromBottom (46));
 
         strip.removeFromBottom (4);
         t.ringArea = strip;   // whatever remains hosts the progress ring

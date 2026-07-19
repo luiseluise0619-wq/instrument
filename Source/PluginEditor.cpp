@@ -12,7 +12,7 @@ namespace
     constexpr int kGap     = 16;
 
     // Toolbar / caption metrics.
-    constexpr int kToolbarH   = 34;
+    constexpr int kToolbarH   = 40;
     constexpr int kCaptionH   = 20;
     constexpr int kMeterW     = 30;
 
@@ -569,7 +569,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
     engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 315 built-in sounds.  "
-                          "Sampled = load an SFZ bank of REAL recordings (Load button)");
+                          "Sampled = load an SFZ bank of REAL recordings (Load button).  "
+                          "Melody = play the loaded sample as pitched notes");
     synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
     instrumentBox.setTooltip ("315 built-in sounds, organised by category - start with FEATURED");
     looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
@@ -596,6 +597,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     engineBox.addItem ("Chop",  1);
     engineBox.addItem ("Synth", 2);
     engineBox.addItem ("Sampled", 3);   // SFZ multisample banks (real recordings)
+    engineBox.addItem ("Melody", 4);    // the loaded sample, pitched across keys
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "engine", engineBox));
     engineBox.onChange = [this] { refreshChildren(); grabKeysSoon(); };
@@ -631,6 +633,19 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         }
         root->addSeparator();
 
+        // SFZ banks the user loaded themselves - remembered across sessions
+        // so a violin or piano they hunted down never just disappears.
+        {
+            const auto rNames = VocalChopAudioProcessor::getRecentSfzNames();
+            if (! rNames.isEmpty())
+            {
+                root->addSectionHeader ("MY SAMPLES");
+                for (int r = 0; r < rNames.size(); ++r)
+                    instrumentBox.addItem (rNames[r], 5000 + r);
+                root->addSeparator();
+            }
+        }
+
         // One submenu per contiguous category block (ids stay index + 1).
         int i = 0;
         while (i < names.size())
@@ -653,6 +668,30 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     instrumentBox.onChange = [this]
     {
         const int id = instrumentBox.getSelectedId();
+        if (id >= 5000)
+        {
+            // MY SAMPLES: reload a remembered SFZ bank (switches to Sampled).
+            // Resolved by NAME, not stored index - the recents list reorders
+            // itself every load, so a baked-in index would drift.
+            const auto rNames = VocalChopAudioProcessor::getRecentSfzNames();
+            const auto paths  = VocalChopAudioProcessor::getRecentSfzPaths();
+            const int r = rNames.indexOf (instrumentBox.getText());
+            juce::String err;
+            if (r >= 0 && r < paths.size()
+                  && processor.loadSfzBank (juce::File (paths[r]), err))
+            {
+                refreshChildren();
+            }
+            else
+            {
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon, "Slyce",
+                    "Could not reload this sample bank - its files may have "
+                    "moved or been deleted.\n" + err);
+            }
+            grabKeysSoon();
+            return;
+        }
         if (id >= 1000)
             processor.applyInstrument (id - 1000);   // featured shelf
         else if (id > 0)
@@ -879,7 +918,22 @@ void VocalChopAudioProcessorEditor::openFileChooser()
                 return;
 
             juce::String error;
-            if (! processor.loadSfzBank (file, error))
+            if (processor.loadSfzBank (file, error))
+            {
+                // Surface the fresh bank in the MY SAMPLES shelf right away
+                // (stored at index 0 of the recents; items resolve by name).
+                const auto rNames = VocalChopAudioProcessor::getRecentSfzNames();
+                bool present = false;
+                for (int it = 0; it < instrumentBox.getNumItems() && ! present; ++it)
+                    present = instrumentBox.getItemText (it) == rNames[0];
+                if (! rNames.isEmpty() && ! present)
+                {
+                    int nid = 5000;
+                    while (instrumentBox.indexOfItemId (nid) >= 0) ++nid;
+                    instrumentBox.addItem (rNames[0], nid);
+                }
+            }
+            else
                 juce::AlertWindow::showMessageBoxAsync (
                     juce::MessageBoxIconType::WarningIcon, "SFZ load failed", error);
             grabKeysSoon();
@@ -1292,18 +1346,18 @@ void VocalChopAudioProcessorEditor::layoutContent()
     subtitleLabel.setBounds (top.removeFromLeft (194).withTrimmedTop (6));
 
     // Right-aligned: help, theme, load, demo, preset combo, preset label.
-    helpButton.setBounds (top.removeFromRight (34).withSizeKeepingCentre (34, 30));
+    helpButton.setBounds (top.removeFromRight (38).withSizeKeepingCentre (38, 34));
     top.removeFromRight (kGap / 2);
-    themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 30));
+    themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 34));
     top.removeFromRight (kGap / 2);
-    loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 30));
+    loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 34));
     top.removeFromRight (kGap / 2);
-    demoButton.setBounds (top.removeFromRight (70).withSizeKeepingCentre (70, 30));
+    demoButton.setBounds (top.removeFromRight (70).withSizeKeepingCentre (70, 34));
     top.removeFromRight (kGap / 2);
-    presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 30));
-    presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 30));
+    presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 34));
+    presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 34));
     top.removeFromRight (kGap / 2);
-    looperTabButton.setBounds (top.removeFromRight (92).withSizeKeepingCentre (92, 30));
+    looperTabButton.setBounds (top.removeFromRight (92).withSizeKeepingCentre (92, 34));
 
     area.removeFromTop (kGap);
 
@@ -1325,21 +1379,21 @@ void VocalChopAudioProcessorEditor::layoutContent()
     sliceCardBounds = sliceCard;
     {
         auto inner = sliceCard.reduced (kPadding, kPadding - 4);
-        engineBox.setBounds (inner.removeFromLeft (110).withSizeKeepingCentre (110, 30));
+        engineBox.setBounds (inner.removeFromLeft (110).withSizeKeepingCentre (110, 34));
         inner.removeFromLeft (kGap);
-        sliceModeBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 30));
+        sliceModeBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 34));
         inner.removeFromLeft (kGap);
-        gridBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 30));
+        gridBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 34));
         inner.removeFromLeft (kGap);
         sensitivityKnob.setBounds (inner.removeFromLeft (90));
         inner.removeFromLeft (kGap);
-        synthWaveBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 30));
+        synthWaveBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 34));
         inner.removeFromLeft (kGap);
-        instrumentBox.setBounds (inner.removeFromLeft (160).withSizeKeepingCentre (160, 30));
+        instrumentBox.setBounds (inner.removeFromLeft (160).withSizeKeepingCentre (160, 34));
         inner.removeFromLeft (kGap);
-        octDownButton.setBounds (inner.removeFromLeft (30).withSizeKeepingCentre (30, 30));
-        octLabel.setBounds      (inner.removeFromLeft (52).withSizeKeepingCentre (52, 30));
-        octUpButton.setBounds   (inner.removeFromLeft (30).withSizeKeepingCentre (30, 30));
+        octDownButton.setBounds (inner.removeFromLeft (34).withSizeKeepingCentre (34, 34));
+        octLabel.setBounds      (inner.removeFromLeft (52).withSizeKeepingCentre (52, 34));
+        octUpButton.setBounds   (inner.removeFromLeft (34).withSizeKeepingCentre (34, 34));
     }
 
     area.removeFromTop (kGap);
@@ -1348,7 +1402,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
     area.removeFromBottom (24 + kGap / 2);
 
     // --- Waveform row: waveform + meter column on the right ---
-    auto waveRow = area.removeFromTop (juce::jmax (140, area.getHeight() * 26 / 100));
+    auto waveRow = area.removeFromTop (juce::jmax (130, area.getHeight() * 21 / 100));
     const auto waveTop = waveRow;   // remembered for the LOOPER overlay
     meter.setBounds (waveRow.removeFromRight (kMeterW));
     waveRow.removeFromRight (kGap);
@@ -1357,10 +1411,10 @@ void VocalChopAudioProcessorEditor::layoutContent()
     area.removeFromTop (kGap);
 
     // --- Keyboard along the bottom, chord bar just above it ---
-    auto sliceGridRow = area.removeFromBottom (juce::jmax (120, area.getHeight() * 32 / 100));
+    auto sliceGridRow = area.removeFromBottom (juce::jmax (120, area.getHeight() * 28 / 100));
     sliceGrid.setBounds (sliceGridRow);
     area.removeFromBottom (kGap / 2);
-    chordBar.setBounds (area.removeFromBottom (36));
+    chordBar.setBounds (area.removeFromBottom (40));
     area.removeFromBottom (kGap);
 
     // --- Controls area: cards row (grouped) + FX rack side column ---
@@ -1443,7 +1497,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
             inner.removeFromTop (kCaptionH);
             auto comboRow = inner.removeFromBottom (36);
             filterTypeBox.setBounds (comboRow.withSizeKeepingCentre (
-                juce::jmin (220, comboRow.getWidth()), 30));
+                juce::jmin (220, comboRow.getWidth()), 34));
             inner.removeFromBottom (kGap / 2);
 
             KnobComponent* fk[] = { filterCutoffKnob.get(), filterResoKnob.get() };
@@ -1469,14 +1523,14 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto controlsCol = inner;
             // Fit three rows into whatever height the card actually has -
             // fixed 30px rows overflowed and stacked on top of each other.
-            const int rowH = juce::jlimit (18, 30, controlsCol.getHeight() / 3 - 2);
+            const int rowH = juce::jlimit (20, 34, controlsCol.getHeight() / 3 - 2);
             reverseButton.setBounds  (controlsCol.removeFromTop (rowH));
             controlsCol.removeFromTop (2);
             pingpongButton.setBounds (controlsCol.removeFromTop (rowH));
             controlsCol.removeFromTop (2);
             playModeBox.setBounds    (controlsCol.removeFromTop (rowH)
                                           .withSizeKeepingCentre (
-                                              juce::jmin (200, controlsCol.getWidth()), 30));
+                                              juce::jmin (200, controlsCol.getWidth()), 34));
         }
     }
 

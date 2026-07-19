@@ -144,7 +144,7 @@ VocalChopAudioProcessor::createParameterLayout()
 
     // Synth engine mode: play oscillators instead of sample slices.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "engine", "Engine", juce::StringArray { "Chop", "Synth", "Sampled" }, 0));
+        "engine", "Engine", juce::StringArray { "Chop", "Synth", "Sampled", "Melody" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "synthWave", "Synth Wave",
         juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
@@ -199,6 +199,7 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     voicePool.prepare (spec);
     synthEngine.prepare (spec);
     samplerEngine.prepare (sampleRate, samplesPerBlock);
+    melodyEngine.prepare (sampleRate, samplesPerBlock);
     pitchFormant.prepare (sampleRate, samplesPerBlock, juce::jmax (1, getTotalNumOutputChannels()));
     granularEngine.prepare (spec);
     fxChain.prepare (spec);
@@ -238,6 +239,15 @@ void VocalChopAudioProcessor::reassignSampleToEngines()
 {
     sliceEngine.setSample (sampleBuffer, loadedSampleRate);
     voicePool.setSource (sampleBuffer, loadedSampleRate);
+
+    // Melody mode plays this same sample chromatically. Rebuild only when the
+    // buffer actually changed (this also runs from prepareToPlay).
+    if (sampleBuffer != melodySourceRef)
+    {
+        melodySourceRef = sampleBuffer;
+        if (sampleBuffer != nullptr)
+            melodyEngine.loadFromBuffer (*sampleBuffer, loadedSampleRate, "Melody");
+    }
 }
 
 void VocalChopAudioProcessor::analyzeSampleKey()
@@ -409,6 +419,9 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (! isSamplerMode())
         samplerEngine.releaseAll();
     samplerEngine.render (buffer, numSamples);
+    if (! isMelodyMode())
+        melodyEngine.releaseAll();
+    melodyEngine.render (buffer, numSamples);
 
     // 3) Pitch / formant transformation.
     pitchFormant.process (buffer,
@@ -508,10 +521,14 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {
-            // Sampled mode without a loaded bank falls through to the synth
-            // branch below (isSynthMode() is true there too): keys must
+            // Sampled/Melody modes without a loaded bank fall through to the
+            // synth branch below (isSynthMode() is true there too): keys must
             // NEVER be silent - dead keys read as "the plugin is broken".
-            if (isSamplerMode() && samplerEngine.hasBank())
+            if (isMelodyMode() && melodyEngine.hasBank())
+            {
+                melodyEngine.noteOn (note, msg.getVelocity() / 127.0f);
+            }
+            else if (isSamplerMode() && samplerEngine.hasBank())
             {
                 samplerEngine.noteOn (note, msg.getVelocity() / 127.0f);
             }
@@ -535,7 +552,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
                 if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
                     voicePool.releaseVoice (noteToVoice[(size_t) note]);
 
-                const int voice = triggerSliceIndex (note - kRootNote,
+                const int voice = triggerSliceIndex (diatonicSliceIndex (note - kRootNote),
                                                      msg.getVelocity() / 127.0f);
                 if (juce::isPositiveAndBelow (note, 128))
                     noteToVoice[(size_t) note] = voice;
@@ -548,6 +565,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
             // safe no-op when that engine holds nothing for this note.
             synthEngine.noteOff (note);
             samplerEngine.noteOff (note);
+            melodyEngine.noteOff (note);
 
             if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
             {
@@ -566,6 +584,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 
             synthEngine.releaseAll();
             samplerEngine.releaseAll();
+            melodyEngine.releaseAll();
             noteToVoice.fill (-1);
             padKeyToVoice.fill (-1);
         }
@@ -587,6 +606,17 @@ void VocalChopAudioProcessor::clearVoiceMapping (int voiceIndex)
     for (auto& m : padKeyToVoice)
         if (m == voiceIndex)
             m = -1;
+}
+
+int VocalChopAudioProcessor::diatonicSliceIndex (int semis)
+{
+    // Do-re-mi plays slices in cut order: the n-th WHITE key above the root C
+    // triggers slice n (so 도레미파솔라시도 walks slices 0..7 in sequence).
+    // A black key doubles its lower white neighbour instead of going silent.
+    static const int white[12] = { 0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6 };
+    const int oct = semis >= 0 ? semis / 12 : (semis - 11) / 12;
+    const int pos = semis - oct * 12;
+    return oct * 7 + white[pos];
 }
 
 int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
@@ -652,10 +682,11 @@ void VocalChopAudioProcessor::drainPadQueue()
 
         if (type == padOff)
         {
-            // Release both engines: the pad may have been pressed before an
+            // Release every engine: the pad may have been pressed before an
             // engine switch (each call safely no-ops when not applicable).
             synthEngine.noteOff (note);
             samplerEngine.noteOff (note);
+            melodyEngine.noteOff (note);
 
             if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
             {
@@ -667,7 +698,12 @@ void VocalChopAudioProcessor::drainPadQueue()
 
         // Same never-silent policy as handleMidi: an empty sampler bank or a
         // chop mode with no sample both fall back to the synth patch.
-        if (isSamplerMode() && samplerEngine.hasBank())
+        if (isMelodyMode() && melodyEngine.hasBank())
+        {
+            if (type == padOn) melodyEngine.noteOn (note, vel);
+            else               melodyEngine.tapNote (note, vel);
+        }
+        else if (isSamplerMode() && samplerEngine.hasBank())
         {
             if (type == padOn) samplerEngine.noteOn (note, vel);
             else               samplerEngine.tapNote (note, vel);   // self-releasing
@@ -683,7 +719,7 @@ void VocalChopAudioProcessor::drainPadQueue()
         }
         else
         {
-            const int voice = triggerSliceIndex (idx, vel);
+            const int voice = triggerSliceIndex (diatonicSliceIndex (idx), vel);
             if (type == padOn && juce::isPositiveAndBelow (idx, 128))
                 padKeyToVoice[(size_t) idx] = voice;
         }
@@ -1576,6 +1612,67 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     // Let an open editor re-sync its combos / theme / cached waveform
     // (sendChangeMessage is async and safe from any thread).
     sendChangeMessage();
+}
+
+//==============================================================================
+// Recently loaded SFZ banks: stored app-wide (not per session) so instruments
+// the user hunted down once stay one click away in every project.
+static juce::File recentSfzStore()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("Slyce").getChildFile ("recent_sfz.xml");
+}
+
+static std::unique_ptr<juce::XmlElement> readRecentSfz()
+{
+    if (auto xml = juce::parseXML (recentSfzStore()))
+        if (xml->hasTagName ("RecentSfz"))
+            return xml;
+    return nullptr;
+}
+
+juce::StringArray VocalChopAudioProcessor::getRecentSfzNames()
+{
+    juce::StringArray out;
+    if (auto xml = readRecentSfz())
+        for (auto* e : xml->getChildIterator())
+            out.add (e->getStringAttribute ("name"));
+    return out;
+}
+
+juce::StringArray VocalChopAudioProcessor::getRecentSfzPaths()
+{
+    juce::StringArray out;
+    if (auto xml = readRecentSfz())
+        for (auto* e : xml->getChildIterator())
+            out.add (e->getStringAttribute ("path"));
+    return out;
+}
+
+void VocalChopAudioProcessor::rememberSfzBank (const juce::String& name, const juce::File& f)
+{
+    auto xml = readRecentSfz();
+    if (xml == nullptr)
+        xml = std::make_unique<juce::XmlElement> ("RecentSfz");
+
+    // Newest first, de-duplicated by path, capped at 12 entries.
+    for (int i = xml->getNumChildElements(); --i >= 0;)
+        if (auto* e = xml->getChildElement (i))
+            if (e->getStringAttribute ("path") == f.getFullPathName())
+                xml->removeChildElement (e, true);
+
+    auto* entry = new juce::XmlElement ("Bank");
+    entry->setAttribute ("name", name.isNotEmpty() ? name
+                                                   : f.getFileNameWithoutExtension());
+    entry->setAttribute ("path", f.getFullPathName());
+    xml->insertChildElement (entry, 0);
+
+    while (xml->getNumChildElements() > 12)
+        xml->removeChildElement (xml->getChildElement (xml->getNumChildElements() - 1), true);
+
+    auto store = recentSfzStore();
+    store.getParentDirectory().createDirectory();
+    xml->writeTo (store);
 }
 
 //==============================================================================

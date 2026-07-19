@@ -91,7 +91,16 @@ public:
     /** True when the Sampled (SFZ multisample) engine is selected. */
     bool isSamplerMode() const
     {
-        return engineParam != nullptr && engineParam->load() >= 1.5f;
+        if (engineParam == nullptr) return false;
+        const float v = engineParam->load();
+        return v >= 1.5f && v < 2.5f;
+    }
+
+    /** True when Melody mode is selected: the loaded chop sample played
+        chromatically across the keyboard (root = C3). */
+    bool isMelodyMode() const
+    {
+        return engineParam != nullptr && engineParam->load() >= 2.5f;
     }
 
     /** Loads an SFZ multisample bank (message thread; heavy - decodes all
@@ -103,10 +112,18 @@ public:
             return false;
         loadedSfzFile = f;
         if (auto* p = apvts.getParameter ("engine"))
-            p->setValueNotifyingHost (1.0f);   // choice index 2 of 0..2
+            p->setValueNotifyingHost (p->convertTo0to1 (2.0f));   // Sampled
+        rememberSfzBank (samplerEngine.getBankName(), f);
         return true;
     }
     SamplerEngine& getSampler() { return samplerEngine; }
+
+    /** Recently loaded SFZ banks, shared across ALL sessions (stored next to
+        the license file) so a loaded violin/piano never just disappears —
+        they reappear under MY SAMPLES in the instrument menu. */
+    static juce::StringArray getRecentSfzNames();
+    static juce::StringArray getRecentSfzPaths();   // parallel to names
+    static void rememberSfzBank (const juce::String& name, const juce::File& f);
 
     /** Applies a named factory preset's parameter values. */
     void applyPreset (int presetIndex);
@@ -140,6 +157,7 @@ private:
     void handleMidi (const juce::MidiBuffer& midi, int numSamples);
     void drainPadQueue();
     int  triggerSliceIndex (int sliceIndex, float velocity);
+    static int diatonicSliceIndex (int semis);   // white-key order -> slice order
     void clearVoiceMapping (int voiceIndex);   // audio thread
     void applyMasterFXChain (juce::AudioBuffer<float>&);
     void applyStereoWidth (juce::AudioBuffer<float>&);
@@ -154,6 +172,8 @@ private:
     VoicePool      voicePool;
     SynthEngine    synthEngine;
     SamplerEngine  samplerEngine;
+    SamplerEngine  melodyEngine;    // the loaded chop sample, pitched per key
+    std::shared_ptr<juce::AudioBuffer<float>> melodySourceRef;   // rebuild guard
     juce::File     loadedSfzFile;   // persisted so reload restores the bank
     SliceEngine    sliceEngine;
     PitchFormant   pitchFormant;

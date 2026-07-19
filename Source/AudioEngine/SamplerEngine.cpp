@@ -299,6 +299,25 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
     return true;
 }
 
+void SamplerEngine::loadFromBuffer (const juce::AudioBuffer<float>& src, double srcRate,
+                                    const juce::String& name)
+{
+    if (src.getNumSamples() <= 0)
+        return;
+
+    auto newBank = std::make_shared<Bank>();
+    newBank->name = name;
+
+    Region r;
+    r.data.makeCopyOf (src);
+    r.srcRate = srcRate > 0.0 ? srcRate : 44100.0;
+    r.root    = 60;             // C3 plays the sample at its original pitch
+    r.releaseSeconds = 0.25f;
+    newBank->regions.push_back (std::move (r));
+
+    std::atomic_store (&bank, std::shared_ptr<const Bank> (newBank));
+}
+
 const SamplerEngine::Region* SamplerEngine::findRegion (const Bank& b, int note, int vel127)
 {
     const Region* best = nullptr;

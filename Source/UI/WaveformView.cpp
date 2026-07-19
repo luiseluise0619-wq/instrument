@@ -146,7 +146,7 @@ void WaveformView::paint (juce::Graphics& g)
     // --- Synth / Sampled modes: live output oscilloscope ---------------------
     // The static sample waveform is a CHOP-mode tool; while playing
     // instruments this card shows what you actually hear, in real time.
-    if (proc.isSynthMode() || proc.isSamplerMode())
+    if ((proc.isSynthMode() || proc.isSamplerMode()) && ! proc.isMelodyMode())
     {
         const auto area = card.reduced (kCardPadding);
         const auto& ring = proc.getScopeRing();
