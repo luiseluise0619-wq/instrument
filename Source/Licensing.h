@@ -28,10 +28,9 @@ namespace vcs
 {
 struct Licensing
 {
-    // Gumroad product permalink (the bit after gumroad.com/l/...).
-    // The product page URL must be gumroad.com/l/slyce — or update this
-    // constant to match and rebuild.
-    static constexpr const char* kGumroadPermalink = "slyce";
+    // Gumroad product ID (shown next to the License key block on the
+    // product's Content page). IDs are stable even if the page URL changes.
+    static constexpr const char* kGumroadProductId = "XfHXdgZ24Sjh9vU9PkzrZA==";
     static constexpr int kMaxDevices = 3;
 
     // RSA public key for offline "VCS-" keys (e, n hex — juce::RSAKey format).
@@ -101,7 +100,7 @@ struct Licensing
         const auto key = keyIn.trim();
 
         juce::URL url ("https://api.gumroad.com/v2/licenses/verify");
-        url = url.withPOSTData ("product_permalink=" + juce::URL::addEscapeChars (kGumroadPermalink, true)
+        url = url.withPOSTData ("product_id=" + juce::URL::addEscapeChars (kGumroadProductId, true)
                                 + "&license_key=" + juce::URL::addEscapeChars (key, true)
                                 + "&increment_uses_count=true");
 

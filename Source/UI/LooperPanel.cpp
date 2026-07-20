@@ -128,9 +128,61 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     playAllButton.setTooltip ("Restart every track together from the top");
     stopAllButton.setTooltip ("Stop all tracks (loops are kept)");
     clearAllButton.setTooltip ("Delete ALL loops");
+    exportButton.setTooltip ("Save everything you looped as a WAV file (one full cycle)");
     addTrackButton.setTooltip ("Show another loop track (up to 6)");
     metroButton.setTooltip ("Metronome click - heard, never recorded. First take gets a 1-bar count-in");
     tapButton.setTooltip ("Tap in time to set the tempo");
+
+    exportButton.onClick = [this]
+    {
+        auto mix = std::make_shared<juce::AudioBuffer<float>>();
+        if (! proc.getLooper().renderMixdown (*mix))
+        {
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::InfoIcon, "Slyce",
+                "Nothing to export yet - record or load a loop first.");
+            return;
+        }
+
+        fileChooser = std::make_unique<juce::FileChooser> (
+            "Export loops as WAV",
+            juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
+                .getChildFile ("slyce-loop.wav"),
+            "*.wav");
+
+        fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                      | juce::FileBrowserComponent::canSelectFiles
+                                      | juce::FileBrowserComponent::warnAboutOverwriting,
+            [this, mix] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult();
+            if (f == juce::File{})
+                return;
+            f = f.withFileExtension ("wav");
+            f.deleteFile();
+
+            juce::WavAudioFormat wav;
+            auto stream = f.createOutputStream();
+            bool ok = false;
+            if (stream != nullptr)
+            {
+                if (auto* writer = wav.createWriterFor (stream.get(),
+                                                        proc.getLooper().getSampleRate(),
+                                                        2, 24, {}, 0))
+                {
+                    std::unique_ptr<juce::AudioFormatWriter> w (writer);
+                    stream.release();   // the writer owns the stream now
+                    ok = w->writeFromAudioSampleBuffer (*mix, 0, mix->getNumSamples());
+                }
+            }
+            if (! ok)
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon, "Slyce",
+                    "Could not write the WAV file there - try another folder.");
+        });
+    };
+    addAndMakeVisible (exportButton);
+
     addAndMakeVisible (playAllButton);
     addAndMakeVisible (stopAllButton);
     addAndMakeVisible (clearAllButton);
@@ -395,6 +447,8 @@ void LooperPanel::resized()
     bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (150, mStrip.getWidth() / 4)));
     mStrip.removeFromLeft (12);
     addTrackButton.setBounds (mStrip.removeFromRight (86));
+    mStrip.removeFromRight (8);
+    exportButton.setBounds (mStrip.removeFromRight (76));
     mStrip.removeFromRight (12);
     const int mw = juce::jmax (60, (mStrip.getWidth() - 24) / 3);
     playAllButton.setBounds  (mStrip.removeFromLeft (mw));

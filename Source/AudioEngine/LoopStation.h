@@ -153,6 +153,51 @@ public:
     void tapPlayAll()  { pendingMaster.store (2); }
     void tapClearAll() { pendingMaster.store (3); }
 
+    /** Message thread: mixes every finished, unmuted track (volume, pan,
+        reverse applied) into `out` over one cycle of the LONGEST loop —
+        all other loops divide it, so the cycle closes cleanly. Returns
+        false when nothing has been recorded yet. */
+    bool renderMixdown (juce::AudioBuffer<float>& out) const
+    {
+        int longest = 0;
+        for (auto& t : tracks)
+            longest = juce::jmax (longest, t.lenSamples.load());
+        if (longest <= 0)
+            return false;
+
+        out.setSize (2, longest);
+        out.clear();
+
+        for (auto& t : tracks)
+        {
+            const int len = t.lenSamples.load();
+            if (len <= 0 || t.muted.load())
+                continue;
+
+            const float vol = t.volume.load();
+            const float pn  = t.pan.load();
+            const bool  rev = t.reversed.load();
+            const float gl  = vol * (pn > 0.0f ? 1.0f - pn : 1.0f);
+            const float gr  = vol * (pn < 0.0f ? 1.0f + pn : 1.0f);
+
+            const float* L  = t.loop.getReadPointer (0);
+            const float* R  = t.loop.getReadPointer (1);
+            float* oL = out.getWritePointer (0);
+            float* oR = out.getWritePointer (1);
+
+            for (int i = 0; i < longest; ++i)
+            {
+                int idx = i % len;
+                if (rev) idx = len - 1 - idx;
+                oL[i] += L[idx] * gl;
+                oR[i] += R[idx] * gr;
+            }
+        }
+        return true;
+    }
+
+    double getSampleRate() const { return srHz; }
+
     bool anyContent() const
     {
         for (auto& t : tracks)

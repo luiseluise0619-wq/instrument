@@ -446,10 +446,11 @@ namespace
             g.fillRect (0.0f, sy, w, 1.0f);
     }
 
-    // FL-style typing keys: bottom row = C3 octave, top row = C4 octave.
+    // FL-style typing keys: bottom row = C3 octave, top row = C4 octave and
+    // onward through i 9 o 0 p [ = ] (C5..G5), matching FL Studio's layout.
     // ',' is deliberately NOT mapped: it would duplicate Q's C4, and two keys
     // driving one note means releasing either kills the other's sound.
-    const juce::String kTypingKeys ("zsxdcvgbhnjmq2w3er5t6y7u");
+    const juce::String kTypingKeys ("zsxdcvgbhnjmq2w3er5t6y7ui9o0p[=]");
 
     int typingKeySemitone (int i)     { return i; }   // 12 keys per row, contiguous
 

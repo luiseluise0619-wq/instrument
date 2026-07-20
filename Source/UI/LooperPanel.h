@@ -60,6 +60,7 @@ private:
     juce::TextButton playAllButton  { "PLAY ALL" };
     juce::TextButton stopAllButton  { "STOP ALL" };
     juce::TextButton clearAllButton { "CLEAR ALL" };
+    juce::TextButton exportButton   { "EXPORT" };
     juce::TextButton addTrackButton { "+ TRACK" };
     juce::TextButton metroButton    { "MET" };
     juce::TextButton tapButton      { "TAP" };
