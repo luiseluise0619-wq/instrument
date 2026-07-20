@@ -48,14 +48,29 @@ public:
     void fileDragExit (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int x, int y) override;
 
+    // Sample editing: drag a selection on the waveform, then TRIM / CUT /
+    // FADE / NORM / UNDO via the small overlay buttons.
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp   (const juce::MouseEvent&) override;
+
 private:
     void timerCallback() override;
     void rebuildEnvelope();
+    void layoutEditButtons();
+    void updateEditButtons();
+    void applyEdit (int op);            // 0 Trim, 1 Cut, 2 Fade, 3 Norm, 4 Undo
+    float fracAt (float x) const;       // pixel -> 0..1 sample position
+    bool  editableNow() const;          // sample graph visible & sample loaded
 
     VocalChopAudioProcessor& proc;
     std::vector<float> minEnv, maxEnv;
     float phase = 0.0f;
     bool  fileHover = false;
+
+    float selA = -1.0f, selB = -1.0f;   // selection fractions (-1 = none)
+    juce::TextButton trimBtn { "TRIM" }, cutBtn { "CUT" }, fadeBtn { "FADE" },
+                     normBtn { "NORM" }, undoEditBtn { "UNDO" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformView)
 };

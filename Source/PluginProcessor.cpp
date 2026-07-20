@@ -838,6 +838,98 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
 }
 
 //==============================================================================
+bool VocalChopAudioProcessor::editSample (SampleEdit op, float a, float b)
+{
+    auto src = sampleBuffer;
+    if (src == nullptr || src->getNumSamples() < 64)
+        return false;
+
+    const int total = src->getNumSamples();
+    const int chans = src->getNumChannels();
+    const int s = juce::jlimit (0, total, juce::roundToInt (juce::jmin (a, b) * (float) total));
+    const int e = juce::jlimit (0, total, juce::roundToInt (juce::jmax (a, b) * (float) total));
+
+    if (op != SampleEdit::Normalize && e - s < 32)
+        return false;
+
+    std::shared_ptr<juce::AudioBuffer<float>> out;
+
+    if (op == SampleEdit::Trim)          // keep only the selection
+    {
+        out = std::make_shared<juce::AudioBuffer<float>> (chans, e - s);
+        for (int ch = 0; ch < chans; ++ch)
+            out->copyFrom (ch, 0, *src, ch, s, e - s);
+    }
+    else if (op == SampleEdit::Cut)      // delete the selection, join the rest
+    {
+        const int len = total - (e - s);
+        if (len < 32)
+            return false;
+        out = std::make_shared<juce::AudioBuffer<float>> (chans, len);
+        for (int ch = 0; ch < chans; ++ch)
+        {
+            if (s > 0)
+                out->copyFrom (ch, 0, *src, ch, 0, s);
+            if (total - e > 0)
+                out->copyFrom (ch, s, *src, ch, e, total - e);
+        }
+    }
+    else if (op == SampleEdit::Fade)
+    {
+        // Selection in the first half fades IN across it (and silences what
+        // comes before); in the second half it fades OUT (and silences the
+        // tail) - matching what selecting a head or a tail means.
+        out = std::make_shared<juce::AudioBuffer<float>> (chans, total);
+        for (int ch = 0; ch < chans; ++ch)
+            out->copyFrom (ch, 0, *src, ch, 0, total);
+
+        const bool fadeIn = (s + e) / 2 < total / 2;
+        for (int ch = 0; ch < chans; ++ch)
+        {
+            float* d = out->getWritePointer (ch);
+            for (int i = s; i < e; ++i)
+            {
+                const float t = (float) (i - s) / (float) juce::jmax (1, e - s - 1);
+                d[i] *= fadeIn ? t : 1.0f - t;
+            }
+            if (fadeIn)  for (int i = 0; i < s; ++i)     d[i] = 0.0f;
+            else         for (int i = e; i < total; ++i) d[i] = 0.0f;
+        }
+    }
+    else   // Normalize: whole sample to -0.2 dB-ish
+    {
+        out = std::make_shared<juce::AudioBuffer<float>> (chans, total);
+        for (int ch = 0; ch < chans; ++ch)
+            out->copyFrom (ch, 0, *src, ch, 0, total);
+        const float peak = out->getMagnitude (0, total);
+        if (peak > 1.0e-6f)
+            out->applyGain (0.98f / peak);
+    }
+
+    prevSampleBuffer = sampleBuffer;
+    prevSampleRate   = loadedSampleRate;
+    sampleBuffer     = out;
+    reassignSampleToEngines();
+    rescanSlices();
+    analyzeSampleKey();
+    sendChangeMessage();
+    return true;
+}
+
+bool VocalChopAudioProcessor::undoSampleEdit()
+{
+    if (prevSampleBuffer == nullptr)
+        return false;
+    std::swap (sampleBuffer, prevSampleBuffer);
+    std::swap (loadedSampleRate, prevSampleRate);
+    reassignSampleToEngines();
+    rescanSlices();
+    analyzeSampleKey();
+    sendChangeMessage();
+    return true;
+}
+
+//==============================================================================
 void VocalChopAudioProcessor::parameterChanged (const juce::String& id, float newValue)
 {
     if (id == "pitch")   pitchFormant.setPitch (newValue);

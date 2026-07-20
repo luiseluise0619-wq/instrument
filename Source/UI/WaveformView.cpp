@@ -14,8 +14,115 @@ namespace
 WaveformView::WaveformView (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
+    // Sample-edit buttons live INSIDE the card; hidden until useful.
+    trimBtn.setTooltip ("Keep only the selected part");
+    cutBtn .setTooltip ("Delete the selected part and join the rest");
+    fadeBtn.setTooltip ("Fade the selection (in near the start, out near the end)");
+    normBtn.setTooltip ("Normalize: raise the whole sample to full volume");
+    undoEditBtn.setTooltip ("Undo the last sample edit (press again = redo)");
+
+    trimBtn.onClick     = [this] { applyEdit (0); };
+    cutBtn.onClick      = [this] { applyEdit (1); };
+    fadeBtn.onClick     = [this] { applyEdit (2); };
+    normBtn.onClick     = [this] { applyEdit (3); };
+    undoEditBtn.onClick = [this] { applyEdit (4); };
+
+    for (auto* b : { &trimBtn, &cutBtn, &fadeBtn, &normBtn, &undoEditBtn })
+        addChildComponent (*b);
+
     // Subtle, restrained animation. Low rate keeps the Apple look calm.
     startTimerHz (24);
+}
+
+bool WaveformView::editableNow() const
+{
+    // Only when the SAMPLE graph is on screen (Chop / Melody modes).
+    const bool scopeMode = (proc.isSynthMode() || proc.isSamplerMode())
+                           && ! proc.isMelodyMode();
+    return ! scopeMode && ! maxEnv.empty();
+}
+
+float WaveformView::fracAt (float x) const
+{
+    const float x0 = 4.0f + kCardPadding;
+    const float w  = juce::jmax (1.0f, (float) getWidth() - 8.0f - 2.0f * kCardPadding);
+    return juce::jlimit (0.0f, 1.0f, (x - x0) / w);
+}
+
+void WaveformView::mouseDown (const juce::MouseEvent& e)
+{
+    if (! editableNow())
+        return;
+    selA = selB = fracAt (e.position.x);
+    updateEditButtons();
+    repaint();
+}
+
+void WaveformView::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! editableNow() || selA < 0.0f)
+        return;
+    selB = fracAt (e.position.x);
+    updateEditButtons();
+    repaint();
+}
+
+void WaveformView::mouseUp (const juce::MouseEvent&)
+{
+    // A plain click (no real drag) clears the selection.
+    if (selA >= 0.0f && std::abs (selB - selA) < 0.005f)
+        selA = selB = -1.0f;
+    updateEditButtons();
+    repaint();
+}
+
+void WaveformView::applyEdit (int op)
+{
+    bool ok = false;
+    if (op == 4)
+        ok = proc.undoSampleEdit();
+    else
+    {
+        const float a = juce::jmin (selA, selB), b = juce::jmax (selA, selB);
+        using E = VocalChopAudioProcessor::SampleEdit;
+        const E ops[4] = { E::Trim, E::Cut, E::Fade, E::Normalize };
+        ok = proc.editSample (ops[juce::jlimit (0, 3, op)], a, b);
+    }
+
+    if (ok)
+    {
+        selA = selB = -1.0f;
+        refresh();
+        if (onSampleDropped != nullptr)   // resync slices/keys in the editor
+            onSampleDropped();
+    }
+    updateEditButtons();
+}
+
+void WaveformView::layoutEditButtons()
+{
+    updateEditButtons();
+}
+
+void WaveformView::updateEditButtons()
+{
+    const bool base = editableNow();
+    const bool sel  = base && selA >= 0.0f && std::abs (selB - selA) > 0.005f;
+    trimBtn.setVisible (sel);
+    cutBtn .setVisible (sel);
+    fadeBtn.setVisible (sel);
+    normBtn.setVisible (base);
+    undoEditBtn.setVisible (base && proc.canUndoSampleEdit());
+
+    // Pack whichever buttons are visible into one tight strip at the
+    // card's top-left, so the row never shows mid-air gaps.
+    int x = 16;
+    for (auto* b : { &trimBtn, &cutBtn, &fadeBtn, &normBtn, &undoEditBtn })
+        if (b->isVisible())
+        {
+            b->setBounds (x, 12, 54, 24);
+            x += 60;
+        }
 }
 
 WaveformView::~WaveformView()
@@ -75,6 +182,7 @@ void WaveformView::rebuildEnvelope()
 void WaveformView::resized()
 {
     rebuildEnvelope();
+    layoutEditButtons();
 }
 
 void WaveformView::timerCallback()
@@ -83,6 +191,7 @@ void WaveformView::timerCallback()
     phase += 0.015f;
     if (phase > juce::MathConstants<float>::twoPi)
         phase -= juce::MathConstants<float>::twoPi;
+    updateEditButtons();   // mode switches show/hide the edit strip
     repaint();
 }
 
@@ -544,6 +653,24 @@ void WaveformView::paint (juce::Graphics& g)
                 g.fillPath (tri);
             }
         }
+    }
+
+    // --- Edit selection overlay (drag on the waveform to select) -------------
+    if (selA >= 0.0f && ! maxEnv.empty())
+    {
+        const float x0 = 4.0f + kCardPadding;
+        const float w  = (float) getWidth() - 8.0f - 2.0f * kCardPadding;
+        const float xa = x0 + juce::jmin (selA, selB) * w;
+        const float xb = x0 + juce::jmax (selA, selB) * w;
+
+        auto selRect = juce::Rectangle<float> (xa, card.getY() + 4.0f,
+                                               juce::jmax (1.0f, xb - xa),
+                                               card.getHeight() - 8.0f);
+        g.setColour (theme.accent.withAlpha (0.14f));
+        g.fillRect (selRect);
+        g.setColour (theme.accent.withAlpha (0.85f));
+        g.fillRect (xa - 0.75f, selRect.getY(), 1.5f, selRect.getHeight());
+        g.fillRect (xb - 0.75f, selRect.getY(), 1.5f, selRect.getHeight());
     }
 }
 

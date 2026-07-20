@@ -125,6 +125,13 @@ public:
     static juce::StringArray getRecentSfzPaths();   // parallel to names
     static void rememberSfzBank (const juce::String& name, const juce::File& f);
 
+    /** Destructive sample edits over a [start,end) fraction selection made
+        on the waveform (message thread). One level of undo is kept. */
+    enum class SampleEdit { Trim, Cut, Fade, Normalize };
+    bool editSample (SampleEdit op, float startFrac, float endFrac);
+    bool undoSampleEdit();
+    bool canUndoSampleEdit() const { return prevSampleBuffer != nullptr; }
+
     /** Applies a named factory preset's parameter values. */
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
@@ -183,6 +190,8 @@ private:
     Limiter        limiter;
 
     std::shared_ptr<juce::AudioBuffer<float>> sampleBuffer;
+    std::shared_ptr<juce::AudioBuffer<float>> prevSampleBuffer;   // 1-level edit undo
+    double prevSampleRate = 44100.0;
     juce::File loadedSampleFile;   // persisted in plugin state so reload restores it
 
     // Cached parameter pointers.
