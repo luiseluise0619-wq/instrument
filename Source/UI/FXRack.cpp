@@ -84,12 +84,17 @@ void FXRack::paint (juce::Graphics& g)
                               : theme.textSecondary;
         g.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Semibold")));
 
+        // Accent tick before the caption - matches every other card header.
+        g.setColour (theme.accent.withAlpha (0.85f));
+        g.fillRoundedRectangle (titleArea.getX(), titleArea.getCentreY() - 5.0f,
+                                3.0f, 10.0f, 1.5f);
+
         // Draw glyph-by-glyph to add wide letter-spacing (tracking).
         const juce::String title ("FX");
         const float tracking = glowTheme ? 3.5f : 3.0f;
         const auto& font = g.getCurrentFont();
 
-        float x = titleArea.getX();
+        float x = titleArea.getX() + 9.0f;
         const float cy = titleArea.getCentreY();
         for (auto ch : title)
         {

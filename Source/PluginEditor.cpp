@@ -1205,9 +1205,24 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     g.setColour (theme.material);
     g.fillRoundedRectangle (bounds, radius);
 
-    // Hairline border.
+    // Barely-there top light: the card reads as a raised surface, not a
+    // flat rectangle. One linear gradient per card is cheap.
+    {
+        juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.035f : 0.25f),
+                                    bounds.getX(), bounds.getY(),
+                                    juce::Colours::white.withAlpha (0.0f),
+                                    bounds.getX(), bounds.getY() + bounds.getHeight() * 0.45f,
+                                    false);
+        g.setGradientFill (sheen);
+        g.fillRoundedRectangle (bounds, radius);
+    }
+
+    // Hairline border + crisp 1px inner top highlight.
     g.setColour (theme.separator);
     g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+    g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.4f));
+    g.fillRect (bounds.getX() + radius, bounds.getY() + 1.0f,
+                bounds.getWidth() - radius * 2.0f, 1.0f);
 }
 
 void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
@@ -1218,13 +1233,22 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
         return;
 
     const auto& theme = ThemeManager::active();
-    g.setColour (theme.textSecondary);
-    g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Semibold")));
 
     auto strip = cardBounds.reduced (kPadding, 0)
                            .removeFromTop (kCaptionH + 6)
                            .withTrimmedTop (6);
-    g.drawText (text.toUpperCase(), strip, juce::Justification::centredLeft);
+
+    // Small accent tick before the caption: ties every section to the
+    // theme colour and gives the eye an anchor per card.
+    g.setColour (theme.accent.withAlpha (0.85f));
+    g.fillRoundedRectangle ((float) strip.getX(),
+                            (float) strip.getCentreY() - 5.0f, 3.0f, 10.0f, 1.5f);
+
+    g.setColour (theme.textSecondary);
+    g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Semibold"))
+                   .withExtraKerningFactor (0.08f));
+    g.drawText (text.toUpperCase(), strip.withTrimmedLeft (9),
+                juce::Justification::centredLeft);
 }
 
 void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)

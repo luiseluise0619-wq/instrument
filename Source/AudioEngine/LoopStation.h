@@ -153,11 +153,13 @@ public:
     void tapPlayAll()  { pendingMaster.store (2); }
     void tapClearAll() { pendingMaster.store (3); }
 
-    /** Message thread: mixes every finished, unmuted track (volume, pan,
-        reverse applied) into `out` over one cycle of the LONGEST loop —
-        all other loops divide it, so the cycle closes cleanly. Returns
-        false when nothing has been recorded yet. */
-    bool renderMixdown (juce::AudioBuffer<float>& out) const
+    /** Message thread: renders loops (volume, pan, reverse applied) into
+        `out` over one cycle of the LONGEST loop — all other loops divide
+        it, so the cycle closes cleanly and every stem lines up.
+        onlyTrack -1 = mix every unmuted track; 0..5 = that single track
+        as a stem (mute ignored — a stem is a stem). Returns false when
+        there is nothing to render. */
+    bool renderMixdown (juce::AudioBuffer<float>& out, int onlyTrack = -1) const
     {
         int longest = 0;
         for (auto& t : tracks)
@@ -165,13 +167,19 @@ public:
         if (longest <= 0)
             return false;
 
+        if (onlyTrack >= 0 && trk (onlyTrack).lenSamples.load() <= 0)
+            return false;
+
         out.setSize (2, longest);
         out.clear();
 
-        for (auto& t : tracks)
+        for (int ti = 0; ti < kNumTracks; ++ti)
         {
+            auto& t = tracks[ti];
             const int len = t.lenSamples.load();
-            if (len <= 0 || t.muted.load())
+            if (len <= 0)
+                continue;
+            if (onlyTrack >= 0 ? ti != onlyTrack : t.muted.load())
                 continue;
 
             const float vol = t.volume.load();

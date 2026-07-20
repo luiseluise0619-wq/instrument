@@ -159,26 +159,52 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             if (f == juce::File{})
                 return;
             f = f.withFileExtension ("wav");
-            f.deleteFile();
 
-            juce::WavAudioFormat wav;
-            auto stream = f.createOutputStream();
-            bool ok = false;
-            if (stream != nullptr)
+            auto writeWav = [this] (const juce::File& dest,
+                                    const juce::AudioBuffer<float>& buf) -> bool
             {
+                dest.deleteFile();
+                juce::WavAudioFormat wav;
+                auto stream = dest.createOutputStream();
+                if (stream == nullptr)
+                    return false;
                 if (auto* writer = wav.createWriterFor (stream.get(),
                                                         proc.getLooper().getSampleRate(),
                                                         2, 24, {}, 0))
                 {
                     std::unique_ptr<juce::AudioFormatWriter> w (writer);
                     stream.release();   // the writer owns the stream now
-                    ok = w->writeFromAudioSampleBuffer (*mix, 0, mix->getNumSamples());
+                    return w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+                }
+                return false;
+            };
+
+            bool ok = writeWav (f, *mix);
+
+            // Stems alongside the mix: one aligned WAV per recorded track
+            // (same length as the mix, so they drop into a DAW in sync).
+            int stems = 0;
+            for (int ti = 0; ti < LoopStation::kNumTracks && ok; ++ti)
+            {
+                juce::AudioBuffer<float> stem;
+                if (proc.getLooper().renderMixdown (stem, ti))
+                {
+                    ++stems;
+                    ok = writeWav (f.getSiblingFile (
+                             f.getFileNameWithoutExtension()
+                             + "-track" + juce::String (ti + 1) + ".wav"), stem);
                 }
             }
+
             if (! ok)
                 juce::AlertWindow::showMessageBoxAsync (
                     juce::MessageBoxIconType::WarningIcon, "Slyce",
-                    "Could not write the WAV file there - try another folder.");
+                    "Could not write the WAV files there - try another folder.");
+            else if (stems > 1)
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::InfoIcon, "Slyce",
+                    "Exported the full mix plus " + juce::String (stems)
+                    + " track stems next to it.");
         });
     };
     addAndMakeVisible (exportButton);
