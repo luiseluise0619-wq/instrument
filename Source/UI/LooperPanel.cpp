@@ -1,6 +1,7 @@
 #include "LooperPanel.h"
 #include "ThemeManager.h"
 #include "../PluginProcessor.h"
+#include "../AudioEngine/SampleLoader.h"
 
 LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     : proc (processor)
@@ -75,6 +76,13 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         t.instBox.onChange = [this, i]
         {
             const int id = trackUI[i].instBox.getSelectedId();
+            if (id == kLoadAudioId)
+            {
+                // Deselect first so the combo doesn't sit on "Load Audio...".
+                trackUI[i].instBox.setSelectedId (0, juce::dontSendNotification);
+                importAudioToTrack (i);
+                return;
+            }
             trackUI[i].chosenInstrument = id > 0 ? id - 1 : -1;
 
             // Audition right away — but never while a take is rolling:
@@ -90,7 +98,8 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             applyTrackInstrument (i);
         };
 
-        t.instBox.setTooltip ("This track's own sound - applied automatically when you record or overdub here");
+        t.instBox.setTooltip ("This track's own sound - applied automatically when you record or "
+                              "overdub here.  Top entry loads an audio FILE straight into the track");
         t.mainButton.setTooltip ("1st tap: record.  2nd tap: lock the loop.  Then tap to stack overdubs / play");
         t.rerecButton.setTooltip ("Wipe this track and record it again in one tap");
         t.undoButton.setTooltip ("Remove the last overdub - press again to bring it back (REDO)");
@@ -217,6 +226,14 @@ void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShel
     const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
     auto* root = box.getRootMenu();
 
+    if (! withQuickShelf)
+    {
+        // Per-track boxes only: drop a sample/loop file straight onto this
+        // track instead of recording one.
+        box.addItem ("Load Audio File...", kLoadAudioId);
+        root->addSeparator();
+    }
+
     if (withQuickShelf)
     {
         static const char* featured[] = { "Drum Kit", "Vox Choir", "Vox Pluck",
@@ -328,6 +345,32 @@ void LooperPanel::timerCallback()
         if (! t.ringArea.isEmpty())
             repaint (t.ringArea);
     }
+}
+
+void LooperPanel::importAudioToTrack (int track)
+{
+    fileChooser = std::make_unique<juce::FileChooser> (
+        "Load audio into loop track " + juce::String (track + 1),
+        juce::File{}, "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                  | juce::FileBrowserComponent::canSelectFiles,
+        [this, track] (const juce::FileChooser& fc)
+    {
+        const auto file = fc.getResult();
+        if (! file.existsAsFile())
+            return;
+
+        double srcRate = 44100.0;
+        auto buf = SampleLoader::decode (file, srcRate);
+        if (buf == nullptr
+            || ! proc.getLooper().importAudio (track, *buf, srcRate))
+        {
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon, "Slyce",
+                "Could not load this audio file into the loop track.");
+        }
+    });
 }
 
 void LooperPanel::resized()

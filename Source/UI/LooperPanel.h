@@ -34,6 +34,9 @@ private:
     void populateInstrumentBox (juce::ComboBox&, bool withQuickShelf);
     void applyTrackInstrument (int track);
     void updateTrackVisibility();
+    void importAudioToTrack (int track);   // file -> loop (combo's top entry)
+
+    static constexpr int kLoadAudioId = 900000;   // per-track combo item id
 
     VocalChopAudioProcessor& proc;
 
@@ -69,6 +72,7 @@ private:
     juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox instrumentBox;  // Featured + category submenus
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;
+    std::unique_ptr<juce::FileChooser> fileChooser;   // per-track audio import
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LooperPanel)
 };

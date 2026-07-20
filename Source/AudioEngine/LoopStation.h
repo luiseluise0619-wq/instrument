@@ -60,6 +60,7 @@ public:
             t.reversed.store (false);
             t.pan.store (0.0f);
             t.armCountdown = 0;
+            t.importLen.store (0);
         }
         masterLen.store (0);
         transport = 0;
@@ -82,6 +83,40 @@ public:
     void tapUndo (int track)  { pushCmd (track, 3); }
     /** Wipe the track and start recording again in one tap. */
     void tapReRecord (int track) { pushCmd (track, 4); }
+
+    /** Message thread: copies an audio FILE's samples into a track and sets
+        it playing (a drum loop, an acapella...). The track is parked Empty
+        first so the audio thread stops reading it, the data is resampled to
+        the engine rate here, then command 5 publishes it atomically. */
+    bool importAudio (int track, const juce::AudioBuffer<float>& src, double srcRate)
+    {
+        auto& t = trk (track);
+        t.state.store (Empty);
+
+        const double ratio  = srcRate > 0.0 ? srHz / srcRate : 1.0;
+        const int    outLen = juce::jmin (maxLenSamples,
+                                          (int) std::llround ((double) src.getNumSamples() * ratio));
+        if (outLen < 32 || src.getNumChannels() < 1)
+            return false;
+
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            float*       dst = t.loop.getWritePointer (ch);
+            const float* s   = src.getReadPointer (juce::jmin (ch, src.getNumChannels() - 1));
+            for (int i = 0; i < outLen; ++i)
+            {
+                const double x  = (double) i / ratio;
+                const int    i0 = juce::jmin ((int) x, src.getNumSamples() - 1);
+                const int    i1 = juce::jmin (i0 + 1, src.getNumSamples() - 1);
+                const double f  = x - (double) i0;
+                dst[i] = (float) (s[i0] * (1.0 - f) + s[i1] * f);
+            }
+        }
+
+        t.importLen.store (outLen);
+        pushCmd (track, 5);
+        return true;
+    }
 
     // Metronome: an audible click at a set BPM, never recorded into loops.
     void setMetronomeOn (bool on)
@@ -327,6 +362,7 @@ private:
         int     dubSamples = 0;    // samples visited in the current dub session
         int     undoEnd = 0;       // loop index where the last dub session ended
         int     armCountdown = 0;  // count-in samples left (0 = sync to loop top)
+        std::atomic<int> importLen { 0 };   // length of a pending file import
     };
 
     Track&       trk (int i)       { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
@@ -425,19 +461,43 @@ private:
                 const int master = masterLen.load (std::memory_order_relaxed);
                 if (master > 0)
                 {
-                    // Quantise: round to the nearest multiple of the master
-                    // length. Late tap -> truncate; early tap -> keep rolling
-                    // to the boundary.
-                    const int mult = juce::jmax (1, (int) std::lround (
-                                        (double) t.recPos / (double) master));
-                    const int target = juce::jmin (maxLenSamples, mult * master);
+                    // The tap IS the end of the performance: close the loop as
+                    // close to it as the grid allows. Long takes snap to the
+                    // nearest master multiple, short takes to a half/quarter/
+                    // eighth sub-loop, and we never keep rolling for more than
+                    // a quarter of the master - a stopped performer hearing
+                    // the recorder still running reads it as lag.
+                    int target = master;
+                    if (t.recPos >= master)
+                    {
+                        const int mult = juce::jmax (1, (int) std::lround (
+                                            (double) t.recPos / (double) master));
+                        target = mult * master;
+                        if (target - t.recPos > master / 4)
+                            target = juce::jmax (master, (mult - 1) * master);
+                    }
+                    else
+                    {
+                        double bestErr = 1.0e18;
+                        for (const int d : { 1, 2, 4, 8 })
+                        {
+                            const double len = (double) master / d;
+                            const double err = std::abs (len - (double) t.recPos);
+                            if (err < bestErr)
+                            {
+                                bestErr = err;
+                                target  = juce::jmax (1, (int) std::lround (len));
+                            }
+                        }
+                    }
+                    target = juce::jmin (maxLenSamples, target);
                     if (t.recPos >= target)
                     {
                         t.targetLen = target;
                         finalizeTake (t);
                     }
                     else
-                        t.targetLen = target;   // finish at the boundary
+                        t.targetLen = target;   // short remaining roll to the grid
                 }
                 else
                     finalizeTake (t);
@@ -494,6 +554,25 @@ private:
                 metroResetReq.store (true);
             }
             t.state.store (Recording);
+        }
+        else if (cmd == 5)     // an imported audio file becomes this loop
+        {
+            const int len = juce::jmax (1, t.importLen.load (std::memory_order_relaxed));
+            t.lenSamples.store (len);
+            t.layers.store (1);
+            t.undoAvail.store (false);
+            t.redoState.store (false);
+            t.recPos = 0;
+            t.targetLen = 0;
+            t.dubSamples = 0;
+            const int master = masterLen.load (std::memory_order_relaxed);
+            if (master <= 0)
+            {
+                masterLen.store (len);       // first content defines the grid
+                masterStamp = transport;
+            }
+            t.startStamp = transport;        // its loop top = right now
+            t.state.store (Playing);
         }
         else if (cmd == 3)     // undo <-> redo the latest dub session
         {
