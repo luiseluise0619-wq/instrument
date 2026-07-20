@@ -36,8 +36,10 @@ int SliceGrid::keySpan() const
         return 36;
 
     // Chop mode: whole octaves, at least one, enough to cover every slice.
+    // Slices sit on WHITE keys now (do-re-mi = cut order), so one octave
+    // covers 7 slices, not 12.
     const int numSlices = proc.getSliceEngine().getNumSlices();
-    const int octaves   = juce::jlimit (1, 3, (numSlices + 11) / 12);
+    const int octaves   = juce::jlimit (1, 3, (numSlices + 6) / 7);
     return octaves * 12;
 }
 
