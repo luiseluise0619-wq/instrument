@@ -55,8 +55,11 @@ public:
 
     ~UnlockPanel() override
     {
-        // Wait for any in-flight activation call: a thread that outlives the
-        // editor (or the module) would crash the host.
+        // Cancel any in-flight activation FIRST (the progress callback aborts
+        // the connection within milliseconds), then join - so closing the
+        // window never blocks the host UI for a network timeout.
+        if (cancelNet != nullptr)
+            cancelNet->store (true);
         joinNetThread();
     }
 
@@ -138,14 +141,18 @@ private:
         // Gumroad key: one blocking network call on a background thread. The
         // thread is OWNED (joined in the destructor), never detached — a
         // detached thread can outlive the plugin module and crash the host.
+        if (cancelNet != nullptr)
+            cancelNet->store (true);   // abort a previous attempt, if any
         joinNetThread();
         activateButton.setEnabled (false);
         showStatus ("Checking key...", true);
 
+        cancelNet = std::make_shared<std::atomic<bool>> (false);
+        auto cancel = cancelNet;
         juce::Component::SafePointer<UnlockPanel> self (this);
-        netThread = std::make_unique<std::thread> ([self, key]
+        netThread = std::make_unique<std::thread> ([self, key, cancel]
         {
-            const auto result = vcs::Licensing::activateOnline (key);
+            const auto result = vcs::Licensing::activateOnline (key, cancel.get());
             juce::MessageManager::callAsync ([self, result, key]
             {
                 if (self == nullptr)
@@ -201,6 +208,7 @@ private:
 
     std::function<bool (juce::String, juce::String)> finalize;
     std::unique_ptr<std::thread> netThread;
+    std::shared_ptr<std::atomic<bool>> cancelNet;   // aborts the HTTP attempt
 
     juce::Label      title, info, status;
     juce::TextEditor emailBox, keyBox;

@@ -81,7 +81,7 @@ public:
               "Hit DEMO in the toolbar, then play your computer keys\n"
               "Z S X D C V G B H N J M  (or any MIDI keyboard)." },
             { "2", "SOUNDS",
-              "Open the Instrument menu for 314 sounds - drums, 808s,\n"
+              "Open the Instrument menu for 343 sounds - drums, 808s,\n"
               "vocals, pianos. Start with the FEATURED shelf." },
             { "3", "LOOP",
               "Open LOOPER (top right). Pick a sound per track,\n"

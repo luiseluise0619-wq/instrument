@@ -30,6 +30,7 @@ private:
 
     float displayed = 0.0f;      // ballistic-smoothed bar value (0..1)
     float peakHold   = 0.0f;     // slowly-falling peak marker (0..1)
+    float lastDrawnDisplayed = 1.0f, lastDrawnPeak = 1.0f;   // idle-skip
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MeterComponent)
 };

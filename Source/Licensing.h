@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 
 /**
     Licensing for Slyce (formerly VocalChop Studio).
@@ -93,8 +94,11 @@ struct Licensing
         juce::String email;     // buyer e-mail from the receipt (if any)
     };
 
-    /** BLOCKING network call — run it on a background thread. */
-    static OnlineResult activateOnline (const juce::String& keyIn)
+    /** BLOCKING network call — run it on a background thread. A non-null
+        cancelFlag aborts the connection attempt (checked via the progress
+        callback) so a closing editor never waits out the full timeout. */
+    static OnlineResult activateOnline (const juce::String& keyIn,
+                                        std::atomic<bool>* cancelFlag = nullptr)
     {
         OnlineResult r;
         const auto key = keyIn.trim();
@@ -106,7 +110,11 @@ struct Licensing
 
         auto stream = url.createInputStream (
             juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
-                .withConnectionTimeoutMs (8000));
+                .withConnectionTimeoutMs (8000)
+                .withProgressCallback ([cancelFlag] (int, int)
+                {
+                    return cancelFlag == nullptr || ! cancelFlag->load();
+                }));
 
         if (stream == nullptr)
         {

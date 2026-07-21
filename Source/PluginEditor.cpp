@@ -505,8 +505,16 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         presetBox.setJustificationType (juce::Justification::centred);
         presetBox.onChange = [this]
         {
-            processor.applyPreset (presetBox.getSelectedId() - 1);
+            const int id = presetBox.getSelectedId();
+            if (id <= 0)
+                return;
+            processor.applyPreset (id - 1);
             refreshChildren();
+            // Deselect (keeping the text) so picking the SAME preset again
+            // re-applies it - "reset to Init" must always work.
+            const auto shown = presetBox.getText();
+            presetBox.setSelectedId (0, juce::dontSendNotification);
+            presetBox.setText (shown, juce::dontSendNotification);
         };
         addAndMakeVisible (presetBox);
     }
@@ -569,11 +577,11 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // Hover help everywhere a first-timer might hesitate.
     demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
-    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 315 built-in sounds.  "
+    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 343 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
                           "Melody = play the loaded sample as pitched notes");
     synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
-    instrumentBox.setTooltip ("315 built-in sounds, organised by category - start with FEATURED");
+    instrumentBox.setTooltip ("343 built-in sounds, organised by category - start with FEATURED");
     looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
     themeBox.setTooltip ("Color themes and artwork skins");
     presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
@@ -930,6 +938,10 @@ void VocalChopAudioProcessorEditor::openFileChooser()
                     instrumentBox.addItem (rNames[0], 5000 + mySamplePaths.size());
                     mySamplePaths.add (rPaths[0]);
                 }
+                // Show the bank that is actually playing.
+                const int sel = rPaths.isEmpty() ? -1 : mySamplePaths.indexOf (rPaths[0]);
+                if (sel >= 0)
+                    instrumentBox.setSelectedId (5000 + sel, juce::dontSendNotification);
             }
             else
                 juce::AlertWindow::showMessageBoxAsync (
@@ -998,7 +1010,11 @@ void VocalChopAudioProcessorEditor::grabKeysSoon()
     juce::Component::SafePointer<VocalChopAudioProcessorEditor> safe (this);
     juce::Timer::callAfterDelay (80, [safe]
     {
-        if (safe != nullptr && safe->isShowing())
+        // Only when OUR window already has focus: this fires on automation /
+        // project-load driven combo changes too, and yanking focus from a
+        // host text field mid-typing turns keystrokes into notes.
+        if (safe != nullptr && safe->isShowing()
+            && safe->getPeer() != nullptr && safe->getPeer()->isFocused())
             safe->grabKeyboardFocus();
     });
 }
@@ -1028,7 +1044,9 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
     // always honoured (that's the watchdog's whole job).
     auto* focusOwner = juce::Component::getCurrentlyFocusedComponent();
     const bool focused = hasKeyboardFocus (true)
-                      && dynamic_cast<juce::TextEditor*> (focusOwner) == nullptr;
+                      && dynamic_cast<juce::TextEditor*> (focusOwner) == nullptr
+                      && ! unlockPanel.isVisible()      // typing a license key
+                      && ! welcomePanel.isVisible();    // reading the guide
 
     for (int i = 0; i < kTypingKeys.length(); ++i)
     {
@@ -1069,8 +1087,12 @@ void VocalChopAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcas
     // everything else: slice combos, theme, instrument, cached waveform.
     syncSliceControls();
     themeBox.setSelectedId (ThemeManager::current() + 1, juce::dontSendNotification);
-    instrumentBox.setSelectedId (processor.getCurrentInstrument() + 1,
-                                 juce::dontSendNotification);
+    // Guard like the constructor does: index 0 with no explicit pick means
+    // "nothing chosen" (show the placeholder), and in Sampled mode the combo
+    // is showing an SFZ bank the instrument list knows nothing about.
+    if (processor.getCurrentInstrument() > 0 && ! processor.isSamplerMode())
+        instrumentBox.setSelectedId (processor.getCurrentInstrument() + 1,
+                                     juce::dontSendNotification);
     backdropTheme = -1;   // force the scene cache to re-render
     refreshChildren();
 }

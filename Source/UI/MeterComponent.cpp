@@ -32,7 +32,16 @@ void MeterComponent::timerCallback()
 
     peakHold = juce::jlimit (0.0f, 1.0f, peakHold);
 
-    repaint();
+    // Idle meters must not burn CPU: skip the repaint once both bars have
+    // visually settled to silence.
+    const bool idle = displayed < 0.002f && peakHold < 0.002f
+                      && lastDrawnDisplayed < 0.002f && lastDrawnPeak < 0.002f;
+    if (! idle)
+    {
+        lastDrawnDisplayed = displayed;
+        lastDrawnPeak      = peakHold;
+        repaint();
+    }
 }
 
 void MeterComponent::paint (juce::Graphics& g)
@@ -48,12 +57,12 @@ void MeterComponent::paint (juce::Graphics& g)
     // Card region inset slightly so the drop shadow has room to breathe.
     const auto card = bounds.reduced (2.0f);
 
-    // Soft drop shadow beneath the material card.
-    {
-        juce::Path shadowPath;
-        shadowPath.addRoundedRectangle (card, radius);
-        juce::DropShadow (theme.shadow, 10, { 0, 2 }).drawForPath (g, shadowPath);
-    }
+    // Soft drop shadow - two cheap offset fills, NOT a gaussian blur (this
+    // repaints 60x/s; a real DropShadow here costs milliseconds per frame).
+    g.setColour (theme.shadow.withAlpha (0.16f));
+    g.fillRoundedRectangle (card.translated (0.0f, 3.0f).expanded (1.5f), radius + 1.5f);
+    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.fillRoundedRectangle (card.translated (0.0f, 1.0f).expanded (0.5f), radius + 0.5f);
 
     const bool glowTheme = theme.glow >= 0.9f;
 
