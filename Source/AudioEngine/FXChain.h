@@ -35,6 +35,7 @@ private:
     std::vector<float> preLine[2];   // pre-delay ring buffers
     int   prePos = 0, preSamples = 0;
     float hpState[2] { 0.0f, 0.0f }; // one-pole HP on the wet return
+    bool  idleFlushed = false;       // tail cleared while the knob is at 0
     float hpCoeff = 0.02f;
 };
 
@@ -65,6 +66,7 @@ private:
     // One-pole lowpass in the feedback path: repeats decay warm, not harsh.
     static constexpr float kDampCoeff = 0.35f;
     float dampState[2] { 0.0f, 0.0f };
+    bool  idleFlushed = false;       // echoes cleared while the knob is at 0
 };
 
 /**
@@ -100,6 +102,7 @@ private:
     int    lastType   = -1;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedCutoff { 1000.0f };
+    float typeFade = 1.0f;   // 0->1 crossfade after a topology switch
 };
 
 /**

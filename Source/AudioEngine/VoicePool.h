@@ -35,6 +35,9 @@ public:
 
     bool isActive() const { return active; }
 
+    /** Current envelope level — the pool steals the QUIETEST voice. */
+    float currentLevel() const { return envelope(); }
+
     // Normalised position of the read head in the WHOLE sample (0..1), or -1 if
     // inactive. Valid after render(). Safe to read from any thread only via the
     // VoicePool atomic mirror; this raw accessor is for the pool's own use.

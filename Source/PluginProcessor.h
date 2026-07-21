@@ -292,7 +292,11 @@ private:
               drift = 0, velFlt = 1.0f, pitchEnvOct = 0, pitchEnvMs = 60,
               atk = 0, dec = 200, sus = 0, rel = 150;
     };
-    std::array<KitPiece, 12> kitPieces {};
+    // Double-buffered: buildKitPieces (message thread) fills the inactive
+    // page and flips the index; kitNoteOn (audio thread) reads the active
+    // page - rewriting one shared array under the reader was a data race.
+    std::array<KitPiece, 12> kitPiecesBuf[2] {};
+    std::atomic<int>         kitPage { 0 };
     std::atomic<bool> kitMode { false };
     bool buildingKit = false;
     void buildKitPieces();                              // message thread

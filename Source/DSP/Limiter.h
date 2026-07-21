@@ -20,6 +20,10 @@ public:
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
         lookaheadSamples = juce::jmax (1, (int) (lookaheadMs * 0.001 * sr));
         releaseCoeff = std::exp (-1.0f / (float) (releaseMs * 0.001 * sr));
+        // Attack smoothing: settle to ~99.3% of the drop across the look-ahead
+        // span. An instantaneous gain step IS a click - the delay exists
+        // precisely so the ramp can happen before the peak arrives.
+        attackCoeff = std::exp (-5.0f / (float) lookaheadSamples);
 
         for (auto& d : delayLines)
             d.assign ((size_t) lookaheadSamples, 0.0f);
@@ -76,9 +80,11 @@ public:
                     windowMin = juce::jmin (windowMin, t);
             }
 
-            // Attack instantly to the windowed minimum; release toward it
-            // only once every lower target has left the look-ahead window.
-            if (windowMin < gain) gain = windowMin;
+            // Smoothed attack toward the windowed minimum (the residual error
+            // after the look-ahead span is < 1%, comfortably inside the 0.98
+            // ceiling headroom); release only once every lower target has
+            // left the look-ahead window.
+            if (windowMin < gain) gain = windowMin + (gain - windowMin) * attackCoeff;
             else                  gain = windowMin + (gain - windowMin) * releaseCoeff;
 
             for (int ch = 0; ch < numCh; ++ch)
@@ -103,6 +109,7 @@ private:
     int    writePos = 0;
     float  gain = 1.0f;
     float  releaseCoeff = 0.0f;
+    float  attackCoeff  = 0.0f;
     std::vector<float> delayLines[2];
 
     // Sliding-minimum state for the look-ahead gain hold.

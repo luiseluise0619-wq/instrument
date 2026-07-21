@@ -297,9 +297,23 @@ int VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity)
             return i;
         }
     }
-    voices[0].start (hostSampleRate, src, srcSR, startSample, lengthSamples, velocity,
-                     attackMs, decayMs, sustainLvl, releaseMs, reversePlay, oneShotMode);
-    return 0;
+    // All busy: steal the QUIETEST voice. Blind-restarting slot 0 snapped a
+    // possibly full-scale waveform to zero - a hard click on every steal.
+    int quietest = 0;
+    float qLevel = 1.0e9f;
+    for (int i = 0; i < kMaxVoices; ++i)
+    {
+        const float lvl = voices[(size_t) i].currentLevel();
+        if (lvl < qLevel)
+        {
+            qLevel = lvl;
+            quietest = i;
+        }
+    }
+    voices[(size_t) quietest].start (hostSampleRate, src, srcSR, startSample, lengthSamples,
+                                     velocity, attackMs, decayMs, sustainLvl, releaseMs,
+                                     reversePlay, oneShotMode);
+    return quietest;
 }
 
 void VoicePool::releaseVoice (int voiceIndex)

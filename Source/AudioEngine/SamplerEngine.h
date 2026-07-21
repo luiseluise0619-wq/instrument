@@ -109,6 +109,26 @@ private:
     int rrCounter = 0;   // round-robin step (audio thread only)
 
     std::shared_ptr<const Bank> bank;   // swapped atomically
+
+    // Displaced banks parked here (message thread) so the LAST reference is
+    // never dropped by a voice inside render() - freeing a multi-hundred-MB
+    // bank on the audio thread is a guaranteed dropout.
+    std::vector<std::shared_ptr<const Bank>> retiredBanks;
+
+    void publishBank (std::shared_ptr<const Bank> newBank)
+    {
+        auto old = std::atomic_exchange (&bank, std::move (newBank));
+        if (old != nullptr)
+            retiredBanks.push_back (std::move (old));
+        // Prune banks no longer referenced by any voice (safe: we hold a ref,
+        // so the audio thread can only ever be a non-final owner).
+        retiredBanks.erase (
+            std::remove_if (retiredBanks.begin(), retiredBanks.end(),
+                            [] (const std::shared_ptr<const Bank>& b)
+                            { return b.use_count() == 1; }),
+            retiredBanks.end());
+    }
+
     std::array<Voice, kMaxVoices> voices;
     double sr = 44100.0;
 };

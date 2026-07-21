@@ -830,6 +830,9 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
 
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
+    loadedSampleFile = juce::File();   // the DEMO is now playing: saving the
+                                       // old path would restore a different
+                                       // sample than the one heard
     prevSampleBuffer.reset();   // edit-undo must not resurrect the OLD sample
     reassignSampleToEngines();
     rescanSlices();
@@ -956,7 +959,7 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
 
     // Start every preset from a known baseline, then apply the character.
     set ("pitch", 0.0f);      set ("formant", 0.0f);   set ("mix", 1.0f);
-    set ("width", 1.0f);      set ("grainSize", 80.0f);
+    set ("width", 1.0f);      set ("grainSize", 80.0f); set ("grainMix", 0.0f);
     set ("drive", 0.0f);      set ("reverb", 0.0f);    set ("delay", 0.0f);
     set ("attack", 5.0f);     set ("decay", 0.0f);     set ("sustain", 1.0f);
     set ("release", 20.0f);   set ("filterType", 0.0f); set ("filterCutoff", 20000.0f);
@@ -1387,6 +1390,9 @@ void VocalChopAudioProcessor::buildKitPieces()
     const auto names = getInstrumentNames();
     auto& p = synthEngine.patch();
 
+    // Write into the INACTIVE page; flip only when every piece is complete.
+    const int page = 1 - kitPage.load (std::memory_order_relaxed);
+
     for (int k = 0; k < 12; ++k)
     {
         const int idx = names.indexOf (pieceNames[k]);
@@ -1395,7 +1401,7 @@ void VocalChopAudioProcessor::buildKitPieces()
 
         applyEnginePatch (idx);   // writes the piece into the live patch...
         const auto& d = kInstruments[idx];
-        auto& kp = kitPieces[(size_t) k];
+        auto& kp = kitPiecesBuf[page][(size_t) k];
 
         // ...which we snapshot into plain floats the audio thread can use.
         kp.unison  = p.unison.load();        kp.spread   = p.stereoSpread.load();
@@ -1411,13 +1417,16 @@ void VocalChopAudioProcessor::buildKitPieces()
         kp.playNote = 60 + d.octave * 12;    // natural drum pitch, key-independent
         kp.atk = d.atk; kp.dec = d.dec; kp.sus = d.sus; kp.rel = d.rel;
     }
+
+    kitPage.store (page, std::memory_order_release);
 }
 
 void VocalChopAudioProcessor::kitNoteOn (int note, float velocity, bool tap)
 {
     // Audio thread: atomic stores only, no allocations. The voice snapshots
     // everything at start, so each drum keeps its sound while others ring.
-    const auto& kp = kitPieces[(size_t) (((note % 12) + 12) % 12)];
+    const auto& kp = kitPiecesBuf[kitPage.load (std::memory_order_acquire)]
+                                 [(size_t) (((note % 12) + 12) % 12)];
     auto& p = synthEngine.patch();
 
     p.unison.store (kp.unison);          p.stereoSpread.store (kp.spread);

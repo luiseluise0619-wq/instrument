@@ -97,8 +97,19 @@ void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
     if (target <= 0.0f && ! smoothedAmount.isSmoothing())
     {
         smoothedAmount.setCurrentAndTargetValue (0.0f);
+        if (! idleFlushed)
+        {
+            // Flush ONCE on entering idle: a frozen tail + pre-delay line
+            // would otherwise replay minutes-old audio when the knob returns.
+            reverb.reset();
+            for (auto& l : preLine)
+                std::fill (l.begin(), l.end(), 0.0f);
+            hpState[0] = hpState[1] = 0.0f;
+            idleFlushed = true;
+        }
         return;
     }
+    idleFlushed = false;
 
     const int numSamples  = buffer.getNumSamples();
     const int numChannels = juce::jmin (2, buffer.getNumChannels());
@@ -205,7 +216,20 @@ void FilterFX::updateCoefficients (float cutoffHz, float q, int type) noexcept
 void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float resonance, int type)
 {
     if (type == 0) // Off/bypass
+    {
+        if (lastType > 0)
+        {
+            reset();          // drop stale states so re-enabling can't thump
+            lastType = 0;
+        }
         return;
+    }
+
+    if (type != lastType)
+    {
+        reset();              // topology switch: stale z-states would step
+        typeFade = 0.0f;      // ...and crossfade the dry->filtered handover
+    }
 
     const float nyqLimit = (float) (sampleRate * 0.49);
     const float targetCut = juce::jlimit (20.0f, nyqLimit, cutoffHz);
@@ -235,15 +259,22 @@ void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float 
 
         for (int ch = 0; ch < numCh; ++ch)
         {
-            float x = buffer.getSample (ch, n);
+            const float dry = buffer.getSample (ch, n);
+            float x = dry;
 
             if (type == 3) // band-pass cascade
                 x = lp[ch].process (hp[ch].process (x));
             else
                 x = lp[ch].process (x);
 
+            if (typeFade < 1.0f)
+                x = dry + (x - dry) * typeFade;
+
             buffer.setSample (ch, n, x);
         }
+
+        if (typeFade < 1.0f)   // ~5 ms dry->filtered crossfade
+            typeFade = juce::jmin (1.0f, typeFade + 1.0f / (0.005f * (float) sampleRate));
     }
 
     // If no channels were processed, keep the cutoff smoother advanced.
@@ -288,8 +319,14 @@ void DelayFX::process (juce::AudioBuffer<float>& buffer, float amount)
     if (target <= 0.0f && ! smoothedWet.isSmoothing())
     {
         smoothedWet.setCurrentAndTargetValue (0.0f);
+        if (! idleFlushed)
+        {
+            reset();   // 2 s of stale echoes must not replay on the next raise
+            idleFlushed = true;
+        }
         return;
     }
+    idleFlushed = false;
 
     const int numChannels = juce::jmin (buffer.getNumChannels(), 2);
     const int numSamples  = buffer.getNumSamples();

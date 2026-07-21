@@ -139,12 +139,15 @@ private:
         float  sustainLevel = 1.0f;
 
         int    autoOffCounter = -1;
+        int    waveSnap = Saw;   // wave captured at note-start: kit mode swaps
+                                 // the engine wave per HIT, so a ringing drum
+                                 // must keep the shape it was born with
 
         bool  isActive() const { return stage != Stage::idle; }
         float envelope() const;
     };
 
-    float  renderOsc (double phase, double inc) const;
+    float  renderOsc (double phase, double inc, int waveType) const;
     Voice* findFreeVoice();
     void   startVoice (Voice&, int midiNote, float velocity, int autoOffSamples,
                        int pitchNoteOverride = -1);

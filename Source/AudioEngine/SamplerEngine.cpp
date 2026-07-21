@@ -222,6 +222,9 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
         r.data.setSize (numCh, (int) reader->lengthInSamples);
         reader->read (&r.data, 0, (int) reader->lengthInSamples, 0, true, numCh > 1);
         r.srcRate = reader->sampleRate > 0 ? reader->sampleRate : 44100.0;
+        // A negative loop_start from a malformed SFZ would read far below
+        // the buffer during the loop wrap - clamp BEFORE validating.
+        r.loopStart = juce::jlimit (0, juce::jmax (0, r.data.getNumSamples() - 1), r.loopStart);
         if (r.loopEnd <= r.loopStart || r.loopEnd > r.data.getNumSamples())
             r.loop = false;
 
@@ -295,7 +298,7 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
         return false;
     }
 
-    std::atomic_store (&bank, std::shared_ptr<const Bank> (newBank));
+    publishBank (std::shared_ptr<const Bank> (newBank));
     return true;
 }
 
@@ -315,7 +318,7 @@ void SamplerEngine::loadFromBuffer (const juce::AudioBuffer<float>& src, double 
     r.releaseSeconds = 0.25f;
     newBank->regions.push_back (std::move (r));
 
-    std::atomic_store (&bank, std::shared_ptr<const Bank> (newBank));
+    publishBank (std::shared_ptr<const Bank> (newBank));
 }
 
 const SamplerEngine::Region* SamplerEngine::findRegion (const Bank& b, int note, int vel127)

@@ -25,8 +25,11 @@ namespace
 
     inline void advance (double& phase, double inc)
     {
+        // Full wrap, not a single subtract: pitch envelopes can push inc
+        // past 1.0 (drum drops on very high keys), and a partial wrap lets
+        // the phase ratchet upward until the oscillator formulas explode.
         phase += inc;
-        if (phase >= 1.0) phase -= 1.0;
+        if (phase >= 1.0) phase -= std::floor (phase);
     }
 }
 
@@ -75,6 +78,10 @@ void SynthEngine::prepare (juce::dsp::ProcessSpec spec)
         line.assign ((size_t) kChorusSize, 0.0f);
     chorusWrite = 0;
     chorusLfo   = 0.0;
+
+    // Force a formant-coefficient rebuild: they are normalised to the
+    // sample rate, and a device change would otherwise shift every vowel.
+    formantVowelSet = -2;
 
     reset();
 }
@@ -130,11 +137,15 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     // Drum-kit mode plays a FIXED pitch per piece while the voice stays keyed
     // to the pressed note (so note-off still matches).
     const int pitchNote   = pitchNoteOverride >= 0 ? pitchNoteOverride : midiNote;
-    const double baseNote = juce::jlimit (0, 127, pitchNote) + octave * 12;
+    // Kit pieces bake their own octave into the override pitch - adding the
+    // engine octave again dropped every drum a further 12 semitones.
+    const double baseNote = juce::jlimit (0, 127, pitchNote)
+                          + (pitchNoteOverride >= 0 ? 0 : octave * 12);
     const double hz       = midiToHz (baseNote);
 
     v.note     = midiNote;
     v.velocity = juce::jlimit (0.0f, 1.0f, velocity);
+    v.waveSnap = wave;   // per-voice: later engine-wave swaps can't mutate it
 
     // --- Unison bank ---------------------------------------------------------
     v.unison = juce::jlimit (1, kMaxUnison, patchSettings.unison.load());
@@ -256,12 +267,12 @@ void SynthEngine::releaseAll()
 }
 
 //==============================================================================
-float SynthEngine::renderOsc (double phase, double inc) const
+float SynthEngine::renderOsc (double phase, double inc, int waveType) const
 {
     const float t  = (float) phase;
     const float dt = (float) inc;
 
-    switch (wave)
+    switch (waveType)
     {
         case Saw:
             return (2.0f * t - 1.0f) - polyBlep (t, dt);
@@ -331,7 +342,10 @@ void SynthEngine::processBus (int numSamples)
     float* R = scratch.getWritePointer (1);
 
     // --- Vocal formant bank (before saturation: shape first, glue after) ----
-    const int   vowel = patchSettings.formantVowel.load (std::memory_order_relaxed);
+    // Clamp BEFORE the set-comparison: an out-of-range vowel would otherwise
+    // rebuild (and zero) the bank every block - a constant click machine.
+    const int   vowelRaw = patchSettings.formantVowel.load (std::memory_order_relaxed);
+    const int   vowel = vowelRaw < 0 ? -1 : juce::jlimit (0, 4, vowelRaw);
     const float famt  = juce::jlimit (0.0f, 1.0f,
                                       patchSettings.formantAmount.load (std::memory_order_relaxed));
     if (vowel >= 0 && famt > 0.001f)
@@ -477,7 +491,7 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             for (int u = 0; u < v.unison; ++u)
             {
                 const double inc = v.incs[u] * pitchRatio;
-                const float  s   = renderOsc (v.phases[u], inc);
+                const float  s   = renderOsc (v.phases[u], inc, v.waveSnap);
                 oscL += s * v.panL[u];
                 oscR += s * v.panR[u];
                 advance (v.phases[u], inc);

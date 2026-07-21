@@ -52,13 +52,26 @@ void PitchFormant::process (juce::AudioBuffer<float>& buffer,
         engaged = wantEngage;
         fadePos = 0;               // mask the path switch with a short fade-in
         if (engaged)
+        {
             stretch.reset();
+            // The dry ring holds audio from the PREVIOUS engaged session -
+            // blending it in now would replay minute-old material.
+            for (int ch = 0; ch < 2; ++ch)
+                std::fill (dryRing[(size_t) ch].begin(),
+                           dryRing[(size_t) ch].end(), 0.0f);
+            ringWrite = 0;
+        }
     }
     if (! engaged)
     {
         applyToggleFade (buffer, numSamples, numChannels);
         return;                    // signal passes untouched: zero delay
     }
+
+    // Hosts may deliver a block larger than prepareToPlay promised; writing
+    // it into the scratch/ring would overflow the heap. Pass dry instead.
+    if (numSamples > inputScratch.getNumSamples())
+        return;
 
     // Apply pitch/formant on the audio thread (cheap parameter setters).
     stretch.setTransposeSemitones (pitchSemi);
