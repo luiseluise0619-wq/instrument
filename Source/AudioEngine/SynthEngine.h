@@ -58,6 +58,9 @@ public:
         std::atomic<float> lfoDepthOct   { 0.0f };   // filter LFO depth (octaves)
         std::atomic<float> pitchEnvOct   { 0.0f };   // pitch drop (octaves, drums)
         std::atomic<float> pitchEnvMs    { 60.0f };  // pitch envelope decay
+        // Vocal formant bank: -1 = off, 0..4 = A E I O U vowel resonances.
+        std::atomic<int>   formantVowel  { -1 };
+        std::atomic<float> formantAmount { 0.0f };   // 0..1 dry/wet
 
         void resetToInit()
         {
@@ -68,6 +71,7 @@ public:
             chorusMix = 0.0f; satAmount = 0.15f;
             lfoRateHz = 2.0f; lfoDepthOct = 0.0f;
             pitchEnvOct = 0.0f; pitchEnvMs = 60.0f;
+            formantVowel = -1; formantAmount = 0.0f;
         }
     };
 
@@ -162,6 +166,15 @@ private:
     std::vector<float> chorusLine[2];
     int    chorusWrite = 0;
     double chorusLfo = 0.0;
+
+    // Formant bank: three parallel bandpass biquads per channel, tuned to a
+    // vowel's F1/F2/F3. This is what makes VOCAL patches read as a VOICE.
+    struct FormantBand { float b0=0, b1=0, b2=0, a1=0, a2=0,
+                               x1L=0, x2L=0, y1L=0, y2L=0,
+                               x1R=0, x2R=0, y1R=0, y2R=0, gain=0; };
+    FormantBand formantBands[3];
+    int  formantVowelSet = -2;   // last vowel coefficients were built for
+    void updateFormantBank (int vowel);
 
     double sampleRate = 44100.0;
     int    wave = Saw;

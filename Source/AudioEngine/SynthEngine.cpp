@@ -283,10 +283,86 @@ float SynthEngine::renderOsc (double phase, double inc) const
     }
 }
 
+void SynthEngine::updateFormantBank (int vowel)
+{
+    // Classic vowel formant table (F1/F2/F3 in Hz + per-band gains); values
+    // are the widely used averages for a sung "ah eh ee oh oo".
+    static const float freq[5][3] = {
+        { 650.0f, 1080.0f, 2650.0f },   // A
+        { 400.0f, 1700.0f, 2600.0f },   // E
+        { 290.0f, 1870.0f, 2800.0f },   // I
+        { 400.0f,  800.0f, 2600.0f },   // O
+        { 350.0f,  600.0f, 2700.0f },   // U
+    };
+    static const float gain[5][3] = {
+        { 1.00f, 0.60f, 0.35f },
+        { 1.00f, 0.70f, 0.40f },
+        { 1.00f, 0.65f, 0.40f },
+        { 1.00f, 0.70f, 0.30f },
+        { 1.00f, 0.60f, 0.25f },
+    };
+
+    const int v = juce::jlimit (0, 4, vowel);
+    for (int b = 0; b < 3; ++b)
+    {
+        auto& fb = formantBands[b];
+        const float f = juce::jmin (freq[v][b], (float) sampleRate * 0.45f);
+        const float Q = 9.0f;
+        const float w = juce::MathConstants<float>::twoPi * f / (float) sampleRate;
+        const float alpha = std::sin (w) / (2.0f * Q);
+        const float a0 = 1.0f + alpha;
+
+        // RBJ constant-skirt bandpass.
+        fb.b0 =  alpha / a0;
+        fb.b1 =  0.0f;
+        fb.b2 = -alpha / a0;
+        fb.a1 = -2.0f * std::cos (w) / a0;
+        fb.a2 = (1.0f - alpha) / a0;
+        fb.gain = gain[v][b];
+        fb.x1L = fb.x2L = fb.y1L = fb.y2L = 0.0f;
+        fb.x1R = fb.x2R = fb.y1R = fb.y2R = 0.0f;
+    }
+    formantVowelSet = v;
+}
+
 void SynthEngine::processBus (int numSamples)
 {
     float* L = scratch.getWritePointer (0);
     float* R = scratch.getWritePointer (1);
+
+    // --- Vocal formant bank (before saturation: shape first, glue after) ----
+    const int   vowel = patchSettings.formantVowel.load (std::memory_order_relaxed);
+    const float famt  = juce::jlimit (0.0f, 1.0f,
+                                      patchSettings.formantAmount.load (std::memory_order_relaxed));
+    if (vowel >= 0 && famt > 0.001f)
+    {
+        if (vowel != formantVowelSet)
+            updateFormantBank (vowel);
+
+        const float makeup = 2.6f;   // the narrow bands eat a lot of level
+        for (int n = 0; n < numSamples; ++n)
+        {
+            float wetL = 0.0f, wetR = 0.0f;
+            for (auto& fb : formantBands)
+            {
+                const float xL = L[n];
+                const float yL = fb.b0 * xL + fb.b1 * fb.x1L + fb.b2 * fb.x2L
+                                 - fb.a1 * fb.y1L - fb.a2 * fb.y2L;
+                fb.x2L = fb.x1L; fb.x1L = xL;
+                fb.y2L = fb.y1L; fb.y1L = yL;
+                wetL += yL * fb.gain;
+
+                const float xR = R[n];
+                const float yR = fb.b0 * xR + fb.b1 * fb.x1R + fb.b2 * fb.x2R
+                                 - fb.a1 * fb.y1R - fb.a2 * fb.y2R;
+                fb.x2R = fb.x1R; fb.x1R = xR;
+                fb.y2R = fb.y1R; fb.y1R = yR;
+                wetR += yR * fb.gain;
+            }
+            L[n] = L[n] * (1.0f - famt) + wetL * makeup * famt;
+            R[n] = R[n] * (1.0f - famt) + wetR * makeup * famt;
+        }
+    }
 
     // --- Gentle saturation glue ----------------------------------------------
     const float sat = juce::jlimit (0.0f, 1.0f, patchSettings.satAmount.load());

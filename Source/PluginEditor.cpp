@@ -638,6 +638,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         // so a violin or piano they hunted down never just disappears.
         {
             const auto rNames = VocalChopAudioProcessor::getRecentSfzNames();
+            mySamplePaths     = VocalChopAudioProcessor::getRecentSfzPaths();
             if (! rNames.isEmpty())
             {
                 root->addSectionHeader ("MY SAMPLES");
@@ -672,14 +673,12 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         if (id >= 5000)
         {
             // MY SAMPLES: reload a remembered SFZ bank (switches to Sampled).
-            // Resolved by NAME, not stored index - the recents list reorders
-            // itself every load, so a baked-in index would drift.
-            const auto rNames = VocalChopAudioProcessor::getRecentSfzNames();
-            const auto paths  = VocalChopAudioProcessor::getRecentSfzPaths();
-            const int r = rNames.indexOf (instrumentBox.getText());
+            // Ids map to paths captured at menu-build time (mySamplePaths) -
+            // duplicate display names stay distinct and reorders can't drift.
+            const int r = id - 5000;
             juce::String err;
-            if (r >= 0 && r < paths.size()
-                  && processor.loadSfzBank (juce::File (paths[r]), err))
+            if (r >= 0 && r < mySamplePaths.size()
+                  && processor.loadSfzBank (juce::File (mySamplePaths[r]), err))
             {
                 refreshChildren();
             }
@@ -921,17 +920,15 @@ void VocalChopAudioProcessorEditor::openFileChooser()
             juce::String error;
             if (processor.loadSfzBank (file, error))
             {
-                // Surface the fresh bank in the MY SAMPLES shelf right away
-                // (stored at index 0 of the recents; items resolve by name).
+                // Surface the fresh bank in the MY SAMPLES shelf right away.
+                // Its id continues the 5000+ sequence and its path is
+                // appended to the id->path table used by onChange.
                 const auto rNames = VocalChopAudioProcessor::getRecentSfzNames();
-                bool present = false;
-                for (int it = 0; it < instrumentBox.getNumItems() && ! present; ++it)
-                    present = instrumentBox.getItemText (it) == rNames[0];
-                if (! rNames.isEmpty() && ! present)
+                const auto rPaths = VocalChopAudioProcessor::getRecentSfzPaths();
+                if (! rPaths.isEmpty() && ! mySamplePaths.contains (rPaths[0]))
                 {
-                    int nid = 5000;
-                    while (instrumentBox.indexOfItemId (nid) >= 0) ++nid;
-                    instrumentBox.addItem (rNames[0], nid);
+                    instrumentBox.addItem (rNames[0], 5000 + mySamplePaths.size());
+                    mySamplePaths.add (rPaths[0]);
                 }
             }
             else
@@ -950,7 +947,10 @@ void VocalChopAudioProcessorEditor::openFileChooser()
     fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
     {
         const auto file = fc.getResult();
-        if (file.existsAsFile() && processor.loadSampleFromFile (file))
+        // In Melody mode a new sample should STAY melodic - snapping back
+        // to Chop after every load forced a manual mode switch each time.
+        if (file.existsAsFile()
+            && processor.loadSampleFromFile (file, ! processor.isMelodyMode()))
         {
             syncSliceControls();
             refreshChildren();

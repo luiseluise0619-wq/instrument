@@ -73,7 +73,10 @@ private:
     juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox instrumentBox;  // Featured + category submenus
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;
-    std::unique_ptr<juce::FileChooser> fileChooser;   // per-track audio import
+    std::unique_ptr<juce::FileChooser> fileChooser;     // per-track audio import
+    std::unique_ptr<juce::FileChooser> exportChooser;   // EXPORT save dialog
+                                       // (separate members: replacing a live
+                                       // FileChooser silently kills its dialog)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LooperPanel)
 };

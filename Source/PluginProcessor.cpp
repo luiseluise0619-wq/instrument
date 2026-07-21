@@ -246,7 +246,8 @@ void VocalChopAudioProcessor::reassignSampleToEngines()
     {
         melodySourceRef = sampleBuffer;
         if (sampleBuffer != nullptr)
-            melodyEngine.loadFromBuffer (*sampleBuffer, loadedSampleRate, "Melody");
+            melodyEngine.loadFromBuffer (*sampleBuffer, loadedSampleRate, "Melody",
+                                         kRootNote);   // first keybed key = original pitch
     }
 }
 
@@ -788,6 +789,7 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
     loadedSampleFile = file;
+    prevSampleBuffer.reset();   // edit-undo must not resurrect the OLD sample
     reassignSampleToEngines();
     rescanSlices();
     analyzeSampleKey();
@@ -828,6 +830,7 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
 
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
+    prevSampleBuffer.reset();   // edit-undo must not resurrect the OLD sample
     reassignSampleToEngines();
     rescanSlices();
     analyzeSampleKey();
@@ -1492,8 +1495,30 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
                                 p.satAmount = 0.30f; }
     else if (cat == "DRUMS")  { chorus = 0.0f;  p.driftCents = 0.0f;  p.velToFilterOct = 1.2f;
                                 p.satAmount = 0.25f; }
-    else if (cat == "VOCAL")  { chorus = 0.45f; p.driftCents = 3.5f;  p.velToFilterOct = 0.4f;
-                                p.filterQ = 1.6f; }   // resonance ~= formant vowel colour
+    else if (cat == "VOCAL")
+    {
+        chorus = 0.45f; p.driftCents = 3.5f; p.velToFilterOct = 0.4f;
+        p.filterQ = 1.6f;
+
+        // TRUE vowel formants (three bandpass resonances in the synth bus)
+        // are what turn "resonant saw" into "voice". Vowel picked from the
+        // name; amount leaves ~45% dry so the note keeps its body.
+        int vowel = 0;                                              // "ah"
+        if      (name.containsIgnoreCase ("Choir"))  vowel = 3;     // "oh"
+        else if (name.containsIgnoreCase ("Air")
+              || name.containsIgnoreCase ("Breath")
+              || name.containsIgnoreCase ("Ooh"))    vowel = 4;     // "oo"
+        else if (name.containsIgnoreCase ("Pluck")
+              || name.containsIgnoreCase ("Chant"))  vowel = 1;     // "eh"
+        else if (name.containsIgnoreCase ("Robot")
+              || name.containsIgnoreCase ("Bit"))    vowel = 2;     // "ee"
+        p.formantVowel  = vowel;
+        p.formantAmount = 0.55f;
+
+        // A voice always carries a little breath and a slow, humane vibrato.
+        if (p.noiseLevel.load() < 0.03f) p.noiseLevel = 0.03f;
+        if (p.vibDepthCents.load() < 6.0f) { p.vibRateHz = 5.1f; p.vibDepthCents = 6.0f; }
+    }
     else if (cat == "HITS")   { chorus = 0.30f; p.driftCents = 3.0f;  p.velToFilterOct = 0.7f; }
     else /* MISC / INIT */    { chorus = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
 

@@ -142,6 +142,11 @@ private:
     // Hover help on every major control.
     juce::TooltipWindow tooltipWindow { this, 700 };
 
+    // MY SAMPLES: item id 5000+i maps to mySamplePaths[i]. Ids resolve to a
+    // path captured at menu-build time - the recents FILE reorders itself on
+    // every load, so name/index lookups against it would drift.
+    juce::StringArray mySamplePaths;
+
     // Cached card rectangles (populated in resized(), painted in paint()).
     juce::Rectangle<int> macroCardBounds;
     juce::Rectangle<int> sliceCardBounds;

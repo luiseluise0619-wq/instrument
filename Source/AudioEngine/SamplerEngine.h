@@ -38,11 +38,12 @@ public:
     /** Message thread. Returns false and fills `error` on failure. */
     bool loadSfz (const juce::File& sfzFile, juce::String& error);
 
-    /** Message thread. Builds a one-region bank from an in-memory sample
-        (root = C3) so a loaded chop sample can be played chromatically —
-        this is the whole "Melody" engine mode. */
+    /** Message thread. Builds a one-region bank from an in-memory sample so
+        a loaded chop sample can be played chromatically — this is the whole
+        "Melody" engine mode. rootNote = the MIDI key that plays the sample
+        at its original pitch. */
     void loadFromBuffer (const juce::AudioBuffer<float>& src, double srcRate,
-                         const juce::String& name);
+                         const juce::String& name, int rootNote = 60);
 
     bool hasBank() const { return std::atomic_load (&bank) != nullptr; }
     juce::String getBankName() const

@@ -61,6 +61,7 @@ public:
             t.pan.store (0.0f);
             t.armCountdown = 0;
             t.importLen.store (0);
+            t.importPending.store (0);
         }
         masterLen.store (0);
         transport = 0;
@@ -91,13 +92,19 @@ public:
     bool importAudio (int track, const juce::AudioBuffer<float>& src, double srcRate)
     {
         auto& t = trk (track);
+        // Counted, not boolean: two rapid imports must ignore the FIRST
+        // cmd 5 (its buffer is being rewritten by the second import).
+        t.importPending.fetch_add (1);
         t.state.store (Empty);
 
         const double ratio  = srcRate > 0.0 ? srHz / srcRate : 1.0;
         const int    outLen = juce::jmin (maxLenSamples,
                                           (int) std::llround ((double) src.getNumSamples() * ratio));
         if (outLen < 32 || src.getNumChannels() < 1)
+        {
+            t.importPending.fetch_sub (1);
             return false;
+        }
 
         for (int ch = 0; ch < 2; ++ch)
         {
@@ -193,9 +200,13 @@ public:
             float* oL = out.getWritePointer (0);
             float* oR = out.getWritePointer (1);
 
+            // Render from the MASTER grid top, honouring each track's own
+            // phase stamp - otherwise tracks armed a cycle late (or file
+            // imports) land bar-shifted versus what the performer heard.
+            const int64_t phase0 = masterStamp - t.startStamp;
             for (int i = 0; i < longest; ++i)
             {
-                int idx = i % len;
+                int idx = (int) (((phase0 + i) % len + len) % len);
                 if (rev) idx = len - 1 - idx;
                 oL[i] += L[idx] * gl;
                 oR[i] += R[idx] * gr;
@@ -298,6 +309,10 @@ public:
                             t.state.store (Recording);
                         else if ((int) (((transport - masterStamp) % master + master) % master) == 0)
                             t.state.store (Recording);
+                        else if (! anyRunning())
+                            t.state.store (Recording);   // grid frozen (all other
+                                                         // tracks stopped): waiting
+                                                         // would hang forever
                     }
                     continue;
                 }
@@ -415,7 +430,8 @@ private:
         int     dubSamples = 0;    // samples visited in the current dub session
         int     undoEnd = 0;       // loop index where the last dub session ended
         int     armCountdown = 0;  // count-in samples left (0 = sync to loop top)
-        std::atomic<int> importLen { 0 };   // length of a pending file import
+        std::atomic<int> importLen { 0 };       // length of a pending file import
+        std::atomic<int> importPending { 0 };   // imports in flight (see cmd 5)
     };
 
     Track&       trk (int i)       { return tracks[juce::jlimit (0, kNumTracks - 1, i)]; }
@@ -445,6 +461,11 @@ private:
         const int master = masterLen.load (std::memory_order_relaxed);
         if (master <= 0)
         {
+            // The first take DEFINES the grid: trim it to a multiple of 8 so
+            // half/quarter/eighth sub-loops divide it exactly - otherwise
+            // they drift against the downbeat a few samples per cycle,
+            // forever. Costs at most 7 samples of tail.
+            len = juce::jmax (8, len & ~7);
             masterLen.store (len);
             masterStamp = transport - (int64_t) t.recPos;   // grid top = take start
         }
@@ -473,6 +494,12 @@ private:
 
     void applyTrackCommand (Track& t, int cmd)
     {
+        // While an import is rewriting this track's buffers on the message
+        // thread, every other command must be dropped - a queued REC tap
+        // would otherwise write input into the same floats (data race).
+        if (t.importPending.load (std::memory_order_relaxed) > 0 && cmd != 5)
+            return;
+
         const int st = t.state.load (std::memory_order_relaxed);
 
         if (cmd == 1)          // main button
@@ -511,6 +538,17 @@ private:
             }
             else if (st == Recording)
             {
+                // A tap a few ms after record-start is a double-tap bounce,
+                // not a take - finalising it would define a near-zero master
+                // loop and poison the whole grid. Treat it as cancel.
+                if (t.recPos < (int) (srHz * 0.12))
+                {
+                    t.recPos = 0;
+                    t.targetLen = 0;
+                    t.state.store (Empty);
+                    return;
+                }
+
                 const int master = masterLen.load (std::memory_order_relaxed);
                 if (master > 0)
                 {
@@ -610,6 +648,10 @@ private:
         }
         else if (cmd == 5)     // an imported audio file becomes this loop
         {
+            // A newer import is still rewriting the buffer: this cmd is stale.
+            if (t.importPending.fetch_sub (1) > 1)
+                return;
+
             const int len = juce::jmax (1, t.importLen.load (std::memory_order_relaxed));
             t.lenSamples.store (len);
             t.layers.store (1);

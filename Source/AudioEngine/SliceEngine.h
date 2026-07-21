@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -39,8 +40,9 @@ public:
     void rebuildSlices();
     void sliceByManual (const std::vector<int>& points);
 
-    // Message-thread reads (UI / waveform).
-    int getNumSlices() const                       { return (int) slices.size(); }
+    // Safe from ANY thread: the count is mirrored into an atomic at publish
+    // time (the audio thread wraps key indices with it every note-on).
+    int getNumSlices() const                       { return numSlicesAtomic.load (std::memory_order_relaxed); }
     std::optional<SlicePoint> getSlice (int i) const;
     const std::vector<SlicePoint>& getSlices() const { return slices; }
     const std::vector<int>& getTransientPoints() const { return transients; }
@@ -57,6 +59,7 @@ private:
     std::shared_ptr<juce::AudioBuffer<float>> sample;
     std::vector<SlicePoint> slices;
     std::vector<int>        transients;
+    std::atomic<int>        numSlicesAtomic { 0 };
 
     Mode   mode        = Transient;
     float  sensitivity = 0.3f;

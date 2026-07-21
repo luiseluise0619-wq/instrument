@@ -144,13 +144,13 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             return;
         }
 
-        fileChooser = std::make_unique<juce::FileChooser> (
+        exportChooser = std::make_unique<juce::FileChooser> (
             "Export loops as WAV",
             juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
                 .getChildFile ("slyce-loop.wav"),
             "*.wav");
 
-        fileChooser->launchAsync (juce::FileBrowserComponent::saveMode
+        exportChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                       | juce::FileBrowserComponent::canSelectFiles
                                       | juce::FileBrowserComponent::warnAboutOverwriting,
             [this, mix] (const juce::FileChooser& fc)
@@ -179,32 +179,38 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
                 return false;
             };
 
-            bool ok = writeWav (f, *mix);
+            // Mix first, then one aligned stem per recorded track (same
+            // length as the mix, so they drop into a DAW in sync). Report
+            // exactly what landed on disk - a partial export must not be
+            // presented as either total success or total failure.
+            int written = 0, failed = 0;
+            if (writeWav (f, *mix)) ++written; else ++failed;
 
-            // Stems alongside the mix: one aligned WAV per recorded track
-            // (same length as the mix, so they drop into a DAW in sync).
-            int stems = 0;
-            for (int ti = 0; ti < LoopStation::kNumTracks && ok; ++ti)
+            for (int ti = 0; ti < LoopStation::kNumTracks; ++ti)
             {
                 juce::AudioBuffer<float> stem;
                 if (proc.getLooper().renderMixdown (stem, ti))
                 {
-                    ++stems;
-                    ok = writeWav (f.getSiblingFile (
-                             f.getFileNameWithoutExtension()
-                             + "-track" + juce::String (ti + 1) + ".wav"), stem);
+                    if (writeWav (f.getSiblingFile (
+                            f.getFileNameWithoutExtension()
+                            + "-track" + juce::String (ti + 1) + ".wav"), stem))
+                        ++written;
+                    else
+                        ++failed;
                 }
             }
 
-            if (! ok)
+            if (failed > 0)
                 juce::AlertWindow::showMessageBoxAsync (
                     juce::MessageBoxIconType::WarningIcon, "Slyce",
-                    "Could not write the WAV files there - try another folder.");
-            else if (stems > 1)
+                    juce::String (written) + " file(s) were exported but "
+                    + juce::String (failed) + " could not be written - "
+                    "check free disk space or try another folder.");
+            else
                 juce::AlertWindow::showMessageBoxAsync (
                     juce::MessageBoxIconType::InfoIcon, "Slyce",
-                    "Exported the full mix plus " + juce::String (stems)
-                    + " track stems next to it.");
+                    "Exported " + f.getFileName() + " plus "
+                    + juce::String (written - 1) + " track stem(s) next to it.");
         });
     };
     addAndMakeVisible (exportButton);

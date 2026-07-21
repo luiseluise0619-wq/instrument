@@ -132,7 +132,11 @@ WaveformView::~WaveformView()
 
 void WaveformView::refresh()
 {
+    // Any selection was made on the PREVIOUS sample - keeping it would let
+    // one click TRIM the fresh sample at stale positions.
+    selA = selB = -1.0f;
     rebuildEnvelope();
+    updateEditButtons();
     repaint();
 }
 

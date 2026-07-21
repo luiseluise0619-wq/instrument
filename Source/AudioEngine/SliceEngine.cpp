@@ -12,6 +12,7 @@ void SliceEngine::publish (std::vector<SlicePoint> newSlices)
 {
     const juce::SpinLock::ScopedLockType sl (slicesLock);
     slices = std::move (newSlices);
+    numSlicesAtomic.store ((int) slices.size(), std::memory_order_release);
 }
 
 void SliceEngine::rebuildSlices()

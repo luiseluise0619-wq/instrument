@@ -300,7 +300,7 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
 }
 
 void SamplerEngine::loadFromBuffer (const juce::AudioBuffer<float>& src, double srcRate,
-                                    const juce::String& name)
+                                    const juce::String& name, int rootNote)
 {
     if (src.getNumSamples() <= 0)
         return;
@@ -311,7 +311,7 @@ void SamplerEngine::loadFromBuffer (const juce::AudioBuffer<float>& src, double 
     Region r;
     r.data.makeCopyOf (src);
     r.srcRate = srcRate > 0.0 ? srcRate : 44100.0;
-    r.root    = 60;             // C3 plays the sample at its original pitch
+    r.root    = juce::jlimit (0, 127, rootNote);
     r.releaseSeconds = 0.25f;
     newBank->regions.push_back (std::move (r));
 
