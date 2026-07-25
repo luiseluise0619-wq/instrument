@@ -183,7 +183,7 @@ void SliceGrid::paint (juce::Graphics& g)
         // gold or rose panel looked like it came from another plugin.
         const juce::Colour ivoryTop =
             (dark ? juce::Colour (0xffc9cfdd) : juce::Colour (0xffe9e9ee))
-                .interpolatedWith (theme.accent, dark ? 0.14f : 0.08f);
+                .interpolatedWith (theme.accent, dark ? 0.05f : 0.03f);
         const juce::Colour ivoryBot =
             (dark ? juce::Colour (0xfff4f7ff) : juce::Colours::white)
                 .interpolatedWith (theme.accent, dark ? 0.05f : 0.03f);
@@ -267,12 +267,10 @@ void SliceGrid::paint (juce::Graphics& g)
 
         // Glossy lacquer body, tinted toward the theme's own ground so the
         // sharps read as part of the same instrument.
-        juce::Colour top = theme.dark
-            ? juce::Colour (0xff262a44).interpolatedWith (theme.bgTop.brighter (0.35f), 0.55f)
-            : juce::Colour (0xff2b2f3d).interpolatedWith (theme.accent, 0.12f);
-        juce::Colour bot = theme.dark
-            ? juce::Colour (0xff0b0d1c).interpolatedWith (theme.bgBottom, 0.55f)
-            : juce::Colour (0xff0d0f16);
+        // Neutral graphite lacquer on every theme - Apple would not tint the
+        // sharps to match the accent.
+        juce::Colour top = juce::Colour (0xff3a3a3c);
+        juce::Colour bot = juce::Colour (0xff141416);
         if (flash > 0.0f)
         {
             top = top.interpolatedWith (theme.accent, flash * 0.9f);

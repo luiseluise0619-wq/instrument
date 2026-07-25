@@ -53,31 +53,35 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     }
 
     //--------------------------------------------------------------------------
-    // (b) Base disc: a turned-metal face, not a flat circle. Light falls from
-    // the top-left, so the disc darkens toward the lower right and picks up a
-    // faint accent bounce - that is what makes a knob look grabbable.
+    // (b) Base disc. Apple keeps chrome neutral: a light grey face, shaded
+    // top-to-bottom, with the colour reserved for the value arc outside it.
     {
         const auto base = theme.glow >= 0.9f
                             ? theme.materialStrong.withAlpha (1.0f).brighter (0.25f)
                             : theme.control;
 
-        juce::ColourGradient face (base.brighter (theme.dark ? 0.22f : 0.10f),
-                                   discBounds.getX() + discRadius * 0.45f,
-                                   discBounds.getY() + discRadius * 0.25f,
-                                   base.darker (theme.dark ? 0.30f : 0.16f),
-                                   discBounds.getRight(), discBounds.getBottom(), true);
-        face.addColour (0.55, base);
+        juce::ColourGradient face (base.brighter (theme.dark ? 0.20f : 0.02f),
+                                   centre.x, discBounds.getY(),
+                                   base.darker (theme.dark ? 0.26f : 0.10f),
+                                   centre.x, discBounds.getBottom(), false);
         g.setGradientFill (face);
         g.fillEllipse (discBounds);
 
-        // Accent bounce along the lower rim (very low alpha, reads as light
-        // reflected up off the panel).
-        juce::ColourGradient bounce (juce::Colours::transparentBlack,
-                                     centre.x, centre.y,
-                                     theme.accent.withAlpha (theme.dark ? 0.16f : 0.10f),
-                                     centre.x, discBounds.getBottom(), false);
-        g.setGradientFill (bounce);
-        g.fillEllipse (discBounds);
+        // Fine bevel: a bright arc across the top edge, a dark one beneath.
+        juce::Path topArc, botArc;
+        const auto inner = discBounds.reduced (0.6f);
+        topArc.addCentredArc (centre.x, centre.y, inner.getWidth() * 0.5f,
+                              inner.getHeight() * 0.5f, 0.0f,
+                              -juce::MathConstants<float>::halfPi * 1.9f,
+                              -juce::MathConstants<float>::halfPi * 0.1f, true);
+        botArc.addCentredArc (centre.x, centre.y, inner.getWidth() * 0.5f,
+                              inner.getHeight() * 0.5f, 0.0f,
+                              juce::MathConstants<float>::halfPi * 0.15f,
+                              juce::MathConstants<float>::halfPi * 1.85f, true);
+        g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.13f : 0.55f));
+        g.strokePath (topArc, juce::PathStrokeType (1.1f));
+        g.setColour (juce::Colours::black.withAlpha (theme.dark ? 0.28f : 0.10f));
+        g.strokePath (botArc, juce::PathStrokeType (1.1f));
     }
 
     // (f) Very subtle glassy top inner highlight (dark themes only).
@@ -208,7 +212,8 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         juce::Path indicator;
         indicator.startNewSubPath (p1);
         indicator.lineTo (p2);
-        g.setColour (theme.text);
+        g.setColour (theme.dark ? juce::Colours::white.withAlpha (0.92f)
+                                : juce::Colour (0xff1c1c1e));
         g.strokePath (indicator, juce::PathStrokeType (thickness,
                                                        juce::PathStrokeType::curved,
                                                        juce::PathStrokeType::rounded));

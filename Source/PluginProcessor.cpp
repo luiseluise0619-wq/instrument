@@ -1703,10 +1703,15 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     {
         int themeIdx = -1;
         auto savedTheme = xml->getStringAttribute ("themeName");
-        // The two artwork skins were retired: land those sessions on the
-        // neon theme rather than silently picking whatever now sits there.
+        // Retired themes map to their nearest surviving relative instead of
+        // silently landing on whatever index now sits in their old slot.
         if (savedTheme == "Neon Rider" || savedTheme == "Neo-Seoul")
             savedTheme = "Neon Ocean";
+        else if (savedTheme == "Sunset")        savedTheme = "Studio Amber";
+        else if (savedTheme == "Emerald")       savedTheme = "Studio Mint";
+        else if (savedTheme == "Royal Velvet")  savedTheme = "Studio Indigo";
+        else if (savedTheme == "Carbon")        savedTheme = "Studio Red";
+        else if (savedTheme == "Space Gray")    savedTheme = "Graphite";
         if (savedTheme.isNotEmpty())
         {
             const auto& list = ThemeManager::themes();

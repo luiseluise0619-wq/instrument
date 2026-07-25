@@ -413,7 +413,7 @@ namespace
 
         // (a) Base gradient, very slightly tinted toward the accent so each
         //     colourway feels like its own room rather than one grey box.
-        const auto top    = theme.bgTop.interpolatedWith (theme.accent, theme.dark ? 0.045f : 0.02f);
+        const auto top    = theme.bgTop.interpolatedWith (theme.accent, theme.dark ? 0.015f : 0.008f);
         const auto bottom = theme.bgBottom;
         juce::ColourGradient bg (top, 0.0f, 0.0f, bottom, 0.0f, h, false);
         bg.addColour (0.55, bottom.interpolatedWith (top, 0.35f));
@@ -423,7 +423,7 @@ namespace
         // (b) Accent aura behind the header - the light source of the panel.
         {
             const float r = w * 0.85f;
-            juce::ColourGradient aura (theme.accent.withAlpha (theme.dark ? 0.10f : 0.07f),
+            juce::ColourGradient aura (theme.accent.withAlpha (theme.dark ? 0.055f : 0.04f),
                                        w * 0.5f, -h * 0.06f,
                                        juce::Colours::transparentBlack,
                                        w * 0.5f + r, -h * 0.06f, true);
@@ -434,7 +434,7 @@ namespace
         // (c) Cool counter-light low on the right keeps the lower half alive.
         {
             const float r = w * 0.55f;
-            juce::ColourGradient low (theme.waveform.withAlpha (theme.dark ? 0.055f : 0.04f),
+            juce::ColourGradient low (theme.waveform.withAlpha (theme.dark ? 0.03f : 0.02f),
                                       w * 0.88f, h * 0.92f,
                                       juce::Colours::transparentBlack,
                                       w * 0.88f + r, h * 0.92f, true);
