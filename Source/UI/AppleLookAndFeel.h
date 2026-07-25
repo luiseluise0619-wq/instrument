@@ -33,6 +33,15 @@ public:
     void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
 
     void drawPopupMenuBackground (juce::Graphics&, int width, int height) override;
+    void drawPopupMenuSectionHeader (juce::Graphics&, const juce::Rectangle<int>& area,
+                                     const juce::String& sectionName) override;
+    int  getPopupMenuBorderSize() override { return 6; }
+
+    void drawTooltip (juce::Graphics&, const juce::String& text,
+                      int width, int height) override;
+    juce::Rectangle<int> getTooltipBounds (const juce::String& tipText,
+                                           juce::Point<int> screenPos,
+                                           juce::Rectangle<int> parentArea) override;
     juce::Font getPopupMenuFont() override;
     void drawPopupMenuItem (juce::Graphics&, const juce::Rectangle<int>& area,
                             bool isSeparator, bool isActive, bool isHighlighted,

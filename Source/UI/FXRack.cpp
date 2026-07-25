@@ -40,12 +40,12 @@ void FXRack::paint (juce::Graphics& g)
     // Card region inset slightly so the drop shadow has room to breathe.
     const auto card = bounds.reduced (2.0f);
 
-    // Soft drop shadow beneath the material card.
-    {
-        juce::Path shadowPath;
-        shadowPath.addRoundedRectangle (card, radius);
-        juce::DropShadow (theme.shadow, 10, { 0, 2 }).drawForPath (g, shadowPath);
-    }
+    // Soft drop shadow beneath the material card (cheap offset fills - this
+    // rack repaints whenever an FX knob moves).
+    g.setColour (theme.shadow.withAlpha (0.16f));
+    g.fillRoundedRectangle (card.translated (0.0f, 4.0f).expanded (1.5f), radius + 1.5f);
+    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.fillRoundedRectangle (card.translated (0.0f, 2.0f), radius);
 
     if (glowTheme)
     {
@@ -91,7 +91,7 @@ void FXRack::paint (juce::Graphics& g)
 
         // Draw glyph-by-glyph to add wide letter-spacing (tracking).
         const juce::String title ("FX");
-        const float tracking = glowTheme ? 3.5f : 3.0f;
+        const float tracking = glowTheme ? 2.0f : 1.6f;
         const auto& font = g.getCurrentFont();
 
         float x = titleArea.getX() + 9.0f;

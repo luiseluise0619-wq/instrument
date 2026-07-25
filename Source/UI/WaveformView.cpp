@@ -579,9 +579,17 @@ void WaveformView::paint (juce::Graphics& g)
                 if (xPos < inner.getX() - 0.5f || xPos > inner.getRight() + 0.5f)
                     continue;
 
-                // Thin accent hairline.
-                g.setColour (theme.accent.withAlpha (0.5f));
-                g.drawLine (xPos, inner.getY() + 3.0f, xPos, inner.getBottom(), 1.0f);
+                // Hairline that fades downward: the cut is announced at the
+                // top, and the waveform underneath stays readable.
+                {
+                    juce::ColourGradient line (theme.accent.withAlpha (0.62f),
+                                               xPos, inner.getY() + 3.0f,
+                                               theme.accent.withAlpha (0.14f),
+                                               xPos, inner.getBottom(), false);
+                    g.setGradientFill (line);
+                    g.fillRect (xPos - 0.5f, inner.getY() + 3.0f, 1.0f,
+                                inner.getHeight() - 3.0f);
+                }
 
                 if (cyber)
                 {
@@ -606,8 +614,8 @@ void WaveformView::paint (juce::Graphics& g)
                 else
                 {
                     // Small rounded handle / nub at the top of the marker.
-                    const float nubW = 6.0f;
-                    const float nubH = 6.0f;
+                    const float nubW = 5.0f;
+                    const float nubH = 8.0f;
                     juce::Rectangle<float> nub (xPos - nubW * 0.5f, inner.getY(), nubW, nubH);
 
                     if (glow > 0.0f)
@@ -620,8 +628,12 @@ void WaveformView::paint (juce::Graphics& g)
                         g.fillEllipse (dot.x - 10.0f, dot.y - 10.0f, 20.0f, 20.0f);
                     }
 
-                    g.setColour (theme.accent);
-                    g.fillRoundedRectangle (nub, 2.0f);
+                    juce::ColourGradient pill (theme.accent.brighter (0.25f),
+                                               nub.getX(), nub.getY(),
+                                               theme.accent.darker (0.15f),
+                                               nub.getX(), nub.getBottom(), false);
+                    g.setGradientFill (pill);
+                    g.fillRoundedRectangle (nub, nubW * 0.5f);
                 }
             }
         }

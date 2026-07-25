@@ -272,10 +272,107 @@ void AppleLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, in
     const auto& theme = ThemeManager::active();
     auto bounds = juce::Rectangle<float> (0, 0, (float) width, (float) height).reduced (1.0f);
 
-    g.setColour (theme.dark ? juce::Colour (0xf01e1e20) : juce::Colour (0xf7ffffff));
-    g.fillRoundedRectangle (bounds, 10.0f);
+    const float radius = 12.0f;
+
+    // Soft stacked shadow so the menu floats over the panel.
+    for (int i = 3; i >= 1; --i)
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.10f));
+        g.fillRoundedRectangle (bounds.translated (0.0f, (float) i * 1.5f)
+                                      .expanded ((float) i * 0.8f),
+                                radius + (float) i * 0.8f);
+    }
+
+    // Menu material carries a trace of the theme's ground, like macOS
+    // vibrancy picking up the desktop behind it.
+    const auto base = theme.dark ? theme.bgTop.brighter (0.22f).withAlpha (0.98f)
+                                 : juce::Colour (0xfaffffff);
+    g.setColour (base);
+    g.fillRoundedRectangle (bounds, radius);
+
+    juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.5f),
+                                bounds.getX(), bounds.getY(),
+                                juce::Colours::white.withAlpha (0.0f),
+                                bounds.getX(), bounds.getY() + 40.0f, false);
+    g.setGradientFill (sheen);
+    g.fillRoundedRectangle (bounds, radius);
+
     g.setColour (theme.separator);
-    g.drawRoundedRectangle (bounds, 10.0f, 1.0f);
+    g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
+}
+
+void AppleLookAndFeel::drawPopupMenuSectionHeader (juce::Graphics& g,
+                                                   const juce::Rectangle<int>& area,
+                                                   const juce::String& sectionName)
+{
+    const auto& theme = ThemeManager::active();
+
+    // Small, letter-spaced, secondary - a Finder sidebar heading, not a menu
+    // entry the user might try to click.
+    g.setColour (theme.textSecondary.withAlpha (0.85f));
+    g.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Semibold"))
+                   .withExtraKerningFactor (0.14f));
+    g.drawText (sectionName.toUpperCase(),
+                area.reduced (14, 0).withTrimmedTop (5),
+                juce::Justification::centredLeft, false);
+
+    g.setColour (theme.separator.withAlpha (0.55f));
+    g.fillRect (area.getX() + 14, area.getBottom() - 2, area.getWidth() - 28, 1);
+}
+
+//==============================================================================
+juce::Rectangle<int> AppleLookAndFeel::getTooltipBounds (const juce::String& tipText,
+                                                         juce::Point<int> screenPos,
+                                                         juce::Rectangle<int> parentArea)
+{
+    // Wrap long help text instead of stretching one endless line off-screen.
+    const auto font = juce::Font (juce::FontOptions (12.5f));
+    juce::AttributedString s;
+    s.setJustification (juce::Justification::centredLeft);
+    s.append (tipText, font);
+
+    juce::TextLayout layout;
+    layout.createLayoutWithBalancedLineLengths (s, 320.0f);
+
+    const int w = (int) layout.getWidth() + 22;
+    const int h = (int) layout.getHeight() + 16;
+
+    return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12)
+                                                                      : screenPos.x + 18,
+                                 screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 8)
+                                                                      : screenPos.y + 18,
+                                 w, h)
+               .constrainedWithin (parentArea);
+}
+
+void AppleLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text,
+                                    int width, int height)
+{
+    const auto& theme = ThemeManager::active();
+    auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height);
+    const float radius = 8.0f;
+
+    for (int i = 2; i >= 1; --i)
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.12f));
+        g.fillRoundedRectangle (bounds.reduced (1.0f).translated (0.0f, (float) i),
+                                radius);
+    }
+
+    g.setColour (theme.dark ? theme.bgTop.brighter (0.28f).withAlpha (0.97f)
+                            : juce::Colour (0xfa1c1e24));
+    g.fillRoundedRectangle (bounds.reduced (1.0f), radius);
+    g.setColour (theme.dark ? theme.separator : juce::Colours::white.withAlpha (0.12f));
+    g.drawRoundedRectangle (bounds.reduced (1.5f), radius, 1.0f);
+
+    juce::AttributedString s;
+    s.setJustification (juce::Justification::centredLeft);
+    s.append (text, juce::Font (juce::FontOptions (12.5f)),
+              theme.dark ? theme.text : juce::Colours::white);
+
+    juce::TextLayout layout;
+    layout.createLayoutWithBalancedLineLengths (s, (float) width - 22.0f);
+    layout.draw (g, bounds.reduced (11.0f, 8.0f));
 }
 
 juce::Font AppleLookAndFeel::getPopupMenuFont()
