@@ -26,8 +26,14 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
 
     const float radius = juce::jmin (theme.cornerRadius, bounds.getHeight() * 0.5f);
 
+    // A button marked "primaryAction" is filled with the accent, the way the
+    // confirming button in a macOS sheet is.
+    const bool primary = (bool) button.getProperties().getWithDefault ("primaryAction", false);
+
     juce::Colour fill = theme.materialStrong;
     if (button.getToggleState())          fill = theme.accent;
+    else if (primary)                     fill = theme.accent.darker (down ? 0.18f
+                                                                          : (highlighted ? -0.08f : 0.0f));
     else if (down)                        fill = theme.accentSoft.withMultipliedAlpha (2.0f);
     else if (highlighted)                 fill = theme.material.brighter (0.06f);
 
@@ -122,7 +128,8 @@ void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& butt
 
     // Toggled buttons are filled with the accent — on the neon-cyan theme
     // white text vanishes into it, so use deep navy there instead.
-    if (button.getToggleState())
+    const bool primary = (bool) button.getProperties().getWithDefault ("primaryAction", false);
+    if (button.getToggleState() || primary)
         g.setColour (theme.glow >= 0.9f ? juce::Colour (0xff041022)
                                         : juce::Colours::white);
     else

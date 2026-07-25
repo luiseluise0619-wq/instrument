@@ -212,11 +212,12 @@ void WaveformView::paint (juce::Graphics& g)
     auto card = full.reduced (4.0f);
 
     // --- Soft drop shadow behind the card ------------------------------------
-    {
-        juce::Path cardPath;
-        cardPath.addRoundedRectangle (card, radius);
-        juce::DropShadow (theme.shadow, 10, { 0, 2 }).drawForPath (g, cardPath);
-    }
+    // Two offset fills: this view repaints 24x a second, and a gaussian blur
+    // that often is exactly what made the UI feel heavy.
+    g.setColour (theme.shadow.withAlpha (0.16f));
+    g.fillRoundedRectangle (card.translated (0.0f, 4.0f).expanded (1.5f), radius + 1.5f);
+    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.fillRoundedRectangle (card.translated (0.0f, 2.0f), radius);
 
     // --- Material card fill + hairline border --------------------------------
     if (cyber)
@@ -374,11 +375,36 @@ void WaveformView::paint (juce::Graphics& g)
         g.strokePath (tray,  juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
                                                    juce::PathStrokeType::rounded));
 
+        // Dashed drop zone while a file hovers - the target is explicit, the
+        // way a Finder drop target is.
+        if (fileHover)
+        {
+            juce::Path zone;
+            zone.addRoundedRectangle (card.reduced (14.0f), theme.cornerRadius);
+            const float dashes[] = { 7.0f, 6.0f };
+            juce::Path dashed;
+            juce::PathStrokeType (1.6f).createDashedStroke (dashed, zone, dashes, 2);
+            g.setColour (theme.accent.withAlpha (0.55f));
+            g.fillPath (dashed);
+
+            g.setColour (theme.accent.withAlpha (0.06f));
+            g.fillRoundedRectangle (card.reduced (14.0f), theme.cornerRadius);
+        }
+
         g.setColour (fileHover ? theme.accent : theme.textSecondary);
-        g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Medium")));
-        auto textArea = card.withTop (centre.y + 8.0f).withHeight (24.0f);
-        g.drawText (fileHover ? "Release to load" : "Drop audio to load",
+        g.setFont (juce::Font (juce::FontOptions (14.5f).withStyle ("Medium")));
+        auto textArea = card.withTop (centre.y + 8.0f).withHeight (22.0f);
+        g.drawText (fileHover ? "Release to load" : "Drop audio here",
                     textArea, juce::Justification::centred);
+
+        if (! fileHover)
+        {
+            g.setColour (theme.textSecondary.withAlpha (0.65f));
+            g.setFont (juce::Font (juce::FontOptions (12.0f)));
+            g.drawText ("or press Demo for a built-in vocal",
+                        card.withTop (centre.y + 30.0f).withHeight (18.0f),
+                        juce::Justification::centred);
+        }
         return;
     }
 

@@ -22,8 +22,8 @@ public:
     explicit UnlockPanel (std::function<bool (juce::String, juce::String)> finalizeFn)
         : finalize (std::move (finalizeFn))
     {
-        title.setText ("UNLOCK SLYCE", juce::dontSendNotification);
-        title.setFont (juce::Font (juce::FontOptions (20.0f).withStyle ("Semibold")));
+        title.setText ("Unlock Slyce", juce::dontSendNotification);
+        title.setFont (juce::Font (juce::FontOptions (22.0f).withStyle ("Bold")));
         title.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (title);
 
@@ -40,6 +40,7 @@ public:
         keyBox.setTextToShowWhenEmpty ("license key", juce::Colours::grey);
         addAndMakeVisible (keyBox);
 
+        activateButton.getProperties().set ("primaryAction", true);
         activateButton.onClick = [this] { tryActivate(); };
         addAndMakeVisible (activateButton);
 
@@ -66,8 +67,9 @@ public:
     void resized() override
     {
         auto card = getCardBounds();
-        card = card.reduced (26, 22);
+        card = card.reduced (28, 24);
 
+        card.removeFromTop (46);            // the lock glyph lives here
         title.setBounds (card.removeFromTop (30));
         card.removeFromTop (4);
         info.setBounds (card.removeFromTop (40));
@@ -90,16 +92,73 @@ public:
     {
         const auto& theme = ThemeManager::active();
 
-        g.fillAll (juce::Colours::black.withAlpha (0.72f));   // dim the studio
+        // Graded scrim, matching the welcome sheet.
+        {
+            juce::ColourGradient scrim (juce::Colours::black.withAlpha (0.58f), 0.0f, 0.0f,
+                                        juce::Colours::black.withAlpha (0.74f),
+                                        0.0f, (float) getHeight(), false);
+            g.setGradientFill (scrim);
+            g.fillAll();
+        }
 
         auto card = getCardBounds().toFloat();
-        g.setColour (theme.glow >= 0.9f ? juce::Colour (0xf80a0f24) : theme.bgTop);
-        g.fillRoundedRectangle (card, 14.0f);
-        g.setColour (theme.accent.withAlpha (0.5f));
-        g.drawRoundedRectangle (card.reduced (0.5f), 14.0f, 1.4f);
+        const float radius = 20.0f;
+
+        for (int i = 3; i >= 1; --i)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.10f));
+            g.fillRoundedRectangle (card.translated (0.0f, (float) i * 3.0f)
+                                        .expanded ((float) i * 1.5f),
+                                    radius + (float) i * 1.5f);
+        }
+
+        g.setColour (theme.bgTop.brighter (theme.dark ? 0.16f : 0.02f));
+        g.fillRoundedRectangle (card, radius);
+        {
+            juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.4f),
+                                        card.getX(), card.getY(),
+                                        juce::Colours::white.withAlpha (0.0f),
+                                        card.getX(), card.getY() + card.getHeight() * 0.4f, false);
+            g.setGradientFill (sheen);
+            g.fillRoundedRectangle (card, radius);
+        }
+        g.setColour (theme.separator);
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+
+        // Accent key glyph above the title - a lock, drawn not imported.
+        {
+            const float cx = card.getCentreX();
+            const float cy = card.getY() + 44.0f;
+            g.setColour (theme.accent.withAlpha (0.16f));
+            g.fillEllipse (cx - 19.0f, cy - 19.0f, 38.0f, 38.0f);
+            g.setColour (theme.accent);
+            juce::Rectangle<float> body (cx - 8.0f, cy - 1.0f, 16.0f, 13.0f);
+            g.fillRoundedRectangle (body, 3.0f);
+            juce::Path shackle;
+            shackle.addCentredArc (cx, cy - 1.0f, 5.5f, 6.5f, 0.0f,
+                                   -juce::MathConstants<float>::halfPi,
+                                   juce::MathConstants<float>::halfPi, true);
+            g.strokePath (shackle, juce::PathStrokeType (2.0f));
+        }
 
         title.setColour (juce::Label::textColourId, theme.text);
         info.setColour (juce::Label::textColourId, theme.textSecondary);
+        status.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+
+        // Text fields follow the theme too - the stock JUCE editor shipped a
+        // teal outline that belonged to no palette here.
+        for (auto* ed : { &emailBox, &keyBox })
+        {
+            ed->setColour (juce::TextEditor::backgroundColourId,
+                           theme.control.withAlpha (theme.dark ? 0.85f : 1.0f));
+            ed->setColour (juce::TextEditor::outlineColourId, theme.separator);
+            ed->setColour (juce::TextEditor::focusedOutlineColourId, theme.accent);
+            ed->setColour (juce::TextEditor::textColourId, theme.text);
+            ed->setColour (juce::TextEditor::highlightColourId, theme.accentSoft);
+            ed->setColour (juce::TextEditor::highlightedTextColourId, theme.text);
+            ed->setColour (juce::CaretComponent::caretColourId, theme.accent);
+            ed->setFont (juce::Font (juce::FontOptions (13.5f)));
+        }
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -112,7 +171,7 @@ public:
 private:
     juce::Rectangle<int> getCardBounds() const
     {
-        return getLocalBounds().withSizeKeepingCentre (juce::jmin (460, getWidth() - 40), 322);
+        return getLocalBounds().withSizeKeepingCentre (juce::jmin (460, getWidth() - 40), 372);
     }
 
     void tryActivate()
@@ -212,8 +271,8 @@ private:
 
     juce::Label      title, info, status;
     juce::TextEditor emailBox, keyBox;
-    juce::TextButton activateButton { "ACTIVATE" };
-    juce::TextButton laterButton    { "LATER" };
+    juce::TextButton activateButton { "Activate" };
+    juce::TextButton laterButton    { "Later" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (UnlockPanel)
 };

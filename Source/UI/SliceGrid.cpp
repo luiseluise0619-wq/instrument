@@ -104,8 +104,11 @@ void SliceGrid::paint (juce::Graphics& g)
 
     // --- Card behind the keybed -------------------------------------------
     const auto card = getLocalBounds().toFloat().reduced (2.0f);
-    juce::DropShadow (theme.shadow, 10, { 0, 2 })
-        .drawForRectangle (g, card.getSmallestIntegerContainer());
+    g.setColour (theme.shadow.withAlpha (0.16f));
+    g.fillRoundedRectangle (card.translated (0.0f, 4.0f).expanded (1.5f),
+                            theme.cornerRadius + 1.5f);
+    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.fillRoundedRectangle (card.translated (0.0f, 2.0f), theme.cornerRadius);
     g.setColour (theme.material);
     g.fillRoundedRectangle (card, theme.cornerRadius);
     g.setColour (theme.separator);

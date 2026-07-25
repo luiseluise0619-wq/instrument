@@ -55,64 +55,109 @@ public:
     {
         const auto& theme = ThemeManager::active();
 
-        g.fillAll (juce::Colours::black.withAlpha (0.78f));
+        // Scrim: a soft graded dim, not a flat black wash.
+        {
+            juce::ColourGradient scrim (juce::Colours::black.withAlpha (0.62f),
+                                        0.0f, 0.0f,
+                                        juce::Colours::black.withAlpha (0.78f),
+                                        0.0f, (float) getHeight(), false);
+            g.setGradientFill (scrim);
+            g.fillAll();
+        }
 
         auto card = getCardBounds().toFloat();
-        g.setColour (theme.glow >= 0.9f ? juce::Colour (0xf80a0f24) : theme.bgTop);
-        g.fillRoundedRectangle (card, 16.0f);
-        g.setColour (theme.accent.withAlpha (0.5f));
-        g.drawRoundedRectangle (card.reduced (0.5f), 16.0f, 1.4f);
+        const float radius = 20.0f;
 
-        auto area = getCardBounds().reduced (36, 28);
+        // Layered soft shadow under the sheet (cheap offset fills).
+        for (int i = 3; i >= 1; --i)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.10f));
+            g.fillRoundedRectangle (card.translated (0.0f, (float) i * 3.0f)
+                                        .expanded ((float) i * 1.5f),
+                                    radius + (float) i * 1.5f);
+        }
+
+        // Sheet: theme ground lifted a step, hairline border, top glass line.
+        g.setColour (theme.bgTop.brighter (theme.dark ? 0.16f : 0.02f));
+        g.fillRoundedRectangle (card, radius);
+        {
+            juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.4f),
+                                        card.getX(), card.getY(),
+                                        juce::Colours::white.withAlpha (0.0f),
+                                        card.getX(), card.getY() + card.getHeight() * 0.4f,
+                                        false);
+            g.setGradientFill (sheen);
+            g.fillRoundedRectangle (card, radius);
+        }
+        g.setColour (theme.separator);
+        g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.0f);
+
+        auto area = getCardBounds().reduced (34, 30);
 
         g.setColour (theme.text);
-        g.setFont (juce::Font (juce::FontOptions (26.0f).withStyle ("Bold")));
-        g.drawText ("welcome to slyce", area.removeFromTop (40),
+        g.setFont (juce::Font (juce::FontOptions (27.0f).withStyle ("Bold"))
+                       .withExtraKerningFactor (-0.01f));
+        g.drawText ("Welcome to Slyce", area.removeFromTop (36),
                     juce::Justification::centred);
+
         g.setColour (theme.textSecondary);
-        g.setFont (juce::Font (juce::FontOptions (13.0f)));
+        g.setFont (juce::Font (juce::FontOptions (13.5f)));
         g.drawText ("Three steps and you're making beats.",
-                    area.removeFromTop (24), juce::Justification::centred);
-        area.removeFromTop (14);
+                    area.removeFromTop (22), juce::Justification::centred);
+        area.removeFromTop (16);
 
         struct Step { const char* num; const char* title; const char* body; };
         const Step steps[] = {
-            { "1", "PLAY",
+            { "1", "Play",
               "Hit DEMO in the toolbar, then play your computer keys\n"
               "Z S X D C V G B H N J M  (or any MIDI keyboard)." },
-            { "2", "SOUNDS",
+            { "2", "Sounds",
               "Open the Instrument menu for 343 sounds - drums, 808s,\n"
               "vocals, pianos. Start with the FEATURED shelf." },
-            { "3", "LOOP",
+            { "3", "Loop",
               "Open LOOPER (top right). Pick a sound per track,\n"
               "hit REC and stack a whole beat from one laptop." },
         };
 
-        const int stepH = (area.getHeight() - 70) / 3;
+        const int stepH = (area.getHeight() - 74) / 3;
+        int stepIndex = 0;
         for (const auto& s : steps)
         {
             auto row = area.removeFromTop (stepH);
-            auto numBox = row.removeFromLeft (56);
 
+            // Hairline between rows, iOS settings-list style.
+            if (stepIndex++ > 0)
+            {
+                g.setColour (theme.separator.withAlpha (0.6f));
+                g.fillRect (row.getX() + 46, row.getY(), row.getWidth() - 46, 1);
+            }
+
+            auto numCol = row.removeFromLeft (46);
+            const float badge = 26.0f;
+            auto b = juce::Rectangle<float> (badge, badge)
+                         .withCentre ({ (float) numCol.getCentreX() - 2.0f,
+                                        (float) row.getY() + 22.0f });
+            g.setColour (theme.accent.withAlpha (0.16f));
+            g.fillEllipse (b);
             g.setColour (theme.accent);
-            g.setFont (juce::Font (juce::FontOptions (30.0f).withStyle ("Bold")));
-            g.drawText (s.num, numBox.removeFromTop (40), juce::Justification::centred);
+            g.setFont (juce::Font (juce::FontOptions (14.0f).withStyle ("Bold")));
+            g.drawText (s.num, b, juce::Justification::centred);
 
+            row.removeFromTop (8);
             g.setColour (theme.text);
             g.setFont (juce::Font (juce::FontOptions (16.0f).withStyle ("Semibold")));
-            g.drawText (s.title, row.removeFromTop (22), juce::Justification::centredLeft);
+            g.drawText (s.title, row.removeFromTop (21), juce::Justification::centredLeft);
 
             g.setColour (theme.textSecondary);
-            g.setFont (juce::Font (juce::FontOptions (13.5f)));
-            g.drawFittedText (s.body, row.reduced (0, 2),
+            g.setFont (juce::Font (juce::FontOptions (13.0f)));
+            g.drawFittedText (s.body, row.reduced (0, 1),
                               juce::Justification::topLeft, 3);
-            area.removeFromTop (4);
         }
 
-        g.setColour (theme.textSecondary.withAlpha (0.8f));
-        g.setFont (juce::Font (juce::FontOptions (12.0f)));
+        g.setColour (theme.textSecondary.withAlpha (0.75f));
+        g.setFont (juce::Font (juce::FontOptions (11.5f)));
         g.drawText ("Every knob is safe to turn. Press ? in the toolbar to see this again.",
-                    getCardBounds().reduced (36, 0).removeFromBottom (86).removeFromTop (18),
+                    getCardBounds().reduced (34, 0).removeFromBottom (88).removeFromTop (18),
                     juce::Justification::centred);
     }
 
@@ -123,7 +168,7 @@ private:
                                                        juce::jmin (560, getHeight() - 60));
     }
 
-    juce::TextButton startButton { "START MAKING BEATS" };
+    juce::TextButton startButton { "Start making beats" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WelcomePanel)
 };
