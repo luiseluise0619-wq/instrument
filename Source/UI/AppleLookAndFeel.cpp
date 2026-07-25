@@ -1,6 +1,8 @@
 #include "AppleLookAndFeel.h"
 #include "ThemeManager.h"
 
+#include <cmath>
+
 AppleLookAndFeel::AppleLookAndFeel()
 {
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
@@ -32,8 +34,9 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
 
     juce::Colour fill = theme.materialStrong;
     if (button.getToggleState())          fill = theme.accent;
-    else if (primary)                     fill = theme.accent.darker (down ? 0.18f
-                                                                          : (highlighted ? -0.08f : 0.0f));
+    else if (primary)                     fill = down        ? theme.accent.darker (0.18f)
+                                               : highlighted ? theme.accent.brighter (0.08f)
+                                                             : theme.accent;
     else if (down)                        fill = theme.accentSoft.withMultipliedAlpha (2.0f);
     else if (highlighted)                 fill = theme.material.brighter (0.06f);
 
@@ -332,10 +335,13 @@ juce::Rectangle<int> AppleLookAndFeel::getTooltipBounds (const juce::String& tip
     s.append (tipText, font);
 
     juce::TextLayout layout;
-    layout.createLayoutWithBalancedLineLengths (s, 320.0f);
+    layout.createLayout (s, 320.0f);
 
-    const int w = (int) layout.getWidth() + 22;
-    const int h = (int) layout.getHeight() + 16;
+    // Ceil, never truncate: drawTooltip re-lays the text out at
+    // (width - 22), so a truncated measurement is narrower than what was
+    // measured and the widest line gains a row that does not fit.
+    const int w = (int) std::ceil (layout.getWidth())  + 22;
+    const int h = (int) std::ceil (layout.getHeight()) + 16;
 
     return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12)
                                                                       : screenPos.x + 18,
@@ -371,7 +377,7 @@ void AppleLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text,
               theme.dark ? theme.text : juce::Colours::white);
 
     juce::TextLayout layout;
-    layout.createLayoutWithBalancedLineLengths (s, (float) width - 22.0f);
+    layout.createLayout (s, (float) width - 22.0f);
     layout.draw (g, bounds.reduced (11.0f, 8.0f));
 }
 

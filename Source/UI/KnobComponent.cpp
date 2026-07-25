@@ -70,14 +70,16 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         // Fine bevel: a bright arc across the top edge, a dark one beneath.
         juce::Path topArc, botArc;
         const auto inner = discBounds.reduced (0.6f);
+        // 0 rad is 12 o'clock and positive runs clockwise: the bright arc must
+        // span the TOP (-95 deg .. +95 deg) and the dark one the BOTTOM.
         topArc.addCentredArc (centre.x, centre.y, inner.getWidth() * 0.5f,
                               inner.getHeight() * 0.5f, 0.0f,
-                              -juce::MathConstants<float>::halfPi * 1.9f,
-                              -juce::MathConstants<float>::halfPi * 0.1f, true);
+                              -juce::MathConstants<float>::halfPi * 0.95f,
+                              juce::MathConstants<float>::halfPi * 0.95f, true);
         botArc.addCentredArc (centre.x, centre.y, inner.getWidth() * 0.5f,
                               inner.getHeight() * 0.5f, 0.0f,
-                              juce::MathConstants<float>::halfPi * 0.15f,
-                              juce::MathConstants<float>::halfPi * 1.85f, true);
+                              juce::MathConstants<float>::halfPi * 1.05f,
+                              juce::MathConstants<float>::halfPi * 2.95f, true);
         g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.13f : 0.55f));
         g.strokePath (topArc, juce::PathStrokeType (1.1f));
         g.setColour (juce::Colours::black.withAlpha (theme.dark ? 0.28f : 0.10f));

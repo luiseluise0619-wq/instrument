@@ -50,7 +50,7 @@ public:
             t.uiPos.store (0.0f);
             t.undoAvail.store (false);
             t.recPos = 0;
-            t.startStamp = 0;
+            t.startStamp.store (0);
             t.targetLen = 0;
             t.dubSamples = 0;
             t.undoEnd = 0;
@@ -64,6 +64,7 @@ public:
             t.importPending.store (0);
         }
         masterLen.store (0);
+        masterStamp.store (0);
         transport = 0;
 
         srHz = sr;
@@ -92,19 +93,20 @@ public:
     bool importAudio (int track, const juce::AudioBuffer<float>& src, double srcRate)
     {
         auto& t = trk (track);
-        // Counted, not boolean: two rapid imports must ignore the FIRST
-        // cmd 5 (its buffer is being rewritten by the second import).
-        t.importPending.fetch_add (1);
-        t.state.store (Empty);
 
         const double ratio  = srcRate > 0.0 ? srHz / srcRate : 1.0;
         const int    outLen = juce::jmin (maxLenSamples,
                                           (int) std::llround ((double) src.getNumSamples() * ratio));
+        // Reject BEFORE touching the track: parking a track Empty and then
+        // bailing left it silent-but-not-empty (still counted by anyLength(),
+        // still exported, and a later tap would record over the old loop).
         if (outLen < 32 || src.getNumChannels() < 1)
-        {
-            t.importPending.fetch_sub (1);
             return false;
-        }
+
+        // Counted, not boolean: two rapid imports must ignore the FIRST
+        // cmd 5 (its buffer is being rewritten by the second import).
+        t.importPending.fetch_add (1);
+        t.state.store (Empty);
 
         for (int ch = 0; ch < 2; ++ch)
         {
@@ -203,7 +205,7 @@ public:
             // Render from the MASTER grid top, honouring each track's own
             // phase stamp - otherwise tracks armed a cycle late (or file
             // imports) land bar-shifted versus what the performer heard.
-            const int64_t phase0 = masterStamp - t.startStamp;
+            const int64_t phase0 = masterStamp.load() - t.startStamp.load();
             for (int i = 0; i < longest; ++i)
             {
                 int idx = (int) (((phase0 + i) % len + len) % len);
@@ -307,7 +309,7 @@ public:
                         const int master = masterLen.load (std::memory_order_relaxed);
                         if (master <= 0)
                             t.state.store (Recording);
-                        else if ((int) (((transport - masterStamp) % master + master) % master) == 0)
+                        else if ((int) (((transport - masterStamp.load (std::memory_order_relaxed)) % master + master) % master) == 0)
                             t.state.store (Recording);
                         else if (! anyRunning())
                             t.state.store (Recording);   // grid frozen (all other
@@ -338,7 +340,7 @@ public:
                     if (len <= 0)
                         continue;
 
-                    int idx = (int) (((transport - t.startStamp) % len + len) % len);
+                    int idx = (int) (((transport - t.startStamp.load (std::memory_order_relaxed)) % len + len) % len);
                     if (t.reversed.load (std::memory_order_relaxed))
                         idx = len - 1 - idx;   // read AND overdub run backwards
 
@@ -395,7 +397,7 @@ public:
                 {
                     const int len = t.lenSamples.load (std::memory_order_relaxed);
                     if (len > 0)
-                        t.uiPos.store ((float) (((transport - t.startStamp) % len + len) % len)
+                        t.uiPos.store ((float) (((transport - t.startStamp.load (std::memory_order_relaxed)) % len + len) % len)
                                        / (float) len);
                 }
             }
@@ -425,7 +427,8 @@ private:
         std::atomic<float> pan { 0.0f };          // -1 L .. +1 R
 
         int     recPos = 0;        // write head while Recording (audio thread)
-        int64_t startStamp = 0;    // transport value that maps to sample 0
+        std::atomic<int64_t> startStamp { 0 };   // transport value mapping to sample 0
+                                   // (atomic: renderMixdown reads it off-thread)
         int     targetLen = 0;     // quantised finalise point (0 = free take)
         int     dubSamples = 0;    // samples visited in the current dub session
         int     undoEnd = 0;       // loop index where the last dub session ended
@@ -450,7 +453,7 @@ private:
         const int len = t.lenSamples.load (std::memory_order_relaxed);
         if (len <= 0)
             return 0;
-        const int fwd = (int) (((transport - t.startStamp) % len + len) % len);
+        const int fwd = (int) (((transport - t.startStamp.load (std::memory_order_relaxed)) % len + len) % len);
         return t.reversed.load (std::memory_order_relaxed) ? len - 1 - fwd : fwd;
     }
 
@@ -467,7 +470,7 @@ private:
             // forever. Costs at most 7 samples of tail.
             len = juce::jmax (8, len & ~7);
             masterLen.store (len);
-            masterStamp = transport - (int64_t) t.recPos;   // grid top = take start
+            masterStamp.store (transport - (int64_t) t.recPos);   // grid top = take start
         }
 
         t.lenSamples.store (len);
@@ -476,7 +479,7 @@ private:
         // "sample 0 = now" (recPos == len, same thing mod len); for a LATE
         // tap that got truncated it keeps playback where the performer
         // actually is instead of jumping back to the loop top.
-        t.startStamp = transport - (int64_t) t.recPos;
+        t.startStamp.store (transport - (int64_t) t.recPos);
         t.targetLen = 0;
         t.state.store (Playing);
     }
@@ -538,10 +541,14 @@ private:
             }
             else if (st == Recording)
             {
+                const int master = masterLen.load (std::memory_order_relaxed);
+
                 // A tap a few ms after record-start is a double-tap bounce,
-                // not a take - finalising it would define a near-zero master
-                // loop and poison the whole grid. Treat it as cancel.
-                if (t.recPos < (int) (srHz * 0.12))
+                // not a take - and with no grid yet it would define a
+                // near-zero master loop. Only cancel in that case: once a
+                // grid exists the quantiser below turns a short tap into a
+                // legitimate half/quarter/eighth sub-loop.
+                if (master <= 0 && t.recPos < (int) (srHz * 0.12))
                 {
                     t.recPos = 0;
                     t.targetLen = 0;
@@ -549,7 +556,6 @@ private:
                     return;
                 }
 
-                const int master = masterLen.load (std::memory_order_relaxed);
                 if (master > 0)
                 {
                     // The tap IS the end of the performance: close the loop as
@@ -626,7 +632,7 @@ private:
             if (! anyLength())
             {
                 masterLen.store (0);   // last loop gone: next take re-defines it
-                masterStamp = 0;
+                masterStamp.store (0);
             }
         }
         else if (cmd == 4)     // re-record: wipe this track and roll again
@@ -641,10 +647,19 @@ private:
             if (! anyLength())
             {
                 masterLen.store (0);
-                masterStamp = 0;
+                masterStamp.store (0);
                 metroResetReq.store (true);
             }
-            t.state.store (Recording);
+
+            // Same grid discipline as the main button: with other loops
+            // rolling, wait for the loop top instead of starting mid-bar.
+            if (masterLen.load (std::memory_order_relaxed) > 0 && anyRunning())
+            {
+                t.armCountdown = 0;
+                t.state.store (Armed);
+            }
+            else
+                t.state.store (Recording);
         }
         else if (cmd == 5)     // an imported audio file becomes this loop
         {
@@ -663,10 +678,12 @@ private:
             const int master = masterLen.load (std::memory_order_relaxed);
             if (master <= 0)
             {
-                masterLen.store (len);       // first content defines the grid
-                masterStamp = transport;
+                // Same 8-sample lattice finalizeTake uses, so half/quarter/
+                // eighth sub-loops divide the grid exactly.
+                masterLen.store (juce::jmax (8, len & ~7));
+                masterStamp.store (transport);
             }
-            t.startStamp = transport;        // its loop top = right now
+            t.startStamp.store (transport);   // its loop top = right now
             t.state.store (Playing);
         }
         else if (cmd == 3)     // undo <-> redo the latest dub session
@@ -746,7 +763,7 @@ private:
         else if (cmd == 2)     // play all, re-synced from the top
         {
             transport = 0;
-            masterStamp = 0;
+            masterStamp.store (0);
             metroResetReq.store (true);
             for (auto& t : tracks)
                 if (t.lenSamples.load() > 0)
@@ -770,7 +787,7 @@ private:
 
     void playFromTop (Track& t)
     {
-        t.startStamp = transport;   // sample 0 = now, same instant for all
+        t.startStamp.store (transport);   // sample 0 = now, same instant for all
         // The rewritten stamp shifts every loop index, so the recorded undo
         // region no longer lines up — restoring it would corrupt the loop.
         t.undoAvail.store (false);
@@ -789,7 +806,7 @@ private:
     Track tracks[kNumTracks];
     int maxLenSamples = 1;
     int64_t transport = 0;
-    int64_t masterStamp = 0;   // transport value at the master grid's loop top
+    std::atomic<int64_t> masterStamp { 0 };   // transport at the grid's loop top
 
     std::atomic<int> masterLen { 0 };
     std::atomic<int> pendingMaster { 0 };

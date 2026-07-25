@@ -20,10 +20,7 @@ public:
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
         lookaheadSamples = juce::jmax (1, (int) (lookaheadMs * 0.001 * sr));
         releaseCoeff = std::exp (-1.0f / (float) (releaseMs * 0.001 * sr));
-        // Attack smoothing: settle to ~99.3% of the drop across the look-ahead
-        // span. An instantaneous gain step IS a click - the delay exists
-        // precisely so the ramp can happen before the peak arrives.
-        attackCoeff = std::exp (-5.0f / (float) lookaheadSamples);
+        gainStep = 0.0f;
 
         for (auto& d : delayLines)
             d.assign ((size_t) lookaheadSamples, 0.0f);
@@ -80,12 +77,24 @@ public:
                     windowMin = juce::jmin (windowMin, t);
             }
 
-            // Smoothed attack toward the windowed minimum (the residual error
-            // after the look-ahead span is < 1%, comfortably inside the 0.98
-            // ceiling headroom); release only once every lower target has
-            // left the look-ahead window.
-            if (windowMin < gain) gain = windowMin + (gain - windowMin) * attackCoeff;
-            else                  gain = windowMin + (gain - windowMin) * releaseCoeff;
+            // Attack: a LINEAR descent planned to land exactly on the windowed
+            // minimum within the look-ahead span - so the gain is already
+            // there when the peak leaves the delay line. (An exponential
+            // approach never arrives: it left peaks dB over the ceiling. An
+            // instant step arrives but clicks. This does both jobs.)
+            if (windowMin < gain)
+            {
+                const float need = (gain - windowMin) / (float) lookaheadSamples;
+                gainStep = juce::jmax (gainStep, need);   // a deeper drop steepens it
+                gain = juce::jmax (windowMin, gain - gainStep);
+                if (gain <= windowMin)
+                    gainStep = 0.0f;
+            }
+            else
+            {
+                gainStep = 0.0f;
+                gain = windowMin + (gain - windowMin) * releaseCoeff;
+            }
 
             for (int ch = 0; ch < numCh; ++ch)
             {
@@ -109,7 +118,7 @@ private:
     int    writePos = 0;
     float  gain = 1.0f;
     float  releaseCoeff = 0.0f;
-    float  attackCoeff  = 0.0f;
+    float  gainStep     = 0.0f;   // planned linear attack rate
     std::vector<float> delayLines[2];
 
     // Sliding-minimum state for the look-ahead gain hold.

@@ -1484,6 +1484,10 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
         {
             if (nm == "Drum Kit")
             {
+                // Suspend kit mode FIRST: buildKitPieces snapshots each piece
+                // by writing the LIVE patch atomics, and a pad hit landing
+                // mid-rebuild would start a voice made of two different drums.
+                kitMode.store (false);
                 buildingKit = true;
                 buildKitPieces();
                 buildingKit = false;
@@ -1719,9 +1723,29 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
                 if (list[(size_t) i].name == savedTheme)
                     { themeIdx = i; break; }
         }
-        if (themeIdx < 0 && xml->hasAttribute ("theme"))
-            themeIdx = xml->getIntAttribute ("theme")
-                       + (savedTheme.isEmpty() ? 8 : 0);   // legacy index -> shifted list
+        if (themeIdx < 0 && xml->hasAttribute ("theme") && savedTheme.isEmpty())
+        {
+            // Sessions older than the themeName attribute stored a bare index
+            // into the ORIGINAL seven-theme list. Resolve it through that
+            // list by name (an index shift is meaningless now - the list has
+            // been rebuilt twice since).
+            static const char* legacy7[] = { "Neon Rider", "Neo-Seoul", "Neon Ocean",
+                                             "Silver", "Graphite", "Midnight", "Space Gray" };
+            const int li = xml->getIntAttribute ("theme");
+            if (juce::isPositiveAndBelow (li, 7))
+            {
+                juce::String legacyName (legacy7[li]);
+                if (legacyName == "Neon Rider" || legacyName == "Neo-Seoul")
+                    legacyName = "Neon Ocean";
+                else if (legacyName == "Space Gray")
+                    legacyName = "Graphite";
+
+                const auto& list = ThemeManager::themes();
+                for (int i = 0; i < (int) list.size(); ++i)
+                    if (list[(size_t) i].name == legacyName)
+                        { themeIdx = i; break; }
+            }
+        }
         if (themeIdx >= 0)
             ThemeManager::setIndex (themeIdx);
     }

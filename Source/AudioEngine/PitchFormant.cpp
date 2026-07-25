@@ -52,26 +52,35 @@ void PitchFormant::process (juce::AudioBuffer<float>& buffer,
         engaged = wantEngage;
         fadePos = 0;               // mask the path switch with a short fade-in
         if (engaged)
-        {
-            stretch.reset();
-            // The dry ring holds audio from the PREVIOUS engaged session -
-            // blending it in now would replay minute-old material.
-            for (int ch = 0; ch < 2; ++ch)
-                std::fill (dryRing[(size_t) ch].begin(),
-                           dryRing[(size_t) ch].end(), 0.0f);
-            ringWrite = 0;
-        }
+            stretch.reset();       // the dry ring keeps running - see below
     }
     if (! engaged)
     {
+        // Keep feeding the dry history even while bypassed. Clearing it on
+        // engage stopped minute-old audio replaying, but replaced it with a
+        // ~100 ms hole in the dry path (the ring read trails by `latency`,
+        // and the 256-sample toggle fade cannot mask that). Feeding it here
+        // means the delayed dry is always genuine recent signal.
+        for (int n = 0; n < numSamples; ++n)
+        {
+            for (int ch = 0; ch < numChannels; ++ch)
+                dryRing[(size_t) ch][(size_t) ringWrite] = buffer.getSample (ch, n);
+            ringWrite = (ringWrite + 1) % ringCap;
+        }
+
         applyToggleFade (buffer, numSamples, numChannels);
         return;                    // signal passes untouched: zero delay
     }
 
     // Hosts may deliver a block larger than prepareToPlay promised; writing
-    // it into the scratch/ring would overflow the heap. Pass dry instead.
+    // it into the scratch would overflow the heap. Pass it through dry - but
+    // still advance the fade, or a toggle landing on such a block plays at
+    // full gain and clicks.
     if (numSamples > inputScratch.getNumSamples())
+    {
+        applyToggleFade (buffer, numSamples, numChannels);
         return;
+    }
 
     // Apply pitch/formant on the audio thread (cheap parameter setters).
     stretch.setTransposeSemitones (pitchSemi);

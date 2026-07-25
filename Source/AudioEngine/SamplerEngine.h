@@ -115,8 +115,14 @@ private:
     // bank on the audio thread is a guaranteed dropout.
     std::vector<std::shared_ptr<const Bank>> retiredBanks;
 
+    // publishBank is reachable from loadSfz/loadFromBuffer on the message
+    // thread AND from prepareToPlay, which the host may call on its own setup
+    // thread - two concurrent push_back/erase would corrupt the vector.
+    juce::CriticalSection retireLock;
+
     void publishBank (std::shared_ptr<const Bank> newBank)
     {
+        const juce::ScopedLock sl (retireLock);
         auto old = std::atomic_exchange (&bank, std::move (newBank));
         if (old != nullptr)
             retiredBanks.push_back (std::move (old));
