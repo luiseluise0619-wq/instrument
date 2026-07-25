@@ -577,8 +577,35 @@ void LooperPanel::paint (juce::Graphics& g)
         if (ringR < 12.0f)
             continue;
 
-        g.setColour (theme.controlTrack);
-        g.drawEllipse (centre.x - ringR, centre.y - ringR, ringR * 2.0f, ringR * 2.0f, 4.0f);
+        // Recessed well inside the ring, so an empty track reads as a dial
+        // waiting to be filled rather than an outline floating in space.
+        {
+            juce::ColourGradient well (theme.bgBottom.withAlpha (theme.dark ? 0.55f : 0.10f),
+                                       centre.x, centre.y - ringR * 0.4f,
+                                       theme.bgTop.withAlpha (0.0f),
+                                       centre.x, centre.y + ringR, false);
+            g.setGradientFill (well);
+            g.fillEllipse (centre.x - ringR, centre.y - ringR, ringR * 2.0f, ringR * 2.0f);
+
+            // Faint accent halo hugging the inside of the track ring.
+            g.setColour (theme.accent.withAlpha (0.06f));
+            g.drawEllipse (centre.x - ringR + 3.0f, centre.y - ringR + 3.0f,
+                           (ringR - 3.0f) * 2.0f, (ringR - 3.0f) * 2.0f, 6.0f);
+        }
+
+        // Track ring, lit from the top like the rest of the panel.
+        {
+            juce::ColourGradient ring (theme.controlTrack.brighter (0.35f),
+                                       centre.x, centre.y - ringR,
+                                       theme.controlTrack.darker (0.25f),
+                                       centre.x, centre.y + ringR, false);
+            g.setGradientFill (ring);
+            g.drawEllipse (centre.x - ringR, centre.y - ringR, ringR * 2.0f, ringR * 2.0f, 4.0f);
+        }
+
+        // Twelve o'clock index mark: the loop's top, so the sweep has a datum.
+        g.setColour (theme.textSecondary.withAlpha (0.55f));
+        g.fillRoundedRectangle (centre.x - 1.0f, centre.y - ringR - 5.0f, 2.0f, 7.0f, 1.0f);
 
         const juce::Colour stateColour =
             st == LoopStation::Recording ? juce::Colour (0xffff453a)
