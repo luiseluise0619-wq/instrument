@@ -53,11 +53,32 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     }
 
     //--------------------------------------------------------------------------
-    // (b) Base disc. Glow themes need a clearly lighter disc - control
-    // colour vs the dark glass card was invisible in practice.
-    g.setColour (theme.glow >= 0.9f ? theme.materialStrong.withAlpha (1.0f).brighter (0.25f)
-                                    : theme.control);
-    g.fillEllipse (discBounds);
+    // (b) Base disc: a turned-metal face, not a flat circle. Light falls from
+    // the top-left, so the disc darkens toward the lower right and picks up a
+    // faint accent bounce - that is what makes a knob look grabbable.
+    {
+        const auto base = theme.glow >= 0.9f
+                            ? theme.materialStrong.withAlpha (1.0f).brighter (0.25f)
+                            : theme.control;
+
+        juce::ColourGradient face (base.brighter (theme.dark ? 0.22f : 0.10f),
+                                   discBounds.getX() + discRadius * 0.45f,
+                                   discBounds.getY() + discRadius * 0.25f,
+                                   base.darker (theme.dark ? 0.30f : 0.16f),
+                                   discBounds.getRight(), discBounds.getBottom(), true);
+        face.addColour (0.55, base);
+        g.setGradientFill (face);
+        g.fillEllipse (discBounds);
+
+        // Accent bounce along the lower rim (very low alpha, reads as light
+        // reflected up off the panel).
+        juce::ColourGradient bounce (juce::Colours::transparentBlack,
+                                     centre.x, centre.y,
+                                     theme.accent.withAlpha (theme.dark ? 0.16f : 0.10f),
+                                     centre.x, discBounds.getBottom(), false);
+        g.setGradientFill (bounce);
+        g.fillEllipse (discBounds);
+    }
 
     // (f) Very subtle glassy top inner highlight (dark themes only).
     if (theme.dark)

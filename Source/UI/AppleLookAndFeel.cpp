@@ -31,9 +31,12 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     else if (down)                        fill = theme.accentSoft.withMultipliedAlpha (2.0f);
     else if (highlighted)                 fill = theme.material.brighter (0.06f);
 
-    // Soft shadow.
-    juce::DropShadow (theme.shadow, 8, { 0, 2 })
-        .drawForRectangle (g, bounds.getSmallestIntegerContainer());
+    // Soft shadow - two offset fills. A gaussian DropShadow per button per
+    // paint is exactly what made the panel feel sluggish before.
+    g.setColour (theme.shadow.withAlpha (0.20f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f), radius);
+    g.setColour (theme.shadow.withAlpha (0.12f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), radius);
 
     // Optional click-flash pulse (0..1) that owners drive via the "neonFlash"
     // component property (see ChordBar). Glow themes only.
@@ -66,8 +69,25 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
         }
     }
 
-    g.setColour (fill);
-    g.fillRoundedRectangle (bounds, radius);
+    // Face: a top-lit vertical gradient reads as a physical key rather than
+    // a painted rectangle. Toggled (accent-filled) buttons keep it too.
+    {
+        const float lift = theme.dark ? 0.16f : 0.10f;
+        juce::ColourGradient face (fill.brighter (down ? 0.0f : lift),
+                                   bounds.getX(), bounds.getY(),
+                                   fill.darker (down ? 0.06f : 0.05f),
+                                   bounds.getX(), bounds.getBottom(), false);
+        g.setGradientFill (face);
+        g.fillRoundedRectangle (bounds, radius);
+    }
+
+    // 1px inner highlight along the top edge - the "glass" line.
+    if (! down)
+    {
+        g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.07f : 0.55f));
+        g.fillRect (bounds.getX() + radius, bounds.getY() + 1.0f,
+                    bounds.getWidth() - radius * 2.0f, 1.0f);
+    }
 
     // The click flash also brightens the face with an accent wash.
     if (glowTheme && flash > 0.0f && ! button.getToggleState())
@@ -186,8 +206,21 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
         box.setRepaintsOnMouseActivity (true);
     const bool hovered = glowTheme && box.isMouseOver (true);
 
-    g.setColour (theme.materialStrong);
-    g.fillRoundedRectangle (bounds, radius);
+    // Recessed well: darker at the top (light falls in), 1px light lip at the
+    // bottom - the inverse of the raised buttons, so the two read differently.
+    {
+        const auto base = theme.materialStrong;
+        juce::ColourGradient well (base.darker (theme.dark ? 0.14f : 0.03f),
+                                   bounds.getX(), bounds.getY(),
+                                   base.brighter (theme.dark ? 0.06f : 0.0f),
+                                   bounds.getX(), bounds.getBottom(), false);
+        g.setGradientFill (well);
+        g.fillRoundedRectangle (bounds, radius);
+
+        g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.45f));
+        g.fillRect (bounds.getX() + radius, bounds.getBottom() - 1.5f,
+                    bounds.getWidth() - radius * 2.0f, 1.0f);
+    }
 
     // Combos always show an accent rim on glow themes so they can't sink
     // into the dark cards; brighter when hovered/focused.
