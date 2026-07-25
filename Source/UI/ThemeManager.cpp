@@ -103,33 +103,6 @@ std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
         juce::Colour (0x66000000),
         12.0f, 0.0f
     },
-    // ---- Neon Rider (full-bleed artwork: pink/blue bike in the rain) -------
-    // The editor draws the embedded skin_neon_rider.png behind the panels.
-    {
-        "Neon Rider", true,
-        juce::Colour (0xff0d0a1e), juce::Colour (0xff05030f),   // bg gradient
-        juce::Colour (0x1aff2daa), juce::Colour (0xf01a1233),   // material / controls
-        juce::Colour (0x66ff2daa),                              // separator (pink)
-        juce::Colour (0xff140f2e), juce::Colour (0x26ffffff),   // control / track
-        juce::Colour (0xffff2daa), juce::Colour (0x59ff2daa),   // accent (hot pink)
-        juce::Colour (0xff00d5ff),                              // waveform (cyan)
-        juce::Colour (0xffffeaf6), juce::Colour (0xb0c9b3ff),   // text / secondary
-        juce::Colour (0xcc03020a),                              // shadow
-        14.0f, 1.0f                                             // FULL glow
-    },
-    // ---- Neo-Seoul (full-bleed artwork: green/orange bike, Seoul signs) ----
-    {
-        "Neo-Seoul", true,
-        juce::Colour (0xff0a1410), juce::Colour (0xff040a08),
-        juce::Colour (0x1a2bffb0), juce::Colour (0xf012281e),
-        juce::Colour (0x662bffb0),                              // separator (green)
-        juce::Colour (0xff0e1d16), juce::Colour (0x26ffffff),
-        juce::Colour (0xff2bffb0), juce::Colour (0x592bffb0),   // accent (neon green)
-        juce::Colour (0xffff9a3c),                              // waveform (orange)
-        juce::Colour (0xffe8fff4), juce::Colour (0xb07fd9b8),
-        juce::Colour (0xcc020604),
-        14.0f, 1.0f                                             // FULL glow
-    },
     // ---- Neon Ocean (cyber synthwave: deep navy sea + neon cyan/purple) ---
     // Palette per design spec: #050814 navy, #00F5FF cyan, #B026FF purple,
     // #FF2DAA hot pink, #3AA0FF soft blue glow.

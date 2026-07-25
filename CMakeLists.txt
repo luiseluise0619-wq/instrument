@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VocalChopStudio VERSION 2.9.0 LANGUAGES C CXX)
+project(VocalChopStudio VERSION 2.9.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -88,15 +88,13 @@ juce_add_plugin(VocalChopStudio
 
 juce_generate_juce_header(VocalChopStudio)
 
-# Embed the demo vocal (one-click first-run sound) and the two full-bleed
-# skin artworks (drawn as theme backdrops).
+# Embed the demo vocals (one-click first-run sound). The themes draw their
+# backdrops procedurally now, so no artwork ships in the binary.
 juce_add_binary_data(VocalChopData SOURCES
     examples/vocal_chop_demo.wav
     examples/vox_air.wav
     examples/vox_rage.wav
-    examples/vox_beatbox.wav
-    assets/skin_neon_rider.png
-    assets/skin_neo_seoul.png)
+    examples/vox_beatbox.wav)
 
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp

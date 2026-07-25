@@ -1699,10 +1699,14 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
 
     // Prefer the saved theme NAME; sessions saved before the Studio themes
     // were prepended carry only an index into the OLD 7-theme list, which
-    // now sits shifted by 8 (Neon Rider was 0, is 8).
+    // now sits shifted by 8.
     {
         int themeIdx = -1;
-        const auto savedTheme = xml->getStringAttribute ("themeName");
+        auto savedTheme = xml->getStringAttribute ("themeName");
+        // The two artwork skins were retired: land those sessions on the
+        // neon theme rather than silently picking whatever now sits there.
+        if (savedTheme == "Neon Rider" || savedTheme == "Neo-Seoul")
+            savedTheme = "Neon Ocean";
         if (savedTheme.isNotEmpty())
         {
             const auto& list = ThemeManager::themes();

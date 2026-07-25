@@ -118,6 +118,58 @@ juce::Font AppleLookAndFeel::getComboBoxFont (juce::ComboBox&)
     return juce::Font (juce::FontOptions (14.0f).withStyle ("Medium"));
 }
 
+void AppleLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,
+                                         bool highlighted, bool down)
+{
+    const auto& theme = ThemeManager::active();
+    const bool  on    = button.getToggleState();
+
+    auto bounds = button.getLocalBounds().toFloat();
+    const float boxSide = juce::jlimit (13.0f, 18.0f, bounds.getHeight() - 6.0f);
+    auto box = juce::Rectangle<float> (boxSide, boxSide)
+                   .withCentre ({ bounds.getX() + boxSide * 0.5f + 1.0f,
+                                  bounds.getCentreY() });
+    const float r = boxSide * 0.30f;
+
+    // Filled accent box when on, hairline well when off - the stock JUCE tick
+    // box was invisible on the light themes and drab on the dark ones.
+    if (on)
+    {
+        if (theme.glow >= 0.5f)
+        {
+            g.setColour (theme.accent.withAlpha (0.30f * theme.glow));
+            g.fillRoundedRectangle (box.expanded (3.0f), r + 3.0f);
+        }
+        g.setColour (theme.accent.brighter (highlighted ? 0.15f : 0.0f));
+        g.fillRoundedRectangle (box, r);
+
+        // Tick.
+        juce::Path tick;
+        tick.startNewSubPath (box.getX() + boxSide * 0.24f, box.getY() + boxSide * 0.52f);
+        tick.lineTo          (box.getX() + boxSide * 0.43f, box.getY() + boxSide * 0.71f);
+        tick.lineTo          (box.getX() + boxSide * 0.77f, box.getY() + boxSide * 0.30f);
+        g.setColour (theme.dark ? juce::Colours::white
+                                : juce::Colours::white.withAlpha (0.97f));
+        g.strokePath (tick, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
+                                                  juce::PathStrokeType::rounded));
+    }
+    else
+    {
+        g.setColour (theme.control.withAlpha (theme.dark ? 1.0f : 0.85f));
+        g.fillRoundedRectangle (box, r);
+        g.setColour (highlighted ? theme.accent.withAlpha (0.75f)
+                                 : theme.textSecondary.withAlpha (0.55f));
+        g.drawRoundedRectangle (box.reduced (0.5f), r, 1.2f);
+    }
+
+    // Label: full-strength text, never the washed-out default.
+    g.setColour (theme.text.withAlpha (button.isEnabled() ? (down ? 0.75f : 1.0f) : 0.4f));
+    g.setFont (juce::Font (juce::FontOptions (13.0f).withStyle ("Medium")));
+    g.drawText (button.getButtonText(),
+                bounds.withTrimmedLeft (boxSide + 9.0f),
+                juce::Justification::centredLeft, false);
+}
+
 void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
                                      bool, int, int, int, int, juce::ComboBox& box)
 {

@@ -403,47 +403,68 @@ namespace
     // fitted to the window width so the hero (the bike) stays completely
     // unobstructed; only its lower part fades into the panel zone, and
     // everything below the image is solid background.
-    void paintArtworkBackdrop (juce::Graphics& g, int wi, int hi,
-                               const void* data, int dataSize,
-                               juce::Colour bgBottom)
+    // Backdrop for the flat themes: a plain two-stop gradient reads cheap at
+    // this size, so add a soft accent aura, a vignette and a fine grain. It
+    // is rendered ONCE into a cached image, so none of this costs per-frame.
+    void paintStudioBackdrop (juce::Graphics& g, int wi, int hi, const Theme& theme)
     {
         const float w = (float) wi;
         const float h = (float) hi;
 
-        g.fillAll (bgBottom);
+        // (a) Base gradient, very slightly tinted toward the accent so each
+        //     colourway feels like its own room rather than one grey box.
+        const auto top    = theme.bgTop.interpolatedWith (theme.accent, theme.dark ? 0.045f : 0.02f);
+        const auto bottom = theme.bgBottom;
+        juce::ColourGradient bg (top, 0.0f, 0.0f, bottom, 0.0f, h, false);
+        bg.addColour (0.55, bottom.interpolatedWith (top, 0.35f));
+        g.setGradientFill (bg);
+        g.fillAll();
 
-        const auto img = juce::ImageCache::getFromMemory (data, dataSize);
-        float imgH = h;
-
-        if (img.isValid())
+        // (b) Accent aura behind the header - the light source of the panel.
         {
-            imgH = w * (float) img.getHeight() / (float) img.getWidth();
-            g.drawImage (img, { 0.0f, 0.0f, w, imgH },
-                         juce::RectanglePlacement::stretchToFit);
+            const float r = w * 0.85f;
+            juce::ColourGradient aura (theme.accent.withAlpha (theme.dark ? 0.10f : 0.07f),
+                                       w * 0.5f, -h * 0.06f,
+                                       juce::Colours::transparentBlack,
+                                       w * 0.5f + r, -h * 0.06f, true);
+            g.setGradientFill (aura);
+            g.fillRect (0.0f, 0.0f, w, h * 0.6f);
         }
 
-        // Fade the artwork's lower part into the control zone (the hero above
-        // this line stays untouched and fully visible).
+        // (c) Cool counter-light low on the right keeps the lower half alive.
         {
-            const float fadeTop = imgH * 0.52f;
-            juce::ColourGradient shade (juce::Colours::transparentBlack, 0.0f, fadeTop,
-                                        bgBottom.withAlpha (0.94f), 0.0f, imgH, false);
-            g.setGradientFill (shade);
-            g.fillRect (0.0f, fadeTop, w, imgH - fadeTop);
+            const float r = w * 0.55f;
+            juce::ColourGradient low (theme.waveform.withAlpha (theme.dark ? 0.055f : 0.04f),
+                                      w * 0.88f, h * 0.92f,
+                                      juce::Colours::transparentBlack,
+                                      w * 0.88f + r, h * 0.92f, true);
+            g.setGradientFill (low);
+            g.fillRect (w * 0.3f, h * 0.45f, w * 0.7f, h * 0.55f);
         }
 
-        // Soft top band so the toolbar text reads on bright skies.
+        // (d) Vignette: pulls the eye to the centre and stops the corners
+        //     from looking like flat paint.
         {
-            juce::ColourGradient top (juce::Colours::black.withAlpha (0.38f), 0.0f, 0.0f,
-                                      juce::Colours::transparentBlack, 0.0f, 74.0f, false);
-            g.setGradientFill (top);
-            g.fillRect (0.0f, 0.0f, w, 74.0f);
+            const float r = juce::jmax (w, h) * 0.78f;
+            juce::ColourGradient vig (juce::Colours::transparentBlack, w * 0.5f, h * 0.5f,
+                                      juce::Colours::black.withAlpha (theme.dark ? 0.34f : 0.10f),
+                                      w * 0.5f + r, h * 0.5f, true);
+            g.setGradientFill (vig);
+            g.fillAll();
         }
 
-        // Brand-cohesive CRT scanlines, very subtle.
-        g.setColour (juce::Colours::black.withAlpha (0.03f));
-        for (float sy = 0.0f; sy < h; sy += 3.0f)
-            g.fillRect (0.0f, sy, w, 1.0f);
+        // (e) Fine deterministic grain. Flat dark gradients band badly on
+        //     cheap panels; a whisper of noise dithers that away.
+        {
+            const float a = theme.dark ? 0.020f : 0.012f;
+            g.setColour (juce::Colours::white.withAlpha (a));
+            for (int i = 0; i < 5200; ++i)
+            {
+                const float gx = hash01 (i * 2 + 1) * w;
+                const float gy = hash01 (i * 2 + 7919) * h;
+                g.fillRect (gx, gy, 1.0f, 1.0f);
+            }
+        }
     }
 
     // FL-style typing keys: bottom row = C3 octave, top row = C4 octave and
@@ -484,7 +505,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     titleLabel.setFont (juce::Font (juce::FontOptions (26.0f).withStyle ("Bold"))
                             .withExtraKerningFactor (0.02f));
     titleLabel.setJustificationType (juce::Justification::centredLeft);
-    addAndMakeVisible (titleLabel);
+    // Laid out but never drawn: paintContent renders the wordmark with a
+    // gradient + bloom that a plain Label cannot do.
+    addChildComponent (titleLabel);
 
     subtitleLabel.setText ("VOCAL CHOP INSTRUMENT", juce::dontSendNotification);
     subtitleLabel.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Medium"))
@@ -1284,42 +1307,50 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
 
-    if (theme.glow >= 0.9f)
+    // Every theme now draws a designed backdrop, cached as an image so knob
+    // repaints never re-render it.
+    if (backdropCache.getWidth()  != kBaseW
+     || backdropCache.getHeight() != kBaseH
+     || backdropTheme != ThemeManager::current())
     {
-        // Full-glow default theme: the Ocean Pluck scene, cached so knob
-        // repaints don't re-render the artwork.
-        if (backdropCache.getWidth()  != kBaseW
-         || backdropCache.getHeight() != kBaseH
-         || backdropTheme != ThemeManager::current())
-        {
-            backdropCache = juce::Image (juce::Image::ARGB, kBaseW, kBaseH, true);
-            juce::Graphics ig (backdropCache);
+        backdropCache = juce::Image (juce::Image::ARGB, kBaseW, kBaseH, true);
+        juce::Graphics ig (backdropCache);
 
-            const juce::String themeName (theme.name);
-            if (themeName == "Neon Rider")
-                paintArtworkBackdrop (ig, kBaseW, kBaseH,
-                                      BinaryData::skin_neon_rider_png,
-                                      BinaryData::skin_neon_rider_pngSize,
-                                      theme.bgBottom);
-            else if (themeName == "Neo-Seoul")
-                paintArtworkBackdrop (ig, kBaseW, kBaseH,
-                                      BinaryData::skin_neo_seoul_png,
-                                      BinaryData::skin_neo_seoul_pngSize,
-                                      theme.bgBottom);
-            else
-                paintOceanScene (ig, kBaseW, kBaseH);
+        if (theme.glow >= 0.9f)
+            paintOceanScene (ig, kBaseW, kBaseH);      // the neon scene skin
+        else
+            paintStudioBackdrop (ig, kBaseW, kBaseH, theme);
 
-            backdropTheme = ThemeManager::current();
-        }
-        g.drawImageAt (backdropCache, 0, 0);
-        drawHeroFx (g);
+        backdropTheme = ThemeManager::current();
     }
-    else
+    g.drawImageAt (backdropCache, 0, 0);
+
+    if (theme.glow >= 0.9f)
+        drawHeroFx (g);
+
+    // --- Wordmark: accent-graded with a soft bloom (the brand focal point).
     {
-        juce::ColourGradient bg (theme.bgTop, 0.0f, 0.0f,
-                                 theme.bgBottom, 0.0f, (float) kBaseH, false);
-        g.setGradientFill (bg);
-        g.fillAll();
+        auto tb = titleLabel.getBounds().toFloat();
+        if (! tb.isEmpty())
+        {
+            const auto font = juce::Font (juce::FontOptions (26.0f).withStyle ("Bold"))
+                                  .withExtraKerningFactor (0.02f);
+            g.setFont (font);
+
+            // Bloom: a couple of offset passes in the accent, very low alpha.
+            g.setColour (theme.accent.withAlpha (theme.glow >= 0.9f ? 0.30f : 0.16f));
+            for (const auto d : { -1.6f, 1.6f })
+                g.drawText ("slyce", tb.translated (d, 0.0f),
+                            juce::Justification::centredLeft, false);
+            g.drawText ("slyce", tb.translated (0.0f, 1.6f),
+                        juce::Justification::centredLeft, false);
+
+            juce::ColourGradient grad (theme.text, tb.getX(), tb.getY(),
+                                       theme.text.interpolatedWith (theme.accent, 0.55f),
+                                       tb.getX(), tb.getBottom(), false);
+            g.setGradientFill (grad);
+            g.drawText ("slyce", tb, juce::Justification::centredLeft, false);
+        }
     }
 
     // Live label colours.
@@ -1331,8 +1362,14 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     // Hairline under the toolbar.
     const auto full = juce::Rectangle<int> (0, 0, kBaseW, kBaseH).reduced (kMargin, 0);
     const int toolbarBottom = kMargin + kToolbarH + (kGap / 2);
-    g.setColour (theme.separator);
-    g.fillRect (full.getX(), toolbarBottom, full.getWidth(), 1);
+    {
+        juce::ColourGradient rule (theme.separator.withAlpha (0.0f), (float) full.getX(), 0.0f,
+                                   theme.separator.withAlpha (0.0f), (float) full.getRight(), 0.0f,
+                                   false);
+        rule.addColour (0.5, theme.separator);
+        g.setGradientFill (rule);
+        g.fillRect ((float) full.getX(), (float) toolbarBottom, (float) full.getWidth(), 1.0f);
+    }
 
     // Material cards.
     drawCard (g, macroCardBounds.toFloat());
