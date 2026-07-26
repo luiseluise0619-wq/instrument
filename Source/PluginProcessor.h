@@ -77,6 +77,10 @@ public:
     /** Live output level (0..1, peak-ish) for the UI meter. */
     std::atomic<float>& getOutputLevelRef() { return outputLevel; }
 
+    /** Tempo reported by the host this block, or 0 when the host gives none
+        (standalone, or a host that does not publish transport info). */
+    double getHostBpm() const { return hostBpm.load(); }
+
     /** Mono output ring for the live oscilloscope (Synth/Sampled modes).
         Size is a power of two; readers index with (i & (size-1)). */
     const std::array<float, 2048>& getScopeRing() const { return scopeRing; }
@@ -135,6 +139,13 @@ public:
     /** Applies a named factory preset's parameter values. */
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
+
+    /** User presets: the whole parameter tree saved under a name, stored as
+        one XML file each next to the licence so every session sees them. */
+    static juce::File        userPresetFolder();
+    static juce::StringArray getUserPresetNames();
+    bool saveUserPreset (const juce::String& name);
+    bool loadUserPreset (const juce::String& name);
 
     /** Built-in synth instruments: applying one switches to Synth mode and
         dials in a designed patch (engine architecture + knob defaults). */
@@ -229,11 +240,14 @@ private:
     std::atomic<float>* synthChorusParam  = nullptr;
     std::atomic<float>* synthLfoRateParam = nullptr;
     std::atomic<float>* synthLfoAmtParam  = nullptr;
+    std::atomic<float>* delaySyncParam  = nullptr;
+    bool lastDelayWasSynced = false;   // audio thread only
     std::atomic<float>* macroHypeParam  = nullptr;
     std::atomic<float>* macroSpaceParam = nullptr;
     std::atomic<float>* macroDirtParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
+    std::atomic<double> hostBpm { 0.0 };   // 0 = host published no tempo
 
     // Live-output oscilloscope ring (audio thread writes, UI paint reads).
     std::array<float, 2048> scopeRing {};

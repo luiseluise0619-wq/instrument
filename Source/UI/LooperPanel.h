@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "../AudioEngine/LoopStation.h"
+#include <functional>
 #include <memory>
 
 class VocalChopAudioProcessor;
@@ -35,6 +36,7 @@ private:
     void applyTrackInstrument (int track);
     void updateTrackVisibility();
     void importAudioToTrack (int track);   // file -> loop (combo's top entry)
+    juce::File writeMixToTempFile();       // for the DAW drag-out
 
     static constexpr int kLoadAudioId = 900000;   // per-track combo item id
 
@@ -64,6 +66,34 @@ private:
     juce::TextButton addTrackButton { "+ TRACK" };
     juce::TextButton metroButton    { "MET" };
     juce::TextButton tapButton      { "TAP" };
+    juce::TextButton syncButton     { "SYNC" };   // follow the host tempo
+
+    /** Press-and-drag to drop the loop mix into the DAW as a WAV. JUCE's
+        external drag needs a real file on disk, so the mix is rendered to
+        the temp folder the moment the drag starts. */
+    struct DragOutButton : juce::TextButton
+    {
+        using juce::TextButton::TextButton;
+        std::function<juce::File()> makeFile;
+
+        void mouseDrag (const juce::MouseEvent&) override
+        {
+            if (dragging || makeFile == nullptr)
+                return;
+
+            dragging = true;
+            const auto f = makeFile();
+            if (f.existsAsFile())
+                juce::DragAndDropContainer::performExternalDragDropOfFiles (
+                    { f.getFullPathName() }, false, this,
+                    [this] { dragging = false; });
+            else
+                dragging = false;
+        }
+
+        bool dragging = false;
+    };
+    DragOutButton dragButton { "DRAG" };
     juce::Slider     bpmSlider;
     double lastTapMs = 0.0;
     double tapIntervalMs = 0.0;

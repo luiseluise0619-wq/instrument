@@ -133,6 +133,26 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     metroButton.setTooltip ("Metronome click - heard, never recorded. First take gets a 1-bar count-in");
     tapButton.setTooltip ("Tap in time to set the tempo");
 
+    syncButton.setClickingTogglesState (true);
+    syncButton.setToggleState (true, juce::dontSendNotification);   // on by default
+    syncButton.setTooltip ("Follow the host tempo. Off = set the BPM by hand");
+
+    dragButton.setTooltip ("Press and drag this into your DAW to drop the loop as a WAV");
+    dragButton.makeFile = [this] { return writeMixToTempFile(); };
+    dragButton.onClick  = [this]
+    {
+        // A plain click can't drag, so say what the button wants.
+        if (! proc.getLooper().anyContent())
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::InfoIcon, "Slyce",
+                "Record or load a loop first, then DRAG it into your DAW.");
+        else
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::InfoIcon, "Slyce",
+                "Hold this button and drag into your DAW's arrangement to drop "
+                "the loop as a WAV. (EXPORT saves it to a folder instead.)");
+    };
+
     exportButton.onClick = [this]
     {
         auto mix = std::make_shared<juce::AudioBuffer<float>>();
@@ -214,6 +234,8 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         });
     };
     addAndMakeVisible (exportButton);
+    addAndMakeVisible (syncButton);
+    addAndMakeVisible (dragButton);
 
     addAndMakeVisible (playAllButton);
     addAndMakeVisible (stopAllButton);
@@ -376,6 +398,19 @@ void LooperPanel::updateTrackVisibility()
 
 void LooperPanel::timerCallback()
 {
+    // Follow the host tempo (VST3/AU in a DAW). Standalone reports none, so
+    // the slider stays under the user's control there.
+    if (syncButton.getToggleState())
+    {
+        const double bpm = proc.getHostBpm();
+        if (bpm > 0.0 && std::abs (bpm - proc.getLooper().getMetroBpm()) > 0.01)
+        {
+            proc.getLooper().setMetroBpm ((float) bpm);
+            bpmSlider.setValue (bpm, juce::dontSendNotification);
+        }
+    }
+    bpmSlider.setEnabled (! syncButton.getToggleState() || proc.getHostBpm() <= 0.0);
+
     // Mirror an instrument change made anywhere else. Compare INDICES, not
     // raw ids — QUICK-shelf picks use ids 1000+idx, and comparing ids would
     // freeze the mirror forever after one QUICK selection.
@@ -457,6 +492,32 @@ void LooperPanel::importAudioToTrack (int track)
     });
 }
 
+juce::File LooperPanel::writeMixToTempFile()
+{
+    juce::AudioBuffer<float> mix;
+    if (! proc.getLooper().renderMixdown (mix))
+        return {};
+
+    auto f = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                 .getChildFile ("Slyce-loop.wav");
+    f.deleteFile();
+
+    juce::WavAudioFormat wav;
+    auto stream = f.createOutputStream();
+    if (stream == nullptr)
+        return {};
+
+    if (auto* writer = wav.createWriterFor (stream.get(), proc.getLooper().getSampleRate(),
+                                            2, 24, {}, 0))
+    {
+        std::unique_ptr<juce::AudioFormatWriter> w (writer);
+        stream.release();
+        if (w->writeFromAudioSampleBuffer (mix, 0, mix.getNumSamples()))
+            return f;
+    }
+    return {};
+}
+
 void LooperPanel::resized()
 {
     auto area = getLocalBounds().reduced (20);
@@ -476,11 +537,15 @@ void LooperPanel::resized()
     mStrip.removeFromLeft (8);
     tapButton.setBounds (mStrip.removeFromLeft (52));
     mStrip.removeFromLeft (8);
-    bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (150, mStrip.getWidth() / 4)));
+    bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (120, mStrip.getWidth() / 5)));
+    mStrip.removeFromLeft (6);
+    syncButton.setBounds (mStrip.removeFromLeft (58));
     mStrip.removeFromLeft (12);
     addTrackButton.setBounds (mStrip.removeFromRight (86));
     mStrip.removeFromRight (8);
     exportButton.setBounds (mStrip.removeFromRight (76));
+    mStrip.removeFromRight (6);
+    dragButton.setBounds (mStrip.removeFromRight (64));
     mStrip.removeFromRight (12);
     const int mw = juce::jmax (60, (mStrip.getWidth() - 24) / 3);
     playAllButton.setBounds  (mStrip.removeFromLeft (mw));

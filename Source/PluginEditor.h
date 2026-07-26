@@ -115,6 +115,7 @@ private:
     // Grouped choice / bool controls.
     juce::ComboBox   filterTypeBox;
     juce::ComboBox   playModeBox;
+    juce::ComboBox   delaySyncBox;   // delay time locked to the host tempo
     juce::ToggleButton reverseButton  { "Reverse" };
     juce::ToggleButton pingpongButton { "Ping-Pong" };
 
@@ -146,6 +147,13 @@ private:
     // path captured at menu-build time - the recents FILE reorders itself on
     // every load, so name/index lookups against it would drift.
     juce::StringArray mySamplePaths;
+
+    // Preset menu ids: factory presets are 1..N, then the user's own, then
+    // the Save entry (kept far apart so a growing factory list can't collide).
+    static constexpr int kUserPresetBaseId = 4000;
+    static constexpr int kSavePresetId     = 4999;
+    void rebuildPresetMenu();
+    void promptSavePreset();
 
     // Cached card rectangles (populated in resized(), painted in paint()).
     juce::Rectangle<int> macroCardBounds;

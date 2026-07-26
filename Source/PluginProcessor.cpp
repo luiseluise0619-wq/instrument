@@ -32,6 +32,7 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     filterResoParam    = apvts.getRawParameterValue ("filterReso");
     filterTypeParam    = apvts.getRawParameterValue ("filterType");
     delayFeedbackParam = apvts.getRawParameterValue ("delayFeedback");
+    delaySyncParam     = apvts.getRawParameterValue ("delaySync");
     pingpongParam  = apvts.getRawParameterValue ("pingpong");
     reverseParam   = apvts.getRawParameterValue ("reverse");
     playModeParam  = apvts.getRawParameterValue ("playMode");
@@ -131,6 +132,10 @@ VocalChopAudioProcessor::createParameterLayout()
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "delayFeedback", "Delay FB", Range (0.0f, 0.95f, 0.001f), 0.4f));
+
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "delaySync", "Delay Sync",
+        juce::StringArray { "Free", "1/4", "1/4.", "1/8", "1/8.", "1/16", "1/32" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> (
         "pingpong", "Ping-Pong", false));
 
@@ -348,6 +353,14 @@ void VocalChopAudioProcessor::rescanSlices()
 void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& midi)
 {
+    // Host transport: the looper metronome and the synced delay follow it.
+    if (auto* ph = getPlayHead())
+    {
+        if (auto pos = ph->getPosition())
+            if (auto bpm = pos->getBpm())
+                hostBpm.store (*bpm > 20.0 && *bpm < 400.0 ? *bpm : 0.0);
+    }
+
     juce::ScopedNoDenormals noDenormals;
 
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
@@ -744,6 +757,22 @@ void VocalChopAudioProcessor::applyMasterFXChain (juce::AudioBuffer<float>& buff
     fxChain.distortion.process (buffer, effDrive);
     fxChain.reverb.process     (buffer, effReverb);
 
+    // Musical delay divisions, resolved against the host tempo.
+    {
+        const int   div = delaySyncParam != nullptr ? (int) delaySyncParam->load() : 0;
+        const double bpm = hostBpm.load();
+        if (div > 0 && bpm > 0.0)
+        {
+            const double beat = 60.0 / bpm;                    // a quarter note
+            static const double mult[] = { 0.0, 1.0, 0.75, 0.5, 0.375, 0.25, 0.125 };
+            const double secs = beat * mult[juce::jlimit (0, 6, div)];
+            fxChain.delay.setTimeSeconds ((float) secs);
+        }
+        else if (div == 0 && lastDelayWasSynced)
+            fxChain.delay.setTimeSeconds (0.35f);              // back to free
+        lastDelayWasSynced = (div > 0 && bpm > 0.0);
+    }
+
     fxChain.delay.setFeedback (delayFeedbackParam->load());
     fxChain.delay.setPingpong (pingpongParam->load() >= 0.5f);
     fxChain.delay.process      (buffer, effDelay);
@@ -965,6 +994,7 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
     set ("release", 20.0f);   set ("filterType", 0.0f); set ("filterCutoff", 20000.0f);
     set ("filterReso", 0.707f); set ("delayFeedback", 0.4f); set ("pingpong", 0.0f);
     set ("reverse", 0.0f);    set ("playMode", 0.0f);  set ("outputGain", 0.0f);
+    set ("delaySync", 0.0f);   // factory presets start on a free-running delay
 
     switch (presetIndex)
     {
@@ -1799,6 +1829,59 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     // Let an open editor re-sync its combos / theme / cached waveform
     // (sendChangeMessage is async and safe from any thread).
     sendChangeMessage();
+}
+
+//==============================================================================
+juce::File VocalChopAudioProcessor::userPresetFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+               .getChildFile ("Slyce").getChildFile ("Presets");
+}
+
+juce::StringArray VocalChopAudioProcessor::getUserPresetNames()
+{
+    juce::StringArray out;
+    auto dir = userPresetFolder();
+    if (! dir.isDirectory())
+        return out;
+
+    for (const auto& f : dir.findChildFiles (juce::File::findFiles, false, "*.slyce"))
+        out.add (f.getFileNameWithoutExtension());
+    out.sortNatural();
+    return out;
+}
+
+bool VocalChopAudioProcessor::saveUserPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty())
+        return false;
+
+    auto dir = userPresetFolder();
+    dir.createDirectory();
+
+    // The parameter tree only: a preset is a SOUND, not a session, so it must
+    // not drag someone else's sample path or theme along with it.
+    auto state = apvts.copyState();
+    if (auto xml = state.createXml())
+        return xml->writeTo (dir.getChildFile (clean + ".slyce"));
+    return false;
+}
+
+bool VocalChopAudioProcessor::loadUserPreset (const juce::String& name)
+{
+    const auto f = userPresetFolder()
+                       .getChildFile (juce::File::createLegalFileName (name) + ".slyce");
+    if (! f.existsAsFile())
+        return false;
+
+    auto xml = juce::parseXML (f);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return false;
+
+    apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    sendChangeMessage();
+    return true;
 }
 
 //==============================================================================

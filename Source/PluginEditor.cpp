@@ -521,9 +521,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (presetLabel);
 
     {
-        int presetId = 1;
-        for (const auto& name : VocalChopAudioProcessor::getPresetNames())
-            presetBox.addItem (name, presetId++);
+        rebuildPresetMenu();
         presetBox.setSelectedId (1, juce::dontSendNotification);
         presetBox.setJustificationType (juce::Justification::centred);
         presetBox.onChange = [this]
@@ -531,6 +529,27 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
             const int id = presetBox.getSelectedId();
             if (id <= 0)
                 return;
+
+            if (id == kSavePresetId)          // "Save preset..."
+            {
+                presetBox.setSelectedId (0, juce::dontSendNotification);
+                promptSavePreset();
+                return;
+            }
+            if (id >= kUserPresetBaseId)      // one of the user's own
+            {
+                const auto names = VocalChopAudioProcessor::getUserPresetNames();
+                const int u = id - kUserPresetBaseId;
+                if (u < names.size())
+                    processor.loadUserPreset (names[u]);
+                refreshChildren();
+                const auto shownU = presetBox.getText();
+                presetBox.setSelectedId (0, juce::dontSendNotification);
+                presetBox.setText (shownU, juce::dontSendNotification);
+                grabKeysSoon();
+                return;
+            }
+
             processor.applyPreset (id - 1);
             refreshChildren();
             // Deselect (keeping the text) so picking the SAME preset again
@@ -848,6 +867,20 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     buttonAttachments.push_back (std::make_unique<ButtonAttachment> (
         processor.getAPVTS(), "pingpong", pingpongButton));
 
+    delaySyncBox.setTooltip ("Delay time locked to your DAW's tempo "
+                             "(Free = the plugin's own 350 ms)");
+    delaySyncBox.addItem ("Free", 1);
+    delaySyncBox.addItem ("1/4",  2);
+    delaySyncBox.addItem ("1/4.", 3);
+    delaySyncBox.addItem ("1/8",  4);
+    delaySyncBox.addItem ("1/8.", 5);
+    delaySyncBox.addItem ("1/16", 6);
+    delaySyncBox.addItem ("1/32", 7);
+    delaySyncBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (delaySyncBox);
+    comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (
+        processor.getAPVTS(), "delaySync", delaySyncBox));
+
     playModeBox.addItem ("Gate",     1);
     playModeBox.addItem ("One-Shot", 2);
     playModeBox.setJustificationType (juce::Justification::centred);
@@ -928,6 +961,60 @@ void VocalChopAudioProcessorEditor::addKnob (std::unique_ptr<KnobComponent>& kno
     sliderAttachments.push_back (std::make_unique<SliderAttachment> (
         processor.getAPVTS(), paramID, knob->getSlider()));
     addAndMakeVisible (*knob);
+}
+
+void VocalChopAudioProcessorEditor::rebuildPresetMenu()
+{
+    presetBox.clear (juce::dontSendNotification);
+
+    int presetId = 1;
+    for (const auto& name : VocalChopAudioProcessor::getPresetNames())
+        presetBox.addItem (name, presetId++);
+
+    auto* root = presetBox.getRootMenu();
+    const auto mine = VocalChopAudioProcessor::getUserPresetNames();
+    if (! mine.isEmpty())
+    {
+        root->addSeparator();
+        root->addSectionHeader ("My presets");
+        for (int i = 0; i < mine.size(); ++i)
+            presetBox.addItem (mine[i], kUserPresetBaseId + i);
+    }
+    root->addSeparator();
+    presetBox.addItem ("Save preset...", kSavePresetId);
+}
+
+void VocalChopAudioProcessorEditor::promptSavePreset()
+{
+    auto* aw = new juce::AlertWindow ("Save preset",
+                                      "Name this sound - it will appear under "
+                                      "My presets in every project.",
+                                      juce::MessageBoxIconType::NoIcon);
+    aw->addTextEditor ("name", "My sound", "Preset name");
+    aw->addButton ("Save",   1, juce::KeyPress (juce::KeyPress::returnKey));
+    aw->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    aw->enterModalState (true, juce::ModalCallbackFunction::create (
+        [this, aw] (int result)
+        {
+            const auto name = aw->getTextEditorContents ("name");
+            std::unique_ptr<juce::AlertWindow> owner (aw);
+            if (result != 1 || name.trim().isEmpty())
+                return;
+
+            if (processor.saveUserPreset (name))
+            {
+                rebuildPresetMenu();
+                presetBox.setText (name.trim(), juce::dontSendNotification);
+            }
+            else
+            {
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::WarningIcon, "Slyce",
+                    "Could not write the preset to\n"
+                    + VocalChopAudioProcessor::userPresetFolder().getFullPathName());
+            }
+        }), false);
 }
 
 void VocalChopAudioProcessorEditor::openFileChooser()
@@ -1607,14 +1694,20 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto controlsCol = inner;
             // Fit three rows into whatever height the card actually has -
             // fixed 30px rows overflowed and stacked on top of each other.
-            const int rowH = juce::jlimit (20, 34, controlsCol.getHeight() / 3 - 2);
+            // Four rows now (the delay-sync division joined the card), so the
+            // row height follows the card instead of a fixed guess.
+            const int rowH = juce::jlimit (18, 30, controlsCol.getHeight() / 4 - 2);
             reverseButton.setBounds  (controlsCol.removeFromTop (rowH));
             controlsCol.removeFromTop (2);
             pingpongButton.setBounds (controlsCol.removeFromTop (rowH));
             controlsCol.removeFromTop (2);
             playModeBox.setBounds    (controlsCol.removeFromTop (rowH)
                                           .withSizeKeepingCentre (
-                                              juce::jmin (200, controlsCol.getWidth()), 34));
+                                              juce::jmin (200, controlsCol.getWidth()), rowH));
+            controlsCol.removeFromTop (2);
+            delaySyncBox.setBounds   (controlsCol.removeFromTop (rowH)
+                                          .withSizeKeepingCentre (
+                                              juce::jmin (200, controlsCol.getWidth()), rowH));
         }
     }
 
