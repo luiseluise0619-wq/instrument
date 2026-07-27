@@ -1,8 +1,10 @@
 // Offline render harness: load each named instrument, play a note, measure.
 #include <algorithm>
 #include "PluginProcessor.h"
+#include "UI/TypingKeymap.h"
 #include <cstdio>
 #include <functional>
+#include <set>
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
@@ -301,22 +303,26 @@ int main (int argc, char** argv)
         return 0;
     }
 
-    // "--keymap": which SLICE does each key actually play?
+    // "--keymap": which SLICE does each typing key select, in Chop mode?
     //
-    // INCOMPLETE - do not trust the MISMATCH column yet.
+    // SCOPE, stated up front because two earlier versions of this test
+    // overstated theirs. This walks the SELECTION chain end to end -
     //
-    // Two approaches have failed here and both failed the same way. Comparing
-    // a key against triggerSlicePad is circular: both public trigger functions
-    // run through the same mapping, so the test only ever proves the mapping
-    // equals itself. Comparing the output against the raw sample buffer does
-    // not work either, because by the time audio leaves processBlock it has
-    // been through an envelope, the filter and the master chain, and every
-    // slice correlates best with slice 0.
+    //     physical key -> keymap::semitoneFor -> diatonicSliceIndex -> % slices
     //
-    // What would actually settle it is a hook that reports which SlicePoint a
-    // voice was started from, read back after the trigger. Left here, and left
-    // honest about being unfinished, so the next attempt starts from the two
-    // dead ends rather than rediscovering them.
+    // - calling the same functions the editor calls, on the real demo sample's
+    // real slice count. That chain is where the "Q plays the last slice" bug
+    // lived, so this is the thing worth pinning down, and it is deterministic,
+    // so it pins down cleanly.
+    //
+    // It does NOT prove the audio engine then plays the slice it was handed.
+    // Two attempts at that failed: comparing a key against triggerSlicePad is
+    // circular (both entry points run through this same mapping, so the test
+    // proves only that the mapping equals itself), and correlating the output
+    // against the raw sample buffer fails because audio leaving processBlock
+    // has been through an envelope, the filter and the master chain, and every
+    // slice then correlates best with slice 0. Settling that half needs a hook
+    // reporting which SlicePoint a voice started from. Not done; not claimed.
     if (argc > 1 && juce::String (argv[1]) == "--keymap")
     {
         if (! proc.loadDemoSample()) { printf ("no demo sample\n"); return 1; }
@@ -327,73 +333,66 @@ int main (int argc, char** argv)
         printf ("demo sample: %d slices\n\n", n);
         if (n <= 0) return 1;
 
-        auto render = [&] (std::function<void()> trigger)
+        auto sliceFor = [n] (int keyIndex, bool chop)
         {
-            juce::AudioBuffer<float> buf (2, 512);
-            juce::MidiBuffer midi;
-            trigger();
-            std::vector<float> out;
-            for (int b = 0; b < 40; ++b)
-            {
-                buf.clear(); proc.processBlock (buf, midi);
-                for (int i = 0; i < 512; ++i)
-                    out.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
-            }
-            return out;
-        };
-        auto quiet = [&] { for (int b = 0; b < 60; ++b)
-                           { juce::AudioBuffer<float> z (2, 512); juce::MidiBuffer m;
-                             z.clear(); proc.processBlock (z, m); } };
-
-        // Where in the ORIGINAL sample did this audio come from? Both public
-        // trigger functions run through the same key mapping, so comparing one
-        // against the other only ever proves the mapping equals itself. The
-        // sample buffer is the one reference that is outside the mapping.
-        auto sample = proc.getLoadedSample();
-        if (sample == nullptr || sample->getNumSamples() == 0)
-        { printf ("no sample buffer\n"); return 1; }
-
-        const int total = sample->getNumSamples();
-        auto originOf = [&] (const std::vector<float>& x)
-        {
-            // match the first 4000 samples of output against every slice start
-            const int probe = juce::jmin (4000, (int) x.size());
-            int bestSlice = -1; double bestErr = 1e30;
-            for (int sIdx = 0; sIdx < n; ++sIdx)
-            {
-                SlicePoint sp;
-                if (! proc.getSliceEngine().tryGetSlice (sIdx, sp)) continue;
-                double err = 0.0;
-                for (int i = 0; i < probe; ++i)
-                {
-                    const int src = sp.startSample + i;
-                    const float ref = src < total ? sample->getSample (0, src) : 0.0f;
-                    const double d = x[(size_t) i] - ref;
-                    err += d * d;
-                }
-                if (err < bestErr) { bestErr = err; bestSlice = sIdx; }
-            }
-            return bestSlice;
+            const int semi = slyce::keymap::semitoneFor (keyIndex, chop);
+            const int d    = VocalChopAudioProcessor::diatonicSliceIndex (semi);
+            return ((d % n) + n) % n;
         };
 
-        printf ("%-8s %-9s %-14s %s\n", "key", "semitone", "audio from", "mapping says");
-        static const char* noteName[12] =
-            { "C(do)", "C#", "D(re)", "D#", "E(mi)", "F(fa)",
-              "F#", "G(sol)", "G#", "A(la)", "A#", "B(si)" };
-        int wrong = 0;
-        for (int semi = 0; semi < 12; ++semi)
+        const int nk    = slyce::keymap::numKeys;
+        const int split = slyce::keymap::topRowStart;
+
+        printf ("%-5s %-6s %-9s %-9s\n", "key", "row", "chop", "melodic");
+        printf ("%-5s %-6s %-9s %-9s\n", "---", "---", "----", "-------");
+        for (int i = 0; i < nk; ++i)
+            printf ("%-5c %-6s slice %-3d semi %-4d\n",
+                    (char) slyce::keymap::keys[i],
+                    i < split ? "lower" : "upper",
+                    sliceFor (i, true),
+                    slyce::keymap::semitoneFor (i, false));
+
+        // The properties that matter, rather than a table nobody reads.
+        int bad = 0;
+        auto check = [&bad] (const char* what, bool ok)
         {
-            quiet();
-            auto got = render ([&] { proc.pressSlicePad (semi, 1.0f); });
-            proc.releaseSlicePad (semi);
-            const int from   = originOf (got);
-            const int expect = VocalChopAudioProcessor::diatonicSliceIndex (semi) % n;
-            if (from != expect) ++wrong;
-            printf ("%-8s %-9d slice %-8d slice %d %s\n", noteName[semi], semi,
-                    from, expect, from == expect ? "" : "  <-- MISMATCH");
+            printf ("%-58s %s\n", what, ok ? "ok" : "FAIL");
+            if (! ok) ++bad;
+        };
+        printf ("\n");
+
+        const int qIndex = slyce::keymap::keys.indexOfChar ('q');
+        const int zIndex = slyce::keymap::keys.indexOfChar ('z');
+
+        // The reported bug, as a test: pressing the first key of either row
+        // must play the first slice. Before the fix Q gave slice 7 of 8,
+        // because an octave up is seven white keys and the sample had eight.
+        check ("Chop: 'z' (lower row, first key) plays slice 0",
+               zIndex >= 0 && sliceFor (zIndex, true) == 0);
+        check ("Chop: 'q' (upper row, first key) plays slice 0",
+               qIndex >= 0 && sliceFor (qIndex, true) == 0);
+
+        // Every slice has to be reachable without leaving the lower row, or
+        // part of the sample is simply unplayable from the keyboard.
+        std::set<int> lower;
+        for (int i = 0; i < split; ++i) lower.insert (sliceFor (i, true));
+        check ("Chop: the lower row alone reaches every slice",
+               (int) lower.size() == n);
+
+        // Melodic layout is a piano and must stay one: the upper row sits
+        // exactly an octave above the lower one.
+        bool octave = true;
+        for (int i = split; i < nk && octave; ++i)
+        {
+            const int lowerTwin = i - split;
+            if (lowerTwin < split)
+                octave = slyce::keymap::semitoneFor (i, false)
+                       == slyce::keymap::semitoneFor (lowerTwin, false) + 12;
         }
-        printf ("\n%d of 12 keys play audio from a slice other than the mapped one\n", wrong);
-        return wrong == 0 ? 0 : 1;
+        check ("Melodic: upper row is exactly one octave above the lower", octave);
+
+        printf ("\n%d property check(s) failed\n", bad);
+        return bad == 0 ? 0 : 1;
     }
 
     // "--filter": does the filter actually filter?

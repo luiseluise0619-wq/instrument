@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "UI/ThemeManager.h"
+#include "UI/TypingKeymap.h"
 #include "BinaryData.h"
 
 #include <algorithm>
@@ -467,28 +468,13 @@ namespace
         }
     }
 
-    // FL-style typing keys: bottom row = C3 octave, top row = C4 octave and
-    // onward through i 9 o 0 p [ = ] (C5..G5), matching FL Studio's layout.
-    // ',' is deliberately NOT mapped: it would duplicate Q's C4, and two keys
-    // driving one note means releasing either kills the other's sound.
-    // Two rows, laid out the way every DAW does it: the lower row runs from C
-    // and keeps going past B onto , l . ; / , and the upper row starts again
-    // one octave up. The rows OVERLAP by an octave - that is the point of the
-    // layout, and it is why the semitone for each key has to be a table rather
-    // than the key's position in the string. The bottom row used to stop at M,
-    // so the four keys past it did nothing at all.
-    const juce::String kTypingKeys ("zsxdcvgbhnjm,l.;/q2w3er5t6y7ui9o0p[=]");
-    const int kTypingSemitone[] = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,      // z s x d c v g b h n j m
-        12, 13, 14, 15, 16,                        // , l . ; /
-        12, 13, 14, 15, 16, 17, 18, 19, 20, 21,    // q 2 w 3 e r 5 t 6 y
-        22, 23, 24, 25, 26, 27, 28, 29, 30, 31     // 7 u i 9 o 0 p [ = ]
-    };
+    // The key -> semitone table lives in UI/TypingKeymap.h so the render test
+    // can call the real function instead of a copy that drifts from it.
+    const juce::String& kTypingKeys = slyce::keymap::keys;
 
-    int typingKeySemitone (int i)
+    int typingKeySemitone (int i, bool chopMode)
     {
-        const int n = (int) (sizeof (kTypingSemitone) / sizeof (kTypingSemitone[0]));
-        return juce::isPositiveAndBelow (i, n) ? kTypingSemitone[i] : i;
+        return slyce::keymap::semitoneFor (i, chopMode);
     }
 
     bool physicalKeyDown (juce::juce_wchar c)
@@ -1599,6 +1585,8 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
                       && ! unlockPanel.isVisible()      // typing a license key
                       && ! welcomePanel.isVisible();    // reading the guide
 
+    const bool chop = processor.isChopMode();
+
     jassert (kTypingKeys.length() <= (int) typingKeyHeld.size());
     const int numKeys = juce::jmin (kTypingKeys.length(), (int) typingKeyHeld.size());
     for (int i = 0; i < numKeys; ++i)
@@ -1610,17 +1598,36 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
             continue;
 
         typingKeyHeld[(size_t) i] = down;
-        const int semitone = typingKeySemitone (i);
 
         if (down)
         {
+            const int semitone = typingKeySemitone (i, chop);
+            typingKeyNote[(size_t) i] = semitone;
             processor.pressSlicePad (semitone, 0.85f);
             sliceGrid.flashKey (semitone, 0.9f);
             spawnHeroFx (0.85f);
         }
         else
         {
-            processor.releaseSlicePad (semitone);
+            // Release the note this key ACTUALLY SENT, not the one it would
+            // send now. The engine can be switched while a key is held, and
+            // the two mappings disagree, so recomputing here would send a
+            // note-off for a note nobody is playing and leave the sounding
+            // one on forever.
+            const int semitone = typingKeyNote[(size_t) i];
+
+            // Two keys can drive one note: ',' and 'q' collide in the melodic
+            // layout, and in Chop mode the rows overlap completely by design.
+            // The note comes off only when the LAST key holding it does -
+            // otherwise letting go of either one cuts a sound the other hand
+            // is still holding down.
+            bool heldElsewhere = false;
+            for (int k = 0; k < numKeys && ! heldElsewhere; ++k)
+                heldElsewhere = typingKeyHeld[(size_t) k]
+                             && typingKeyNote[(size_t) k] == semitone;
+
+            if (! heldElsewhere)
+                processor.releaseSlicePad (semitone);
         }
         handled = true;
     }

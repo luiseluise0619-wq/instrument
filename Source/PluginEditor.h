@@ -226,6 +226,13 @@ private:
     // write past the end of it, silently, on every one of those keys.
     std::array<bool, 40> typingKeyHeld {};
 
+    // The semitone each held key actually sent. Kept rather than recomputed on
+    // release because the Chop and melodic layouts disagree and the engine can
+    // be switched mid-hold; recomputing would strand the sounding note. Only
+    // ever read for keys whose typingKeyHeld flag is set, which is only ever
+    // set alongside a write here.
+    std::array<int, 40> typingKeyNote {};
+
     // Cached Ocean Pluck scene (repainted only on resize / theme change).
     juce::Image backdropCache;
     int backdropTheme = -1;
