@@ -135,6 +135,60 @@ int main (int argc, char** argv)
         return bad == 0 ? 0 : 1;
     }
 
+    // "--bench": how much of a CPU core one instance eats. Renders a fixed
+    // amount of audio as fast as it can and reports the ratio.
+    if (argc > 1 && juce::String (argv[1]) == "--bench")
+    {
+        struct Case { const char* name; const char* inst; int voices; bool fx; };
+        const Case cases[] = {
+            { "idle (no notes)",       "Supersaw Lead", 0,  false },
+            { "1 note",                "Supersaw Lead", 1,  false },
+            { "8 notes",               "Supersaw Lead", 8,  false },
+            { "16 notes (max poly)",   "Supersaw Lead", 16, false },
+            { "16 notes + all FX",     "Supersaw Lead", 16, true  },
+            { "16 notes + arp + pump", "Crystal Pluck", 16, true  },
+        };
+
+        const double sr = 48000.0;
+        const int    block = 256;
+        const int    blocks = (int) (sr * 20.0 / block);   // 20 seconds of audio
+
+        printf ("%-24s %8s %10s %9s\n", "case", "x realtime", "1 core %", "sec/20s");
+        for (const auto& c : cases)
+        {
+            VocalChopAudioProcessor p2;
+            p2.prepareToPlay (sr, block);
+            p2.applyInstrument (juce::jmax (0, VocalChopAudioProcessor::getInstrumentNames().indexOf (c.inst)));
+
+            auto set = [&] (const char* id, float v) {
+                if (auto* pp = p2.getAPVTS().getParameter (id))
+                    pp->setValueNotifyingHost (pp->convertTo0to1 (v));
+            };
+            if (c.fx) { set ("drive", 0.6f); set ("reverb", 0.6f); set ("delay", 0.5f);
+                        set ("grainMix", 0.5f); set ("pitch", 5.0f); set ("formant", 3.0f);
+                        set ("filterType", 1.0f); set ("filterCutoff", 3000.0f); }
+            if (juce::String (c.name).contains ("arp"))
+                { set ("arpMode", 1.0f); set ("arpRate", 3.0f); set ("pumpAmt", 0.8f); }
+
+            juce::AudioBuffer<float> buf (2, block);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < c.voices; ++i)
+                midi.addEvent (juce::MidiMessage::noteOn (1, 48 + i * 3, 0.9f), 0);
+
+            // let it settle before timing
+            for (int b = 0; b < 40; ++b) { buf.clear(); juce::MidiBuffer m = b ? juce::MidiBuffer() : midi; p2.processBlock (buf, m); }
+
+            const auto t0 = juce::Time::getHighResolutionTicks();
+            for (int b = 0; b < blocks; ++b) { buf.clear(); juce::MidiBuffer m; p2.processBlock (buf, m); }
+            const double secs = juce::Time::highResolutionTicksToSeconds (
+                                    juce::Time::getHighResolutionTicks() - t0);
+            const double rt = 20.0 / secs;
+            printf ("%-24s %8.1fx %9.2f%% %9.3f\n", c.name, rt, 100.0 / rt, secs);
+        }
+        printf ("\n(48 kHz, 256-sample blocks, single instance, Release build)\n");
+        return 0;
+    }
+
     juce::StringArray want;
     for (int i = 1; i < argc; ++i) want.add (juce::String (argv[i]));
 

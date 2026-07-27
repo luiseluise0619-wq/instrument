@@ -964,20 +964,28 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     setResizable (true, true);
     if (auto* c = getConstrainer())
         c->setFixedAspectRatio ((double) kBaseW / (double) kBaseH);
-    setResizeLimits (kBaseW * 60 / 100, kBaseH * 60 / 100,
+    setResizeLimits (kBaseW * 45 / 100, kBaseH * 45 / 100,
                      kBaseW * 160 / 100, kBaseH * 160 / 100);
 
-    // Open at a size that FITS the screen - never taller than the work area
-    // and capped at 85% canvas so laptops aren't hit with a wall of plugin.
+    // Open at a size that FITS - and "fits" has to mean inside the HOST's
+    // window, not inside the monitor. A DAW wraps the editor in its own
+    // frame: FL Studio adds a title bar and a plugin toolbar, Ableton docks
+    // it in a strip. Reserving 80px for that was optimistic, and on a 1080p
+    // laptop the editor opened taller than the space FL had for it, so the
+    // bottom of the plugin was simply unreachable.
+    //
+    // 260px of vertical headroom covers the DAW frame plus a taskbar, and
+    // the cap comes down to 72%: a plugin that opens slightly small and can
+    // be dragged bigger beats one that opens off the bottom of the screen.
     {
-        float fit = 0.8f;
+        float fit = 0.72f;
         if (auto* disp = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
         {
             const auto ua = disp->userArea;
-            fit = juce::jmin (0.85f,
-                              (float) (ua.getWidth()  - 60) / (float) kBaseW,
-                              (float) (ua.getHeight() - 80) / (float) kBaseH);
-            fit = juce::jmax (0.6f, fit);
+            fit = juce::jmin (0.72f,
+                              (float) (ua.getWidth()  - 120) / (float) kBaseW,
+                              (float) (ua.getHeight() - 260) / (float) kBaseH);
+            fit = juce::jmax (0.45f, fit);
         }
         setSize ((int) (kBaseW * fit), (int) (kBaseH * fit));
     }
