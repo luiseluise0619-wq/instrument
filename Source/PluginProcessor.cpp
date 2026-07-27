@@ -1056,11 +1056,20 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
 
 bool VocalChopAudioProcessor::loadDemoSample()
 {
-    // Built-in vocals; every Demo press cycles to the next one. The last is
-    // a human-beatbox loop: sliced, it turns keys into mouth drums.
+    // Built-in vocals; every Demo press cycles to the next one. Ordered so the
+    // first few presses land on the most obviously useful sources - a chant, a
+    // sung hook, sixteenth-note stabs - rather than making someone press ten
+    // times to find the one that chops well. The last is a human-beatbox loop:
+    // sliced, it turns the keys into mouth drums.
     struct Embedded { const void* data; int size; };
     static const Embedded demos[] = {
         { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize },
+        { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize },
+        { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize },
+        { BinaryData::vox_stabs_wav,       BinaryData::vox_stabs_wavSize },
+        { BinaryData::vox_diva_wav,        BinaryData::vox_diva_wavSize },
+        { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize },
+        { BinaryData::vox_whisper_wav,     BinaryData::vox_whisper_wavSize },
         { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize },
         { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize },
         { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize },
@@ -2071,6 +2080,41 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     // and at 0.14-0.22 on leads and basses it was inaudible while costing the
     // same as the pad's 0.55, which does change the sound.
     else if (cat == "PAD")   { mrphAmt = 0.55f; mrphTo = 2; mrphMs = 1400.0f; }
+
+    // --- Mechanism beats category ---------------------------------------------
+    // Assigning the string model by CATEGORY missed every plucked instrument
+    // filed somewhere else: "Pluck Bass" and "Slap Funk" are plucked strings
+    // sitting under BASS, "Hook Marimba" and "Log Drum" are struck bars under
+    // HITS. A category is a shelf in a menu; the name is what tells you what
+    // is actually vibrating.
+    const bool pluckedName = name.contains ("Pluck") || name.contains ("Slap")
+                          || name.contains ("Pizz")  || name.contains ("Harp")
+                          || name.contains ("Guitar") || name.contains ("Strum");
+    const bool struckName  = name.contains ("Marimba") || name.contains ("Kalimba")
+                          || name.contains ("Mallet")  || name.contains ("Bell")
+                          || name.contains ("Log Drum") || name.contains ("Stab")
+                          || name.contains ("Music Box") || name.contains ("Xylo")
+                          || name.contains ("Glock")    || name.contains ("Vibe");
+
+    if (strMix < 0.01f && pluckedName)
+    {
+        // A plucked electric bass is still a plucked string; it just lives in
+        // a different part of the menu.
+        const bool low = (cat == "BASS");
+        strMix  = low ? 0.45f : 0.55f;
+        strDamp = low ? 0.30f : 0.48f;
+        strDecay = low ? 0.42f : 0.38f;
+        if (body < 0) { body = low ? 1 : 5; bodyAmt = low ? 0.20f : 0.26f; }
+        if (atkAmt < 0.35f) { atkAmt = 0.46f; atkTone = low ? 5.0f : 6.5f; atkMs = 7.0f; }
+        if (inharm < 0.1f) inharm = low ? 0.16f : 0.30f;
+    }
+    else if (strMix < 0.01f && struckName)
+    {
+        strMix = 0.34f; strDamp = 0.60f; strDecay = 0.30f;
+        if (body < 0) { body = 2; bodyAmt = 0.32f; }
+        if (atkAmt < 0.35f) { atkAmt = 0.52f; atkTone = 7.5f; atkMs = 5.0f; }
+        if (inharm < 0.1f) inharm = 0.45f;
+    }
 
     // Named voices whose mechanism is unmistakable.
     if (name.contains ("Kalimba") || name.contains ("Music Box")

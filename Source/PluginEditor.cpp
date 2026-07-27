@@ -753,6 +753,20 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     };
     addAndMakeVisible (instrumentBox);
 
+    // Auditioning 376 sounds through a nested menu means six clicks per
+    // sound. These step one at a time, so you can hold the keyboard down and
+    // walk the whole list with the other hand.
+    instPrevButton.setTooltip ("Previous instrument");
+    instNextButton.setTooltip ("Next instrument");
+    instPrevButton.setTriggeredOnMouseDown (true);
+    instNextButton.setTriggeredOnMouseDown (true);
+    instPrevButton.setRepeatSpeed (420, 90);   // hold to scan
+    instNextButton.setRepeatSpeed (420, 90);
+    instPrevButton.onClick = [this] { stepInstrument (-1); };
+    instNextButton.onClick = [this] { stepInstrument ( 1); };
+    addAndMakeVisible (instPrevButton);
+    addAndMakeVisible (instNextButton);
+
     addAndMakeVisible (chordBar);
 
     // --- Slice mode (initialised from the engine so restored state shows) ---
@@ -1084,6 +1098,24 @@ void VocalChopAudioProcessorEditor::promptSavePreset()
         }), false);
 }
 
+void VocalChopAudioProcessorEditor::stepInstrument (int delta)
+{
+    const int n = VocalChopAudioProcessor::getInstrumentNames().size();
+    if (n <= 0)
+        return;
+
+    // Wrap, so holding the button walks off the end and back to the start
+    // instead of stopping dead at "Init Synth".
+    const int next = ((processor.getCurrentInstrument() + delta) % n + n) % n;
+    processor.applyInstrument (next);
+
+    // Ids in the menu are index+1; the featured shelf duplicates entries at
+    // 1000+, so select by id rather than hunting for the matching text.
+    instrumentBox.setSelectedId (next + 1, juce::dontSendNotification);
+
+    grabKeysSoon();
+}
+
 void VocalChopAudioProcessorEditor::openFileChooser()
 {
     const auto browserFlags = juce::FileBrowserComponent::openMode
@@ -1199,6 +1231,11 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     sensitivityKnob.setEnabled (slicing && ! byBeats);
     synthWaveBox.setEnabled  (voice);
     instrumentBox.setEnabled (voice);
+    // The step arrows follow the picker they step. An earlier version had them
+    // switch the engine to Synth so they always did something - which quietly
+    // threw away a loaded chop, so they now simply go inert with the combo.
+    instPrevButton.setEnabled (voice);
+    instNextButton.setEnabled (voice);
 
     auto dim = [] (juce::Component& c, bool on)
     { c.setAlpha (on ? 1.0f : 0.38f); };
@@ -1208,6 +1245,8 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     dim (sensitivityKnob, slicing && ! byBeats);
     dim (synthWaveBox,    voice);
     dim (instrumentBox,   voice);
+    dim (instPrevButton,  voice);
+    dim (instNextButton,  voice);
 
     stripDimmed.clear();
     if (! slicing)             stripDimmed.insert ("SLICE BY");
@@ -1720,8 +1759,17 @@ void VocalChopAudioProcessorEditor::layoutContent()
         sliceModeBox.setBounds  (take (130, "SLICE BY")  .withSizeKeepingCentre (130, rowH));
         gridBox.setBounds       (take (120, "GRID")      .withSizeKeepingCentre (120, rowH));
         sensitivityKnob.setBounds (take (90, ""));
-        synthWaveBox.setBounds  (take (120, "WAVE")      .withSizeKeepingCentre (120, rowH));
-        instrumentBox.setBounds (take (160, "INSTRUMENT").withSizeKeepingCentre (160, rowH));
+        synthWaveBox.setBounds  (take (110, "WAVE")      .withSizeKeepingCentre (110, rowH));
+        {
+            // < [ instrument ] > as one unit, so the caption sits over all three.
+            auto col = take (196, "INSTRUMENT");
+            auto row = col.withSizeKeepingCentre (196, rowH);
+            instPrevButton.setBounds (row.removeFromLeft (26));
+            row.removeFromLeft (4);
+            instNextButton.setBounds (row.removeFromRight (26));
+            row.removeFromRight (4);
+            instrumentBox.setBounds (row);
+        }
 
         auto octCol = inner;
         auto octCap = octCol.removeFromTop (capH);

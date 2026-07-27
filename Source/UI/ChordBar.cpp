@@ -7,73 +7,210 @@
 // 5 = F, 7 = G, 9 = A, 11 = B). These double as slice indices in Chop mode.
 const std::vector<ChordBar::Style>& ChordBar::styles()
 {
-    // Chord building blocks.
-    #define C_   { "C",     { 0, 4, 7 } }
-    #define CM7  { "Cmaj7", { 0, 4, 7, 11 } }
-    #define C7_  { "C7",    { 0, 4, 7, 10 } }
-    #define DM7  { "Dm7",   { 2, 5, 9, 12 } }
-    #define EM_  { "Em",    { 4, 7, 11 } }
-    #define EM7  { "Em7",   { 4, 7, 11, 14 } }
-    #define E7_  { "E7",    { 4, 8, 11, 14 } }
-    #define F_   { "F",     { 5, 9, 12 } }
-    #define FM7  { "Fmaj7", { 5, 9, 12, 16 } }
-    #define G_   { "G",     { 7, 11, 14 } }
-    #define G7_  { "G7",    { 7, 11, 14, 17 } }
-    #define AM_  { "Am",    { 9, 12, 16 } }
-    #define AM7  { "Am7",   { 9, 12, 16, 19 } }
+    // Chord building blocks. Offsets are semitones from the tonic, and the
+    // bar transposes the lot into whatever key the sample turned out to be in.
+    #define C_   { "C",      { 0, 4, 7 } }
+    #define CM7  { "Cmaj7",  { 0, 4, 7, 11 } }
+    #define C7_  { "C7",     { 0, 4, 7, 10 } }
+    #define C6_  { "C6",     { 0, 4, 7, 9 } }
+    #define CAD9 { "Cadd9",  { 0, 4, 7, 14 } }
+    #define CS2  { "Csus2",  { 0, 2, 7 } }
+    #define CS4  { "Csus4",  { 0, 5, 7 } }
+    #define CM_  { "Cm",     { 0, 3, 7 } }
+    #define CM7m { "Cm7",    { 0, 3, 7, 10 } }
+    #define CM9m { "Cm9",    { 0, 3, 7, 10, 14 } }
+    #define DM_  { "Dm",     { 2, 5, 9 } }
+    #define DM7  { "Dm7",    { 2, 5, 9, 12 } }
+    #define DM9  { "Dm9",    { 2, 5, 9, 12, 16 } }
+    #define D7_  { "D7",     { 2, 6, 9, 12 } }
+    #define DS4  { "Dsus4",  { 2, 7, 9 } }
+    #define EB_  { "Eb",     { 3, 7, 10 } }
+    #define EBM7 { "Ebmaj7", { 3, 7, 10, 14 } }
+    #define EM_  { "Em",     { 4, 7, 11 } }
+    #define EM7  { "Em7",    { 4, 7, 11, 14 } }
+    #define E7_  { "E7",     { 4, 8, 11, 14 } }
+    #define F_   { "F",      { 5, 9, 12 } }
+    #define FM7  { "Fmaj7",  { 5, 9, 12, 16 } }
+    #define F6_  { "F6",     { 5, 9, 12, 14 } }
+    #define FMm  { "Fm",     { 5, 8, 12 } }
+    #define FM7m { "Fm7",    { 5, 8, 12, 15 } }
+    #define G_   { "G",      { 7, 11, 14 } }
+    #define G7_  { "G7",     { 7, 11, 14, 17 } }
+    #define GS4  { "Gsus4",  { 7, 12, 14 } }
+    #define GB_  { "G/B",    { 11, 14, 19 } }
+    #define AB_  { "Ab",     { 8, 12, 15 } }
+    #define ABM7 { "Abmaj7", { 8, 12, 15, 19 } }
+    #define AM_  { "Am",     { 9, 12, 16 } }
+    #define AM7  { "Am7",    { 9, 12, 16, 19 } }
+    #define AM9  { "Am9",    { 9, 12, 16, 19, 23 } }
+    #define A7_  { "A7",     { 9, 13, 16, 19 } }
+    #define BB_  { "Bb",     { 10, 14, 17 } }
+    #define BBM7 { "Bbmaj7", { 10, 14, 17, 21 } }
+    #define BDIM { "Bdim",   { 11, 14, 17 } }
+    #define BM7b { "Bm7b5",  { 11, 14, 17, 21 } }
 
     static const std::vector<Style> all = {
         { "K-Pop", {
-            { F_,  G_,  EM_, AM_ },      // the "royal road"
+            { F_,  G_,  EM_, AM_ },          // the royal road
             { C_,  G_,  AM_, F_  },
             { AM_, F_,  C_,  G_  },
             { F_,  G_,  AM_, G_  },
+            { FM7, G_,  EM7, AM_ },
+            { C_,  GB_, AM_, F_  },          // the descending bass line
+            { AM_, F_,  G_,  EM_ },
+            { CAD9, G_, AM7, FM7 },
         }},
         { "EDM", {
             { AM_, F_,  C_,  G_  },
             { AM_, C_,  G_,  F_  },
             { F_,  AM_, G_,  AM_ },
             { AM_, G_,  F_,  G_  },
+            { FMm, AB_, EB_, BB_ },          // minor, with the flat-VII lift
+            { CM_, AB_, EB_, BB_ },
+            { AM_, F_,  G_,  C_  },
+            { FMm, CM_, AB_, EB_ },
+        }},
+        { "Trap", {
+            { CM_, AB_, EB_, BB_ },
+            { CM7m, ABM7, EBM7, FM7m },
+            { AM_, F_,  DM_, EM_ },
+            { CM_, EB_, AB_, G_  },
+            { FM7m, CM7m, ABM7, BB_ },
+            { CM9m, ABM7, BBM7, EBM7 },
+        }},
+        { "Drill", {
+            { CM_, BDIM, AB_, G_ },          // the chromatic slide
+            { CM7m, BM7b, ABM7, G7_ },
+            { AM_, G_,  F_,  EM_ },
+            { CM_, AB_, BB_, G_  },
+            { FM7m, EBM7, ABM7, G7_ },
         }},
         { "Lo-Fi", {
             { FM7, EM7, DM7, CM7 },
             { AM7, DM7, G7_, CM7 },
             { CM7, AM7, FM7, G7_ },
             { DM7, EM7, FM7, EM7 },
+            { CM7, C7_, FM7, FM7m },         // the borrowed minor-iv ache
+            { AM9, DM9, G7_, CM7 },
+            { FM7, G7_, EM7, AM7 },
+            { DM9, G7_, CM7, AM9 },
         }},
         { "R&B", {
             { CM7, AM7, DM7, G7_ },
             { FM7, G7_, EM7, AM7 },
             { AM7, FM7, DM7, EM7 },
             { DM7, G7_, CM7, AM7 },
+            { CM9m, FM7m, BBM7, EBM7 },
+            { AM9, DM9, GS4, G7_ },
+            { FM7, EM7, EBM7, DM7 },
+            { CM7, BM7b, AM7, D7_ },
+        }},
+        { "House", {
+            { AM7, DM7, G7_, CM7 },
+            { FM7, G7_, AM7, AM7 },
+            { CM_, FMm, AB_, G7_ },
+            { AM_, DM_, G_,  C_  },
+            { FM7m, BBM7, EBM7, ABM7 },
+            { AM9, FM7, CM7, G_  },
         }},
         { "Ballad", {
             { C_,  AM_, F_,  G_  },
             { C_,  EM_, F_,  G_  },
             { C_,  G_,  F_,  G_  },
             { AM_, EM_, F_,  C_  },
+            { C_,  GB_, AM_, EM_ },          // canon
+            { F_,  G_,  C_,  AM_ },
+            { C_,  CS4, F_,  F6_ },
+            { AM_, F_,  C_,  GS4 },
         }},
         { "City Pop", {
             { FM7, E7_, AM7, C7_ },
             { DM7, G7_, CM7, AM7 },
             { FM7, G7_, AM7, AM7 },
             { CM7, E7_, AM7, G7_ },
+            { CM7, BM7b, EM7, AM7 },
+            { FM7, FM7m, CM7, A7_ },
+            { DM9, G7_, EM7, AM9 },
+        }},
+        { "Jazz", {
+            { DM7, G7_, CM7, CM7 },          // ii-V-I
+            { DM7, G7_, EM7, A7_ },
+            { CM7, A7_, DM7, G7_ },          // rhythm changes
+            { BM7b, E7_, AM7, AM7 },
+            { CM7, EBM7, ABM7, D7_ },        // the sidestep
+            { FM7, BM7b, E7_, AM7 },
+        }},
+        { "Gospel", {
+            { C_,  F_,  C_,  G7_ },
+            { CM7, FM7, EM7, AM7 },
+            { F_,  G_,  EM7, AM_ },
+            { C_,  C7_, F_,  FMm },
+            { AB_, BB_, C_,  C_  },
+            { CM7, BB_, F_,  C_  },
+        }},
+        { "Afrobeats", {
+            { AM_, F_,  C_,  G_  },
+            { CM7, AM7, FM7, G_  },
+            { FM7, EM7, AM7, AM7 },
+            { AM7, G_,  F_,  EM7 },
+            { CM_, EB_, FMm, G_  },
+        }},
+        { "Anime", {
+            { F_,  G_,  EM_, AM_ },
+            { F_,  G_,  AM_, AM_ },
+            { C_,  G_,  AM_, EM_ },
+            { DM_, EM_, F_,  G_  },
+            { FM7, G_,  EM7, AM_ },
+            { BB_, C_,  AM_, DM_ },
+            { F_,  E7_, AM_, AM_ },          // the harmonic-minor turn
+        }},
+        { "Phonk", {
+            { CM_, AB_, G_,  G_  },
+            { AM_, F_,  E7_, AM_ },
+            { CM7m, ABM7, G7_, CM7m },
+            { FMm, CM_, AB_, G_  },
+            { AM_, DM_, EM_, AM_ },
         }},
     };
-
-    #undef C_
+#undef C_
     #undef CM7
     #undef C7_
+    #undef C6_
+    #undef CAD9
+    #undef CS2
+    #undef CS4
+    #undef CM_
+    #undef CM7m
+    #undef CM9m
+    #undef DM_
     #undef DM7
+    #undef DM9
+    #undef D7_
+    #undef DS4
+    #undef EB_
+    #undef EBM7
     #undef EM_
     #undef EM7
     #undef E7_
     #undef F_
     #undef FM7
+    #undef F6_
+    #undef FMm
+    #undef FM7m
     #undef G_
     #undef G7_
+    #undef GS4
+    #undef GB_
+    #undef AB_
+    #undef ABM7
     #undef AM_
     #undef AM7
+    #undef AM9
+    #undef A7_
+    #undef BB_
+    #undef BBM7
+    #undef BDIM
+    #undef BM7b
 
     return all;
 }

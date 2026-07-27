@@ -133,6 +133,9 @@ private:
     WaveformView   waveform;
     ChordBar       chordBar;
     juce::ComboBox instrumentBox;
+    // Step through the instrument list without opening a 376-entry menu.
+    juce::TextButton instPrevButton { "<" }, instNextButton { ">" };
+    void stepInstrument (int delta);
     MeterComponent meter { processor.getOutputLevelRef() };
     SliceGrid      sliceGrid;
     FXRack         fxRack;

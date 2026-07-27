@@ -90,11 +90,20 @@ juce_generate_juce_header(VocalChopStudio)
 
 # Embed the demo vocals (one-click first-run sound). The themes draw their
 # backdrops procedurally now, so no artwork ships in the binary.
+# The built-in chop sources. Mono on purpose: the plugin has its own width and
+# chorus, and every one of these ships inside the binary, so stereo would
+# double the download for a placement the user overrides anyway.
 juce_add_binary_data(VocalChopData SOURCES
     examples/vocal_chop_demo.wav
     examples/vox_air.wav
     examples/vox_rage.wav
-    examples/vox_beatbox.wav)
+    examples/vox_beatbox.wav
+    examples/vox_chant.wav
+    examples/vox_hook.wav
+    examples/vox_choir.wav
+    examples/vox_whisper.wav
+    examples/vox_diva.wav
+    examples/vox_stabs.wav)
 
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp
