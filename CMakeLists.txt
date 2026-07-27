@@ -150,43 +150,68 @@ target_link_libraries(VocalChopStudio
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
+# --- offline core for the developer tools ---------------------------------
+# The shipping library is compiled with SLYCE_DEMO_GATE=1, which mutes two
+# seconds every minute. The render tools bounce two-minute arrangements, so
+# linking the shipping library punched a hole in every track at 0:58. They get
+# their own copy of the sources with the gate compiled OUT - the product build
+# is untouched.
+set(SLYCE_CORE_SOURCES
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/AudioEngine/SampleLoader.cpp
+    Source/AudioEngine/SliceEngine.cpp
+    Source/AudioEngine/PitchFormant.cpp
+    Source/AudioEngine/GranularEngine.cpp
+    Source/AudioEngine/SynthEngine.cpp
+    Source/AudioEngine/SamplerEngine.cpp
+    Source/AudioEngine/FXChain.cpp
+    Source/AudioEngine/VoicePool.cpp
+    Source/UI/ThemeManager.cpp
+    Source/UI/AppleLookAndFeel.cpp
+    Source/UI/MeterComponent.cpp
+    Source/UI/WaveformView.cpp
+    Source/UI/KnobComponent.cpp
+    Source/UI/SliceGrid.cpp
+    Source/UI/LooperPanel.cpp
+    Source/UI/ChordBar.cpp
+    Source/UI/FXRack.cpp)
+
+function(slyce_add_tool target source)
+    juce_add_console_app(${target} PRODUCT_NAME "${target}")
+    target_sources(${target} PRIVATE ${source} ${SLYCE_CORE_SOURCES})
+    target_compile_definitions(${target} PRIVATE
+        JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1
+        JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_VST3_CAN_REPLACE_VST2=0
+        # The editor prints the build version in its footer; outside the
+        # plugin wrapper that macro does not exist.
+        JucePlugin_VersionString="${PROJECT_VERSION}")
+    add_dependencies(${target} VocalChopStudio)
+    target_link_libraries(${target} PRIVATE
+        VocalChopData
+        juce::juce_audio_utils
+        juce::juce_cryptography
+        juce::juce_dsp
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+        juce::juce_audio_plugin_client
+        juce::juce_recommended_config_flags)
+    target_include_directories(${target} PRIVATE
+        Source
+        ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
+        ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode
+        ${signalsmith_stretch_SOURCE_DIR}
+        ${SIGNALSMITH_INCLUDE_ROOT}
+        ${signalsmith_linear_SOURCE_DIR})
+endfunction()
+
 # --- offline render harness (developer tool; not part of the plugin) -------
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_test.cpp)
-    juce_add_console_app(SlyceRenderTest PRODUCT_NAME "SlyceRenderTest")
-    target_sources(SlyceRenderTest PRIVATE tools/render_test.cpp)
-    target_compile_definitions(SlyceRenderTest PRIVATE
-        JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
-        JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1)
-    # The shared-code target is named after the plugin target, not the product.
-    target_link_libraries(SlyceRenderTest PRIVATE
-        VocalChopStudio
-        juce::juce_audio_plugin_client
-        juce::juce_recommended_config_flags)
-    target_include_directories(SlyceRenderTest PRIVATE
-        Source
-        ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
-        ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode
-        ${signalsmith_stretch_SOURCE_DIR}
-        ${SIGNALSMITH_INCLUDE_ROOT}
-        ${signalsmith_linear_SOURCE_DIR})
+    slyce_add_tool(SlyceRenderTest tools/render_test.cpp)
 endif()
 
-# --- offline arrangement renderer: builds the demo track for the store page --
+# --- offline arrangement renderer: builds the demo tracks for the store page -
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/demo_render.cpp)
-    juce_add_console_app(SlyceDemoRender PRODUCT_NAME "SlyceDemoRender")
-    target_sources(SlyceDemoRender PRIVATE tools/demo_render.cpp)
-    target_compile_definitions(SlyceDemoRender PRIVATE
-        JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
-        JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1)
-    target_link_libraries(SlyceDemoRender PRIVATE
-        VocalChopStudio
-        juce::juce_audio_plugin_client
-        juce::juce_recommended_config_flags)
-    target_include_directories(SlyceDemoRender PRIVATE
-        Source
-        ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
-        ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode
-        ${signalsmith_stretch_SOURCE_DIR}
-        ${SIGNALSMITH_INCLUDE_ROOT}
-        ${signalsmith_linear_SOURCE_DIR})
+    slyce_add_tool(SlyceDemoRender tools/demo_render.cpp)
 endif()
