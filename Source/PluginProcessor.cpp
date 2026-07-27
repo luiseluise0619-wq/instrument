@@ -1991,6 +1991,46 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     // engine clamps the amount to 0..5 octaves, negatives would do nothing).
     if (name == "Downlifter")      { p.pitchEnvOct = 2.5f; p.pitchEnvMs = 900.0f; }
 
+    // --- Attack transient + inharmonicity, by family --------------------------
+    // The one-line diagnosis of "why does this sound like a synth": every note
+    // began as a clean oscillator ramp, and every partial sat exactly on the
+    // harmonic series. Real instruments do neither. What follows is per-family
+    // rather than per-instrument because the family IS the physical mechanism -
+    // everything struck gets a hammer, everything plucked gets a pick.
+    float atkAmt = 0.0f, atkTone = 3.0f, atkMs = 14.0f, inharm = 0.0f;
+
+    if (cat == "PIANO")        { atkAmt = 0.55f; atkTone = 5.5f; atkMs = 9.0f;  inharm = 0.62f; }
+    else if (cat == "GUITAR")  { atkAmt = 0.62f; atkTone = 7.0f; atkMs = 7.0f;  inharm = 0.30f; }
+    else if (cat == "PLUCK")   { atkAmt = 0.48f; atkTone = 6.5f; atkMs = 6.0f;  inharm = 0.34f; }
+    else if (cat == "BELL")    { atkAmt = 0.50f; atkTone = 9.0f; atkMs = 5.0f;  inharm = 0.85f; }
+    else if (cat == "KEYS")    { atkAmt = 0.40f; atkTone = 5.0f; atkMs = 10.0f; inharm = 0.40f; }
+    else if (cat == "DRUMS")   { atkAmt = 0.45f; atkTone = 4.0f; atkMs = 5.0f;  inharm = 0.0f;  }
+    else if (cat == "BASS")    { atkAmt = 0.22f; atkTone = 4.5f; atkMs = 8.0f;  inharm = 0.18f; }
+    else if (cat == "VOCAL")   { atkAmt = 0.16f; atkTone = 2.2f; atkMs = 22.0f; inharm = 0.0f;  }
+    else if (cat == "LEAD")    { atkAmt = 0.14f; atkTone = 3.5f; atkMs = 9.0f;  inharm = 0.0f;  }
+    else if (cat == "HITS")    { atkAmt = 0.28f; atkTone = 5.0f; atkMs = 8.0f;  inharm = 0.22f; }
+    else if (cat == "PAD")     { atkAmt = 0.05f; atkTone = 2.0f; atkMs = 40.0f; inharm = 0.0f;  }
+    // SYNTH and MISC stay clean on purpose: an oscillator is what they ARE.
+
+    // A few voices whose whole identity is the strike.
+    if (name.contains ("Kalimba") || name.contains ("Marimba")
+        || name.contains ("Mallet") || name.contains ("Gamelan")
+        || name.contains ("Music Box") || name.contains ("Steel Pan"))
+        { atkAmt = 0.60f; atkTone = 8.0f; atkMs = 5.0f; inharm = 0.70f; }
+    if (name.contains ("Harp") || name.contains ("Koto")
+        || name.contains ("Sitar") || name.contains ("Banjo")
+        || name.contains ("Dulcimer") || name.contains ("Pizz"))
+        { atkAmt = 0.66f; atkTone = 8.5f; atkMs = 6.0f; inharm = 0.45f; }
+    // Long, soft, bowed or breathed: a burst would be wrong.
+    if (cat == "PAD" || name.contains ("Choir") || name.contains ("Strings")
+        || name.contains ("Drone") || name.contains ("Swell"))
+        { atkAmt = juce::jmin (atkAmt, 0.06f); atkMs = 45.0f; }
+
+    p.attackNoise = atkAmt;
+    p.attackTone  = atkTone;
+    p.attackMs    = atkMs;
+    p.inharmonic  = inharm;
+
     p.chorusMix = chorus;
 
     // --- Portamento defaults ------------------------------------------------

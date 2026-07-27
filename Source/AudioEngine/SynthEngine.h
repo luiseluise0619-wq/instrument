@@ -59,6 +59,19 @@ public:
         std::atomic<float> pitchEnvOct   { 0.0f };   // pitch drop (octaves, drums)
         std::atomic<float> pitchEnvMs    { 60.0f };  // pitch envelope decay
         std::atomic<float> glideMs       { 0.0f };   // portamento from the last note
+        // --- what separates a synth from an instrument ------------------------
+        // Real instruments do not start cleanly. A hammer, a pick, a mallet or
+        // a breath makes a burst of inharmonic noise BEFORE the tone arrives,
+        // and the ear uses it to decide whether it is hearing an instrument or
+        // an oscillator. Every voice here started as a clean ramp, which is
+        // most of why 376 sounds all read as "synth".
+        std::atomic<float> attackNoise    { 0.0f };   // 0..1 burst level
+        std::atomic<float> attackTone     { 3.0f };   // burst centre, x the note
+        std::atomic<float> attackMs       { 14.0f };  // burst decay
+        // Strings and bars are INHARMONIC: their partials stretch sharp of the
+        // harmonic series. Perfectly harmonic partials are why synthesised
+        // pianos and bells sound flat and glassy.
+        std::atomic<float> inharmonic     { 0.0f };   // 0..1 stretch amount
         // Vocal formant bank: -1 = off, 0..4 = A E I O U vowel resonances.
         std::atomic<int>   formantVowel  { -1 };
         std::atomic<float> formantAmount { 0.0f };   // 0..1 dry/wet
@@ -73,6 +86,8 @@ public:
             lfoRateHz = 2.0f; lfoDepthOct = 0.0f;
             pitchEnvOct = 0.0f; pitchEnvMs = 60.0f;
             glideMs = 0.0f;
+            attackNoise = 0.0f; attackTone = 3.0f; attackMs = 14.0f;
+            inharmonic = 0.0f;
             formantVowel = -1; formantAmount = 0.0f;
         }
     };
@@ -118,6 +133,17 @@ private:
         // Portamento: the note starts at the PREVIOUS note's pitch and slides
         // to its own. Held as a frequency ratio that decays toward 1.
         float glideRatio = 1.0f, glideCoeff = 0.0f;
+
+        // Attack transient: a band-passed noise burst that decays in a few
+        // milliseconds, plus the state of the resonator that colours it.
+        float atkLevel = 0.0f, atkCoeff = 0.0f, atkAmt = 0.0f;
+        float atkB1 = 0.0f, atkB2 = 0.0f, atkA1 = 0.0f, atkA2 = 0.0f;
+        float atkZ1 = 0.0f, atkZ2 = 0.0f;
+
+        // Inharmonic partial: a second bank running sharp of the fundamental,
+        // which is what a struck string or a metal bar actually does.
+        double inhPhase = 0.0, inhInc = 0.0;
+        float  inhLevel = 0.0f;
         double fmCarPhase = 0.0, fmCarInc = 0.0;
         double fmModPhase = 0.0, fmModInc = 0.0;
         double vibPhase = 0.0,  vibInc = 0.0;

@@ -215,6 +215,48 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
             lastStartedNote = (int) baseNote;
     }
 
+    // --- Attack transient ----------------------------------------------------
+    // A resonant band-pass ringing on a single noise impulse: the pick, the
+    // hammer, the mallet. It is over in a few milliseconds and it is most of
+    // what tells the ear this is an instrument and not an oscillator.
+    {
+        v.atkAmt = juce::jlimit (0.0f, 1.0f, patchSettings.attackNoise.load());
+        if (v.atkAmt > 0.001f)
+        {
+            const float ms = juce::jmax (2.0f, patchSettings.attackMs.load());
+            v.atkCoeff = std::exp (-1.0f / (ms * 0.001f * (float) sampleRate));
+            v.atkLevel = 1.0f;
+
+            // Band-pass centred a few multiples above the note, so the burst
+            // tracks pitch the way a real instrument's does - a struck bass
+            // string thuds, a struck treble string ticks.
+            const float centre = juce::jlimit (200.0f, 0.42f * (float) sampleRate,
+                                               (float) hz * juce::jmax (1.0f, patchSettings.attackTone.load()));
+            const float w  = juce::MathConstants<float>::twoPi * centre / (float) sampleRate;
+            const float Q  = 1.6f;
+            const float al = std::sin (w) / (2.0f * Q);
+            const float c  = std::cos (w), a0 = 1.0f + al;
+            v.atkB1 = 0.0f;                 // band-pass: b0 = al/a0, b1 = 0, b2 = -b0
+            v.atkB2 = al / a0;
+            v.atkA1 = (-2.0f * c) / a0;
+            v.atkA2 = (1.0f - al) / a0;
+            v.atkZ1 = v.atkZ2 = 0.0f;
+        }
+        else v.atkLevel = 0.0f;
+    }
+
+    // --- Inharmonic partial ---------------------------------------------------
+    // Real strings and bars are stiff, so their overtones sit SHARP of the
+    // harmonic series. Perfectly harmonic partials are why synthesised pianos
+    // and bells sound glassy; a stretched partial fixes it for almost nothing.
+    {
+        const float inh = juce::jlimit (0.0f, 1.0f, patchSettings.inharmonic.load());
+        v.inhLevel = inh * 0.34f;
+        // 2nd partial, stretched sharp by up to ~35 cents at full amount
+        v.inhInc = (hz * 2.0 * std::pow (2.0, inh * 0.35 / 12.0)) / sampleRate;
+        v.inhPhase = (double) noiseRng.nextFloat();
+    }
+
     // Percussion pitch envelope: start high, fall exponentially to base.
     v.penvOct = juce::jlimit (0.0f, 5.0f, patchSettings.pitchEnvOct.load());
     v.penv    = v.penvOct > 0.0f ? 1.0f : 0.0f;
@@ -557,6 +599,31 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 const float nz = (noiseRng.nextFloat() * 2.0f - 1.0f) * v.noiseLevel;
                 oscL += nz;
                 oscR += nz;
+            }
+
+            // --- Stretched partial ------------------------------------------
+            if (v.inhLevel > 0.0f)
+            {
+                const float ih = std::sin (twoPi * (float) v.inhPhase) * v.inhLevel;
+                advance (v.inhPhase, v.inhInc * (double) pitchRatio);
+                oscL += ih;
+                oscR += ih;
+            }
+
+            // --- Attack transient -------------------------------------------
+            // Deliberately added AFTER the oscillators and BEFORE the filter,
+            // so the filter shapes it the way a real body would.
+            if (v.atkLevel > 0.0001f)
+            {
+                const float x = (noiseRng.nextFloat() * 2.0f - 1.0f) * v.atkLevel;
+                const float y = v.atkB2 * x - v.atkB2 * v.atkZ2
+                              - v.atkA1 * v.atkZ1 - v.atkA2 * v.atkZ2;
+                v.atkZ2 = v.atkZ1;
+                v.atkZ1 = y;
+                const float burst = y * v.atkAmt * 2.6f;
+                oscL += burst;
+                oscR += burst;
+                v.atkLevel *= v.atkCoeff;
             }
 
             // --- Resonant TPT SVF lowpass with decay envelope --------------------

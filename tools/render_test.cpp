@@ -189,6 +189,51 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--attack <name>": is there a transient at all? Prints the first 40 ms in
+    // 2 ms slices with the brightness of each, so the strike can be seen
+    // rather than argued about.
+    if (argc > 2 && juce::String (argv[1]) == "--attack")
+    {
+        const auto nm = juce::String (argv[2]);
+        const int idx = names.indexOf (nm);
+        if (idx < 0) { printf ("no instrument '%s'\n", nm.toRawUTF8()); return 1; }
+        proc.applyInstrument (idx);
+
+        juce::AudioBuffer<float> buf (2, 64);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 60, 1.0f), 0);
+        std::vector<float> mono;
+        for (int b = 0; b < 400; ++b)
+        {
+            buf.clear(); proc.processBlock (buf, midi); midi.clear();
+            for (int i = 0; i < 64; ++i)
+                mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+        }
+        const int hop = (int) (44100 * 0.002);
+        printf ("%s — first 40 ms, 2 ms slices\n", nm.toRawUTF8());
+        printf ("%6s %8s %8s\n", "ms", "peak", "zcHz");
+        for (int k = 0; k < 20; ++k)
+        {
+            float pk = 0; int zc = 0;
+            for (int i = k * hop; i < (k + 1) * hop && i < (int) mono.size(); ++i)
+            {
+                pk = juce::jmax (pk, std::abs (mono[(size_t) i]));
+                if (i > 0 && (mono[(size_t) i - 1] <= 0) != (mono[(size_t) i] <= 0)) ++zc;
+            }
+            printf ("%6.0f %8.4f %8.0f %s\n", k * 2.0, pk, zc * 0.5 * 44100.0 / hop,
+                    juce::String::repeatedString ("#", (int) (pk * 90)).toRawUTF8());
+        }
+        float sus = 0;
+        for (size_t i = mono.size() / 2; i < mono.size() / 2 + 2000 && i < mono.size(); ++i)
+            sus = juce::jmax (sus, std::abs (mono[i]));
+        float atk = 0;
+        for (int i = 0; i < hop * 4 && i < (int) mono.size(); ++i)
+            atk = juce::jmax (atk, std::abs (mono[(size_t) i]));
+        printf ("\nattack peak %.4f  vs sustain %.4f  ->  %+.1f dB strike\n",
+                atk, sus, 20.0 * std::log10 ((atk + 1e-6f) / (sus + 1e-6f)));
+        return 0;
+    }
+
     juce::StringArray want;
     for (int i = 1; i < argc; ++i) want.add (juce::String (argv[i]));
 
