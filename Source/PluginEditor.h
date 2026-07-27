@@ -15,6 +15,7 @@
 #include "UI/UnlockPanel.h"
 #include "UI/WelcomePanel.h"
 #include "UI/AppleLookAndFeel.h"
+#include "UI/AmbientPanel.h"
 
 //==============================================================================
 class VocalChopAudioProcessorEditor : public juce::AudioProcessorEditor,
@@ -161,6 +162,12 @@ private:
     UnlockPanel    unlockPanel { [this] (juce::String e, juce::String k)
                                  { return processor.finalizeActivation (e, k); } };
     juce::TextButton unlockButton { "UNLOCK" };
+
+    // Ambient mode: a full-panel visualiser for leaving the plugin running on
+    // a spare screen. Covers everything; the timer only turns while visible.
+    AmbientPanel     ambientPanel;
+    juce::TextButton ambientButton { "AMBIENT" };
+    void setAmbient (bool on);
 
     // First-run quick start (re-openable from the toolbar "?").
     WelcomePanel     welcomePanel;

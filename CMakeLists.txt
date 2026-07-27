@@ -124,6 +124,7 @@ target_sources(VocalChopStudio PRIVATE
     Source/UI/SliceGrid.cpp
     Source/UI/LooperPanel.cpp
     Source/UI/ChordBar.cpp
+    Source/UI/AmbientPanel.cpp
     Source/UI/FXRack.cpp)
 
 target_include_directories(VocalChopStudio PRIVATE
@@ -184,6 +185,7 @@ set(SLYCE_CORE_SOURCES
     Source/UI/SliceGrid.cpp
     Source/UI/LooperPanel.cpp
     Source/UI/ChordBar.cpp
+    Source/UI/AmbientPanel.cpp
     Source/UI/FXRack.cpp)
 
 function(slyce_add_tool target source)

@@ -597,6 +597,14 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     };
     addAndMakeVisible (looperTabButton);
 
+    // --- Ambient mode -------------------------------------------------------
+    ambientButton.setTooltip ("Full-panel visualiser - for leaving Slyce running on a spare screen");
+    ambientButton.onClick = [this] { setAmbient (true); };
+    addAndMakeVisible (ambientButton);
+
+    ambientPanel.onExit = [this] { setAmbient (false); };
+    addChildComponent (ambientPanel);
+
     addChildComponent (looperPanel);   // hidden until the tab is opened
 
     // --- Licensing: UNLOCK button (demo builds only) + overlay panel ---
@@ -1188,6 +1196,28 @@ void VocalChopAudioProcessorEditor::promptSavePreset()
 
 /** Mirrors the current voice into the hero, and greys it when the engine is
     not one that plays instruments. */
+void VocalChopAudioProcessorEditor::setAmbient (bool on)
+{
+    if (on)
+    {
+        const auto cats = VocalChopAudioProcessor::getInstrumentCategories();
+        const int idx = juce::jmax (0, instrumentBox.getSelectedItemIndex());
+        ambientPanel.setNowPlaying (instrumentBox.getText(),
+                                    juce::isPositiveAndBelow (idx, cats.size()) ? cats[idx]
+                                                                                : juce::String(),
+                                    chordBar.getKeyText());
+        ambientPanel.setBpm (processor.getHostBpm());
+        // Take focus so the arrow keys step between looks and Escape leaves.
+        ambientPanel.toFront (true);
+    }
+    ambientPanel.setVisible (on);
+    // The timer only turns while the panel can be seen. An ambient visualiser
+    // that keeps repainting behind a closed door is the exact thing that makes
+    // a plugin feel heavy for no reason.
+    ambientPanel.setActive (on);
+    if (! on) grabKeysSoon();
+}
+
 void VocalChopAudioProcessorEditor::refreshInstrumentHero()
 {
     const auto& th = ThemeManager::active();
@@ -1432,6 +1462,15 @@ void VocalChopAudioProcessorEditor::mouseDown (const juce::MouseEvent&)
 
 bool VocalChopAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
 {
+    // F2 toggles the visualiser. A shortcut matters here specifically because
+    // ambient mode is the one screen you want to reach without hunting for a
+    // button, and leave the same way.
+    if (key.isKeyCode (juce::KeyPress::F2Key))
+    {
+        setAmbient (! ambientPanel.isVisible());
+        return true;
+    }
+
     // Swallow mapped musical keys (sound is driven by keyStateChanged, which
     // also sees releases); everything else passes through.
     const auto c = juce::CharacterFunctions::toLowerCase (
@@ -1871,21 +1910,26 @@ void VocalChopAudioProcessorEditor::layoutContent()
     titleLabel.setBounds (top.removeFromLeft (92));
     // 92 + 194 left + 690 right = 976 = exactly the space at the 1020 min
     // width; one more px and the LOOPER button lands on this caption.
-    subtitleLabel.setBounds (top.removeFromLeft (194).withTrimmedTop (6));
+    // The whole bar is sized to fit at the 1020px minimum width. Adding
+    // AMBIENT without re-cutting the others put it straight on top of LOOPER,
+    // so every element gave back what the new one needed.
+    subtitleLabel.setBounds (top.removeFromLeft (128).withTrimmedTop (6));
 
     // Right-aligned: help, theme, load, demo, preset combo, preset label.
-    helpButton.setBounds (top.removeFromRight (38).withSizeKeepingCentre (38, 34));
+    helpButton.setBounds (top.removeFromRight (34).withSizeKeepingCentre (34, 34));
     top.removeFromRight (kGap / 2);
-    themeBox.setBounds (top.removeFromRight (150).withSizeKeepingCentre (150, 34));
+    themeBox.setBounds (top.removeFromRight (128).withSizeKeepingCentre (128, 34));
     top.removeFromRight (kGap / 2);
-    loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 34));
+    loadButton.setBounds (top.removeFromRight (112).withSizeKeepingCentre (112, 34));
     top.removeFromRight (kGap / 2);
-    demoButton.setBounds (top.removeFromRight (108).withSizeKeepingCentre (108, 34));
+    demoButton.setBounds (top.removeFromRight (94).withSizeKeepingCentre (94, 34));
     top.removeFromRight (kGap / 2);
-    presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 34));
-    presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 34));
+    presetBox.setBounds (top.removeFromRight (136).withSizeKeepingCentre (136, 34));
+    presetLabel.setBounds (top.removeFromRight (46).withSizeKeepingCentre (46, 34));
     top.removeFromRight (kGap / 2);
-    looperTabButton.setBounds (top.removeFromRight (92).withSizeKeepingCentre (92, 34));
+    looperTabButton.setBounds (top.removeFromRight (78).withSizeKeepingCentre (78, 34));
+    top.removeFromRight (5);
+    ambientButton.setBounds (top.removeFromRight (78).withSizeKeepingCentre (78, 34));
 
     area.removeFromTop (kGap);
 
@@ -2241,4 +2285,5 @@ void VocalChopAudioProcessorEditor::layoutContent()
     unlockButton.setBounds (kMargin, kBaseH - 26, 96, 22);
     unlockPanel.setBounds (0, 0, kBaseW, kBaseH);
     welcomePanel.setBounds (0, 0, kBaseW, kBaseH);
+    ambientPanel.setBounds (0, 0, kBaseW, kBaseH);
 }

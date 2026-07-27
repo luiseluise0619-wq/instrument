@@ -268,6 +268,15 @@ void ChordBar::refreshKeyLabel()
         caption.setText ("CHORDS", juce::dontSendNotification);
 }
 
+juce::String ChordBar::getKeyText() const
+{
+    static const char* names[12] = { "C", "C#", "D", "D#", "E", "F",
+                                     "F#", "G", "G#", "A", "A#", "B" };
+    const int root = proc.getDetectedKeyRoot();
+    if (root < 0 || root >= 12) return "no key";
+    return juce::String (names[root]) + (proc.isDetectedKeyMinor() ? " minor" : " major");
+}
+
 void ChordBar::regenerate()
 {
     const auto& style = styles()[(size_t) juce::jmax (0, styleBox.getSelectedId() - 1)];

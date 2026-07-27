@@ -35,6 +35,10 @@ public:
         a sample loads. Chord playback transposes into this key. */
     void refreshKeyLabel();
 
+    /** The detected key as words ("D minor"), for anywhere that wants to show
+        it outside the bar itself. */
+    juce::String getKeyText() const;
+
 private:
     struct Chord
     {
