@@ -85,9 +85,42 @@ jobs:
           curl -sL https://www.gnu.org/licenses/gpl-3.0.txt -o dist/COPYING \
             || echo "See https://www.gnu.org/licenses/gpl-3.0.txt" > dist/COPYING
           cp README.md LICENSE.md dist/
+          # Ship only the installer for THIS os. Three scripts in one folder
+          # is three chances to run the wrong one.
+          case "${RUNNER_OS}" in
+            Windows) cp packaging/install-windows.bat dist/"Install Slyce.bat" ;;
+            macOS)   cp packaging/install-macos.command dist/"Install Slyce.command"
+                     chmod +x dist/"Install Slyce.command" ;;
+            Linux)   cp packaging/install-linux.sh dist/install-slyce.sh
+                     chmod +x dist/install-slyce.sh ;;
+          esac
           cat > dist/INSTALL.txt <<'EOF'
           SLYCE - HOW TO INSTALL
           ======================
+
+          EASIEST WAY - run the installer in this folder.
+          It deletes any previous version first, so upgrading never leaves
+          two copies of Slyce in your plugin list.
+
+            Windows   double-click "Install Slyce.bat"  (it will ask for
+                      administrator access - that is only to write into
+                      Program Files)
+            macOS     double-click "Install Slyce.command".  If macOS
+                      refuses: right-click it > Open > Open.
+            Linux     ./install-slyce.sh
+
+          Close your DAW before running it, then rescan plugins after.
+
+          If you would rather copy the files by hand, read on.
+
+          ---------------------------------------------------------------
+
+          UPGRADING FROM AN OLDER VERSION
+            Delete the old bundle before copying the new one. On Windows,
+            dragging a folder onto an existing folder MERGES them, which
+            leaves files from the old build inside the new plugin.
+            Versions before 3.0 were called "VocalChop Studio" - if you
+            have that one, delete it too or the DAW will list both.
 
           WINDOWS (FL Studio, Ableton, etc.)
             1. Copy the ENTIRE "Slyce.vst3" folder to:
