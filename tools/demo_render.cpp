@@ -5,7 +5,7 @@
 // sidechain pump, portamento and limiter the buyer gets. Nothing is sweetened
 // afterwards beyond one gain stage into the plugin's own limiter.
 //
-//   SlyceDemoRender <out.wav> [edm|hiphop|pop|funk] [soloInstrument]
+//   SlyceDemoRender <out.wav> [edm|hiphop|pop|funk|showcase] [soloInstrument]
 #include "PluginProcessor.h"
 #include "DSP/Limiter.h"
 #include <cstdio>
@@ -595,6 +595,95 @@ std::vector<Part> buildFunk()
 }
 
 //==============================================================================
+//  SHOWCASE  -  the physically modelled voices, one after another
+//==============================================================================
+// Not a track. Judging whether the string model and the body resonators were
+// worth having means hearing them, and hunting for twelve instruments inside a
+// menu of 376 is how that does not happen. Each gets four bars of a phrase
+// that suits its mechanism: struck things get repeated strikes so the decay is
+// audible, plucked things get a run, sustained things get held chords.
+struct Showpiece
+{
+    const char* instrument;
+    const char* kind;          // "pluck" | "strike" | "hold"
+    int root;
+};
+
+const Showpiece kShow[] = {
+    { "Syn Harp",       "pluck",  60 },
+    { "Syn Koto",       "pluck",  57 },
+    { "Syn Sitar",      "pluck",  57 },
+    { "Syn Dulcimer",   "pluck",  62 },
+    { "Syn 12-String",  "pluck",  55 },
+    { "Syn Harpsi",     "pluck",  60 },
+    { "Syn Kalimba",    "strike", 65 },
+    { "Syn Marimba",    "strike", 60 },
+    { "Syn Music Box",  "strike", 72 },
+    { "Syn Steel Pan",  "strike", 60 },
+    { "Cloud Bell",     "strike", 67 },
+    { "Syn Grand",      "hold",   53 },
+    { "Smooth EP",      "hold",   53 },
+    { "Pluck Bass",     "pluck",  41 },
+};
+
+std::vector<Part> buildShowcase()
+{
+    gBpm = 96.0;
+    const int perPiece = 4;                       // bars each
+    const int count = (int) (sizeof (kShow) / sizeof (kShow[0]));
+    gBars = count * perPiece;
+
+    std::vector<Part> parts;
+    // A quiet click so the ear has a grid to hear the decays against.
+    Part click { "Rim Snap", 0.16f, {}, {} };
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto& sp = kShow[i];
+        Part p { sp.instrument, 0.85f,
+                 { { "reverb", 0.22f }, { "width", 0.9f } }, {} };
+        const double b0 = i * perPiece * 4.0;
+        const juce::String kind (sp.kind);
+
+        if (kind == "pluck")
+        {
+            // A run up and back: every note is a fresh pluck, so the strike
+            // and the decay are both exposed.
+            static const int steps[] = { 0, 4, 7, 12, 7, 4, 0, 7, 12, 16, 12, 7 };
+            for (int bar = 0; bar < perPiece; ++bar)
+                for (int k = 0; k < 12; ++k)
+                    add (p.notes, b0 + bar * 4.0 + k * (4.0 / 12.0),
+                         sp.root + steps[k], k % 3 == 0 ? 1.0f : 0.8f, 0.30);
+        }
+        else if (kind == "strike")
+        {
+            // Repeated strikes on one note, then a chord: if the body is doing
+            // anything, the ring between hits is where it shows.
+            for (int bar = 0; bar < perPiece; ++bar)
+            {
+                for (double t : { 0.0, 0.75, 1.5, 2.25 })
+                    add (p.notes, b0 + bar * 4.0 + t, sp.root, 1.0f, 0.5);
+                for (int n : { 0, 4, 7 })
+                    add (p.notes, b0 + bar * 4.0 + 3.0, sp.root + n, 0.9f, 1.0);
+            }
+        }
+        else
+        {
+            for (int bar = 0; bar < perPiece; ++bar)
+                for (int n : { 0, 7, 12, 16 })
+                    add (p.notes, b0 + bar * 4.0, sp.root + n, 0.85f, 3.6);
+        }
+
+        for (int bar = 0; bar < perPiece; ++bar)
+            add (click.notes, b0 + bar * 4.0, 40, 0.5f, 0.1);
+
+        parts.push_back (p);
+    }
+    parts.push_back (click);
+    return parts;
+}
+
+//==============================================================================
 void setParam (VocalChopAudioProcessor& p, const juce::String& id, float value)
 {
     if (auto* param = p.getAPVTS().getParameter (id))
@@ -663,6 +752,7 @@ int main (int argc, char** argv)
     if      (song == "hiphop") { parts = buildHipHop(); push = 5.0f; }
     else if (song == "pop")    { parts = buildPop();    push = 4.0f; }
     else if (song == "funk")   { parts = buildFunk();   push = 6.0f; }
+    else if (song == "showcase") { parts = buildShowcase(); push = 2.0f; }
     else                       { parts = buildEdm();    push = 7.0f; }
 
     printf ("song %s  %.0f BPM  %d bars\n", song.toRawUTF8(), gBpm, gBars);

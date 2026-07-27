@@ -49,18 +49,134 @@ float WaveformView::fracAt (float x) const
     return juce::jlimit (0.0f, 1.0f, (x - x0) / w);
 }
 
+float WaveformView::xOfFrac (float frac) const
+{
+    const float x0 = 4.0f + kCardPadding;
+    const float w  = juce::jmax (1.0f, (float) getWidth() - 8.0f - 2.0f * kCardPadding);
+    return x0 + frac * w;
+}
+
+int WaveformView::markerNear (float x) const
+{
+    auto sample = proc.getLoadedSample();
+    if (sample == nullptr || sample->getNumSamples() <= 0)
+        return -1;
+
+    const auto& slices = proc.getSliceEngine().getSlices();
+    const float total = (float) sample->getNumSamples();
+
+    int best = -1;
+    float bestDist = 8.0f;              // grab radius in pixels
+    for (size_t i = 0; i < slices.size(); ++i)
+    {
+        // Slice 0 always sits at the very start; dragging it would only ever
+        // trim the head, which is what TRIM is for.
+        if (slices[i].startSample <= 0)
+            continue;
+        const float d = std::abs (x - xOfFrac (slices[i].startSample / total));
+        if (d < bestDist) { bestDist = d; best = (int) i; }
+    }
+    return best;
+}
+
+int WaveformView::sliceAtFrac (float frac) const
+{
+    auto sample = proc.getLoadedSample();
+    if (sample == nullptr || sample->getNumSamples() <= 0)
+        return -1;
+
+    const auto& slices = proc.getSliceEngine().getSlices();
+    const int pos = (int) (frac * (float) sample->getNumSamples());
+    for (int i = (int) slices.size() - 1; i >= 0; --i)
+        if (pos >= slices[(size_t) i].startSample)
+            return i;
+    return slices.empty() ? -1 : 0;
+}
+
+void WaveformView::moveMarker (int index, float frac)
+{
+    auto sample = proc.getLoadedSample();
+    if (sample == nullptr || sample->getNumSamples() <= 0)
+        return;
+
+    auto& engine = proc.getSliceEngine();
+    const auto& slices = engine.getSlices();
+    if (index <= 0 || index >= (int) slices.size())
+        return;
+
+    const int total = sample->getNumSamples();
+    std::vector<int> points;
+    points.reserve (slices.size());
+    for (const auto& sl : slices)
+        points.push_back (sl.startSample);
+
+    // Keep it between its neighbours with a small floor, so a marker can never
+    // be dragged past the next one and invert a slice.
+    const int gap  = juce::jmax (64, total / 2000);
+    const int lo   = points[(size_t) index - 1] + gap;
+    const int hi   = (index + 1 < (int) points.size() ? points[(size_t) index + 1] : total) - gap;
+    if (hi <= lo)
+        return;
+
+    points[(size_t) index] = juce::jlimit (lo, hi, (int) (frac * (float) total));
+    engine.sliceByManual (points);
+}
+
+void WaveformView::mouseMove (const juce::MouseEvent& e)
+{
+    if (! editableNow()) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }
+    const int m = markerNear (e.position.x);
+    if (m != hoverMarker)
+    {
+        hoverMarker = m;
+        setMouseCursor (m >= 0 ? juce::MouseCursor::LeftRightResizeCursor
+                               : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+}
+
+void WaveformView::mouseExit (const juce::MouseEvent&)
+{
+    if (hoverMarker >= 0) { hoverMarker = -1; repaint(); }
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+}
+
 void WaveformView::mouseDown (const juce::MouseEvent& e)
 {
     if (! editableNow())
         return;
-    selA = selB = fracAt (e.position.x);
+
+    // On a marker: grab it. Anywhere else: audition the slice under the
+    // cursor straight away, and arm a selection in case this becomes a drag.
+    dragMarker = markerNear (e.position.x);
+    didDragMarker = false;
+    if (dragMarker >= 0)
+        return;
+
+    const float f = fracAt (e.position.x);
+    const int sl = sliceAtFrac (f);
+    if (sl >= 0)
+        proc.triggerSlicePad (sl, 0.9f);
+
+    selA = selB = f;
     updateEditButtons();
     repaint();
 }
 
 void WaveformView::mouseDrag (const juce::MouseEvent& e)
 {
-    if (! editableNow() || selA < 0.0f)
+    if (! editableNow())
+        return;
+
+    if (dragMarker >= 0)
+    {
+        moveMarker (dragMarker, fracAt (e.position.x));
+        didDragMarker = true;
+        refresh();
+        return;
+    }
+
+    if (selA < 0.0f)
         return;
     selB = fracAt (e.position.x);
     updateEditButtons();
@@ -69,6 +185,17 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
 
 void WaveformView::mouseUp (const juce::MouseEvent&)
 {
+    if (dragMarker >= 0)
+    {
+        dragMarker = -1;
+        // Only once the drag ends: the key mapping and the slice grid have to
+        // follow the new boundaries, and doing it per mouse-move would relayout
+        // the editor on every pixel.
+        if (didDragMarker && onSampleDropped != nullptr)
+            onSampleDropped();
+        return;
+    }
+
     // A plain click (no real drag) clears the selection.
     if (selA >= 0.0f && std::abs (selB - selA) < 0.005f)
         selA = selB = -1.0f;
@@ -573,11 +700,30 @@ void WaveformView::paint (juce::Graphics& g)
             const auto& slices = proc.getSliceEngine().getSlices();
             const float widthRatio = inner.getWidth() / (float) sample->getNumSamples();
 
+            int sliceIdx = -1;
             for (const auto& s : slices)
             {
+                ++sliceIdx;
                 const float xPos = left + s.startSample * widthRatio;
                 if (xPos < inner.getX() - 0.5f || xPos > inner.getRight() + 0.5f)
                     continue;
+
+                // The marker being pointed at (or dragged) gets a grab handle,
+                // because "you can move this" has to be visible before the
+                // pointer is already on it.
+                const bool live = (sliceIdx == hoverMarker || sliceIdx == dragMarker);
+                if (live)
+                {
+                    g.setColour (theme.accent);
+                    g.fillRect (xPos - 1.0f, inner.getY() + 3.0f, 2.0f,
+                                inner.getHeight() - 3.0f);
+                    const float cy = inner.getY() + 7.0f;
+                    g.fillRoundedRectangle (xPos - 5.0f, cy - 5.0f, 10.0f, 10.0f, 2.5f);
+                    g.setColour (theme.bgTop.withAlpha (0.9f));
+                    for (float dx : { -1.6f, 1.6f })
+                        g.fillRect (xPos + dx - 0.5f, cy - 2.5f, 1.0f, 5.0f);
+                    continue;
+                }
 
                 // Hairline that fades downward: the cut is announced at the
                 // top, and the waveform underneath stays readable.

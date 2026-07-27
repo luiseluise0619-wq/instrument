@@ -53,6 +53,8 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp   (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
 private:
     void timerCallback() override;
@@ -67,6 +69,18 @@ private:
     std::vector<float> minEnv, maxEnv;
     float phase = 0.0f;
     bool  fileHover = false;
+
+    // Slice markers are draggable and the waveform auditions on click. The
+    // markers were previously the one thing on screen that looked adjustable
+    // and was not.
+    int  markerNear (float x) const;    // index of a marker within grab range, or -1
+    int  sliceAtFrac (float frac) const;
+    void moveMarker (int index, float frac);
+    float xOfFrac (float frac) const;
+
+    int  dragMarker = -1;               // marker being dragged (-1 = none)
+    int  hoverMarker = -1;
+    bool didDragMarker = false;
 
     float selA = -1.0f, selB = -1.0f;   // selection fractions (-1 = none)
     juce::TextButton trimBtn { "TRIM" }, cutBtn { "CUT" }, fadeBtn { "FADE" },
