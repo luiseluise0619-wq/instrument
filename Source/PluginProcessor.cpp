@@ -1037,6 +1037,11 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     if (buffer == nullptr)
         return false;
 
+    // A slice selection belongs to the audio it was made from. Every path that
+    // loads a sample comes through here, so clearing it once here covers the
+    // drop target, the Load button, the demo vocal and a restored session.
+    selectedSlice = -1;
+
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
     loadedSampleFile = file;

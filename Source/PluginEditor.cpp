@@ -1240,8 +1240,7 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
 {
     const auto& th = ThemeManager::active();
     const int idx = juce::jmax (0, instrumentBox.getSelectedItemIndex());
-    const auto names = VocalChopAudioProcessor::getInstrumentNames();
-    const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
+    const auto cats = VocalChopAudioProcessor::getInstrumentCategories();
 
     const bool live = instrumentBox.isEnabled();
     instNameLabel.setText (instrumentBox.getText(), juce::dontSendNotification);
@@ -1371,6 +1370,11 @@ void VocalChopAudioProcessorEditor::applySlicing()
     engine.setGridDivision (gridBox.getSelectedId());
     engine.setSensitivity ((float) sensitivityKnob.getSlider().getValue());
     engine.rebuildSlices();
+    // The selection points at a slice INDEX, and re-cutting changes what that
+    // index means. Keeping it would leave the highlighted key and the
+    // highlighted lane naming a different piece of audio than they did a
+    // moment ago, which is precisely the thing the link exists to prevent.
+    processor.setSelectedSlice (-1);
     refreshChildren();
 }
 
