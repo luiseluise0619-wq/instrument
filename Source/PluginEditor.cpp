@@ -1502,24 +1502,29 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
         g.fillRect ((float) full.getX(), (float) toolbarBottom, (float) full.getWidth(), 1.0f);
     }
 
-    // Material cards.
-    drawCard (g, macroCardBounds.toFloat());
+    // Material cards. The LOOPER tab lies over every card except the slice
+    // strip, and its own card has rounded corners - drawing the ones beneath
+    // left ghost outlines poking out of those corners.
     drawCard (g, sliceCardBounds.toFloat());
-    drawCard (g, envCardBounds.toFloat());
-    drawCard (g, toneCardBounds.toFloat());
-    drawCard (g, synthCardBounds.toFloat());
-    drawCard (g, filterCardBounds.toFloat());
-    drawCard (g, playbackCardBounds.toFloat());
-    drawCard (g, arpCardBounds.toFloat());
+    if (! showLooper)
+    {
+        drawCard (g, macroCardBounds.toFloat());
+        drawCard (g, envCardBounds.toFloat());
+        drawCard (g, toneCardBounds.toFloat());
+        drawCard (g, synthCardBounds.toFloat());
+        drawCard (g, filterCardBounds.toFloat());
+        drawCard (g, playbackCardBounds.toFloat());
+        drawCard (g, arpCardBounds.toFloat());
 
-    // Section captions.
-    drawCaption (g, "Macros",     macroCardBounds);
-    drawCaption (g, "Envelope",   envCardBounds);
-    drawCaption (g, "Pitch / Tone", toneCardBounds);
-    drawCaption (g, "Synth",      synthCardBounds);
-    drawCaption (g, "Filter",     filterCardBounds);
-    drawCaption (g, "Playback",   playbackCardBounds);
-    drawCaption (g, "Arp / Pump",  arpCardBounds);
+        // Section captions.
+        drawCaption (g, "Macros",     macroCardBounds);
+        drawCaption (g, "Envelope",   envCardBounds);
+        drawCaption (g, "Pitch / Tone", toneCardBounds);
+        drawCaption (g, "Synth",      synthCardBounds);
+        drawCaption (g, "Filter",     filterCardBounds);
+        drawCaption (g, "Playback",   playbackCardBounds);
+        drawCaption (g, "Arp / Pump", arpCardBounds);
+    }
 
     // Footer hint.
     g.setColour (theme.textSecondary);

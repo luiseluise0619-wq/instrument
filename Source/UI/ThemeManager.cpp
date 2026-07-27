@@ -1,6 +1,6 @@
 #include "ThemeManager.h"
 
-int ThemeManager::idx = 0; // default to the flat "Studio" look
+int ThemeManager::idx = 0;
 
 // Apple's rule, applied literally: the CHROME is neutral (near-black greys in
 // dark mode, paper greys in light mode) and colour appears only where it means
