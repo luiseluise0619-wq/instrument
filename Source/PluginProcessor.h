@@ -102,6 +102,10 @@ public:
     int  getSelectedSlice() const        { return selectedSlice; }
     void setSelectedSlice (int s)        { selectedSlice = s; }
 
+    /** Which slice the n-th semitone above the root plays. Public so a test
+        can compare the mapping against the audio that actually comes out. */
+    static int diatonicSliceIndex (int semis);   // white-key order -> slice order
+
     /** True when the Chop engine is selected: the loaded sample is cut into
         slices laid one per key. */
     bool isChopMode() const
@@ -211,7 +215,7 @@ private:
     double currentBpm() const;   // host tempo, else the looper's own BPM
     void drainPadQueue();
     int  triggerSliceIndex (int sliceIndex, float velocity);
-    static int diatonicSliceIndex (int semis);   // white-key order -> slice order
+
     void clearVoiceMapping (int voiceIndex);   // audio thread
     void applyMasterFXChain (juce::AudioBuffer<float>&);
     void applyStereoWidth (juce::AudioBuffer<float>&);

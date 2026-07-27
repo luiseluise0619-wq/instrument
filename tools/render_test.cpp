@@ -2,6 +2,7 @@
 #include <algorithm>
 #include "PluginProcessor.h"
 #include <cstdio>
+#include <functional>
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
@@ -298,6 +299,101 @@ int main (int argc, char** argv)
                     : "-> colour holds while level falls: an envelope on a fixed waveform");
         }
         return 0;
+    }
+
+    // "--keymap": which SLICE does each key actually play?
+    //
+    // INCOMPLETE - do not trust the MISMATCH column yet.
+    //
+    // Two approaches have failed here and both failed the same way. Comparing
+    // a key against triggerSlicePad is circular: both public trigger functions
+    // run through the same mapping, so the test only ever proves the mapping
+    // equals itself. Comparing the output against the raw sample buffer does
+    // not work either, because by the time audio leaves processBlock it has
+    // been through an envelope, the filter and the master chain, and every
+    // slice correlates best with slice 0.
+    //
+    // What would actually settle it is a hook that reports which SlicePoint a
+    // voice was started from, read back after the trigger. Left here, and left
+    // honest about being unfinished, so the next attempt starts from the two
+    // dead ends rather than rediscovering them.
+    if (argc > 1 && juce::String (argv[1]) == "--keymap")
+    {
+        if (! proc.loadDemoSample()) { printf ("no demo sample\n"); return 1; }
+        if (auto* e = proc.getAPVTS().getParameter ("engine"))
+            e->setValueNotifyingHost (e->convertTo0to1 (0.0f));       // Chop
+
+        const int n = proc.getSliceEngine().getNumSlices();
+        printf ("demo sample: %d slices\n\n", n);
+        if (n <= 0) return 1;
+
+        auto render = [&] (std::function<void()> trigger)
+        {
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::MidiBuffer midi;
+            trigger();
+            std::vector<float> out;
+            for (int b = 0; b < 40; ++b)
+            {
+                buf.clear(); proc.processBlock (buf, midi);
+                for (int i = 0; i < 512; ++i)
+                    out.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+            }
+            return out;
+        };
+        auto quiet = [&] { for (int b = 0; b < 60; ++b)
+                           { juce::AudioBuffer<float> z (2, 512); juce::MidiBuffer m;
+                             z.clear(); proc.processBlock (z, m); } };
+
+        // Where in the ORIGINAL sample did this audio come from? Both public
+        // trigger functions run through the same key mapping, so comparing one
+        // against the other only ever proves the mapping equals itself. The
+        // sample buffer is the one reference that is outside the mapping.
+        auto sample = proc.getLoadedSample();
+        if (sample == nullptr || sample->getNumSamples() == 0)
+        { printf ("no sample buffer\n"); return 1; }
+
+        const int total = sample->getNumSamples();
+        auto originOf = [&] (const std::vector<float>& x)
+        {
+            // match the first 4000 samples of output against every slice start
+            const int probe = juce::jmin (4000, (int) x.size());
+            int bestSlice = -1; double bestErr = 1e30;
+            for (int sIdx = 0; sIdx < n; ++sIdx)
+            {
+                SlicePoint sp;
+                if (! proc.getSliceEngine().tryGetSlice (sIdx, sp)) continue;
+                double err = 0.0;
+                for (int i = 0; i < probe; ++i)
+                {
+                    const int src = sp.startSample + i;
+                    const float ref = src < total ? sample->getSample (0, src) : 0.0f;
+                    const double d = x[(size_t) i] - ref;
+                    err += d * d;
+                }
+                if (err < bestErr) { bestErr = err; bestSlice = sIdx; }
+            }
+            return bestSlice;
+        };
+
+        printf ("%-8s %-9s %-14s %s\n", "key", "semitone", "audio from", "mapping says");
+        static const char* noteName[12] =
+            { "C(do)", "C#", "D(re)", "D#", "E(mi)", "F(fa)",
+              "F#", "G(sol)", "G#", "A(la)", "A#", "B(si)" };
+        int wrong = 0;
+        for (int semi = 0; semi < 12; ++semi)
+        {
+            quiet();
+            auto got = render ([&] { proc.pressSlicePad (semi, 1.0f); });
+            proc.releaseSlicePad (semi);
+            const int from   = originOf (got);
+            const int expect = VocalChopAudioProcessor::diatonicSliceIndex (semi) % n;
+            if (from != expect) ++wrong;
+            printf ("%-8s %-9d slice %-8d slice %d %s\n", noteName[semi], semi,
+                    from, expect, from == expect ? "" : "  <-- MISMATCH");
+        }
+        printf ("\n%d of 12 keys play audio from a slice other than the mapped one\n", wrong);
+        return wrong == 0 ? 0 : 1;
     }
 
     // "--filter": does the filter actually filter?
