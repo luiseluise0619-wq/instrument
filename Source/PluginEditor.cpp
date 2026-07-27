@@ -1465,6 +1465,47 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     content.repaint (sliceCardBounds);
 }
 
+/** Pushes the theme's colours into every control that JUCE colours ITSELF.
+
+    The look-and-feel paints the chrome, but a handful of things are drawn by
+    the widgets from their own colour IDs, and those default to values that
+    have nothing to do with the theme. ComboBox::textColourId is the one that
+    bit: JUCE draws "text when nothing selected" from it at half alpha, and it
+    defaults to white - so every unset combo in the loop station was white text
+    on a white field in the light themes, completely invisible.
+
+    Walked recursively rather than listed, because a control added later would
+    otherwise quietly miss out. */
+void VocalChopAudioProcessorEditor::applyThemeColours (juce::Component& root)
+{
+    const auto& th = ThemeManager::active();
+
+    for (auto* c : root.getChildren())
+    {
+        if (auto* cb = dynamic_cast<juce::ComboBox*> (c))
+        {
+            cb->setColour (juce::ComboBox::textColourId,       th.text);
+            cb->setColour (juce::ComboBox::arrowColourId,      th.textSecondary);
+            cb->setColour (juce::ComboBox::backgroundColourId, juce::Colours::transparentBlack);
+            cb->setColour (juce::ComboBox::outlineColourId,    juce::Colours::transparentBlack);
+            cb->setColour (juce::ComboBox::focusedOutlineColourId, th.accent);
+        }
+        else if (auto* tb = dynamic_cast<juce::TextButton*> (c))
+        {
+            tb->setColour (juce::TextButton::textColourOffId, th.text);
+            tb->setColour (juce::TextButton::textColourOnId,  th.accentInk);
+        }
+        else if (auto* tg = dynamic_cast<juce::ToggleButton*> (c))
+        {
+            tg->setColour (juce::ToggleButton::textColourId,   th.text);
+            tg->setColour (juce::ToggleButton::tickColourId,   th.accent);
+            tg->setColour (juce::ToggleButton::tickDisabledColourId, th.separator);
+        }
+
+        applyThemeColours (*c);
+    }
+}
+
 void VocalChopAudioProcessorEditor::refreshChildren()
 {
     {
@@ -1475,6 +1516,7 @@ void VocalChopAudioProcessorEditor::refreshChildren()
     }
 
     resized();   // the artwork hero band depends on the active theme
+    applyThemeColours (*this);
     waveform.refresh();
     sliceGrid.refresh();
     chordBar.refreshKeyLabel();

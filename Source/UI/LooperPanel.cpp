@@ -614,6 +614,24 @@ void LooperPanel::resized()
 void LooperPanel::paint (juce::Graphics& g)
 {
     const auto& theme = ThemeManager::active();
+
+    // ComboBox draws its "nothing selected" placeholder itself, straight from
+    // ComboBox::textColourId, which defaults to white and knows nothing about
+    // the theme. Every unset track combo in here therefore read as white text
+    // on a white field in the light themes - the label was there, it was just
+    // the same colour as the panel. Refreshed on paint so it follows a theme
+    // change rather than being frozen at construction.
+    for (auto& t : trackUI)
+    {
+        t.instBox.setColour (juce::ComboBox::textColourId, theme.text);
+        t.instBox.setColour (juce::ComboBox::arrowColourId, theme.textSecondary);
+    }
+    for (auto* cb : { &engineBox, &instrumentBox })
+    {
+        cb->setColour (juce::ComboBox::textColourId, theme.text);
+        cb->setColour (juce::ComboBox::arrowColourId, theme.textSecondary);
+    }
+
     auto card = getLocalBounds().toFloat().reduced (2.0f);
     const float radius = theme.cornerRadius;
 

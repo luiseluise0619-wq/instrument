@@ -428,7 +428,10 @@ void AppleLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectang
         }
     }
 
-    g.setColour (isHighlighted && isActive ? (glowTheme ? theme.text : juce::Colours::white)
+    // The highlighted row is filled with the accent, so its text has to be the
+    // theme's INK for that accent - flat white disappears on the light themes,
+    // whose accents are pale.
+    g.setColour (isHighlighted && isActive ? (glowTheme ? theme.text : theme.accentInk)
                                            : (isActive ? theme.text
                                                        : theme.textSecondary));
     g.setFont (getPopupMenuFont());

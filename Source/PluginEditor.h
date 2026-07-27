@@ -45,6 +45,7 @@ private:
     void applySlicing();
     void syncSliceControls();   // reflect the engine's mode/grid in the combos
     void refreshChildren();
+    void applyThemeColours (juce::Component& root);
     void grabKeysSoon();        // return keyboard focus after combo popups
 
     /** Syncs held typing-key notes with the OS-global key state. Runs from
