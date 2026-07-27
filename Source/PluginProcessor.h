@@ -94,6 +94,21 @@ public:
     const std::array<float, 2048>& getScopeRing() const { return scopeRing; }
     int getScopeWritePos() const { return scopeWritePos.load (std::memory_order_acquire); }
 
+    /** The slice the user last touched, in either the waveform or the
+        keyboard, or -1. It lives here rather than in either view because it is
+        the ONE piece of state the two share: clicking a lane has to light a
+        key, and pressing a key has to light a lane. Owned by the message
+        thread; the audio thread never reads it. */
+    int  getSelectedSlice() const        { return selectedSlice; }
+    void setSelectedSlice (int s)        { selectedSlice = s; }
+
+    /** True when the Chop engine is selected: the loaded sample is cut into
+        slices laid one per key. */
+    bool isChopMode() const
+    {
+        return engineParam != nullptr && engineParam->load() < 0.5f;
+    }
+
     /** True when the Synth engine is selected (keyboard plays synth notes). */
     bool isSynthMode() const
     {
@@ -249,6 +264,7 @@ private:
     std::atomic<float>* playModeParam = nullptr;
     std::atomic<float>* outputGainParam = nullptr;
     std::atomic<float>* engineParam      = nullptr;
+    int selectedSlice = -1;   // message thread only
     std::atomic<float>* synthWaveParam   = nullptr;
     std::atomic<float>* synthDetuneParam = nullptr;
     std::atomic<float>* synthOctaveParam = nullptr;

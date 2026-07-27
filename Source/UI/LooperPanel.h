@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "../AudioEngine/LoopStation.h"
+#include "ThemeManager.h"
 #include <functional>
 #include <memory>
 #include <vector>
@@ -91,6 +92,59 @@ private:
             else
                 dragging = false;
         }
+
+        /** Painted as a slab rather than as another button. Dropping the loop
+            straight onto the DAW timeline is the best moment this thing has,
+            and it looked exactly like Export and Add track next to it - three
+            identical rectangles, one of which is the product. */
+        void paint (juce::Graphics& g) override
+        {
+            const auto& th = ThemeManager::active();
+            auto r = getLocalBounds().toFloat().reduced (0.5f);
+            const bool hot = isMouseOver (true) || dragging;
+
+            g.setColour (th.accent.withAlpha (hot ? 1.0f : 0.92f));
+            g.fillRoundedRectangle (r, th.cornerRadius * 0.75f);
+
+            // Diagonal stripes, clipped to the slab: the universal "grab this
+            // and pull" texture, and it costs a handful of lines.
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                juce::Path clip;
+                clip.addRoundedRectangle (r, th.cornerRadius * 0.75f);
+                g.reduceClipRegion (clip);
+                g.setColour (th.accentInk.withAlpha (0.13f));
+                for (float x = r.getX() - r.getHeight(); x < r.getRight(); x += 10.0f)
+                    g.drawLine (x, r.getBottom(), x + r.getHeight(), r.getY(), 3.0f);
+            }
+
+            auto lines = r.reduced (12.0f, 4.0f);
+            auto arrow = lines.removeFromRight (22.0f);
+
+            g.setColour (th.accentInk);
+            g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Bold"))
+                           .withExtraKerningFactor (0.06f));
+            g.drawText ("HOLD & DRAG", lines.removeFromTop (lines.getHeight() * 0.56f),
+                        juce::Justification::centredLeft, false);
+            g.setFont (juce::Font (juce::FontOptions (9.5f)));
+            g.setColour (th.accentInk.withAlpha (0.75f));
+            g.drawText ("Drop the loop mix onto the timeline", lines,
+                        juce::Justification::centredLeft, false);
+
+            // Arrow pointing out of the plugin.
+            g.setColour (th.accentInk.withAlpha (hot ? 1.0f : 0.8f));
+            const float cx = arrow.getCentreX(), cy = arrow.getCentreY();
+            g.drawLine (cx - 7.0f, cy, cx + 7.0f, cy, 2.0f);
+            g.drawLine (cx + 2.0f, cy - 5.0f, cx + 7.0f, cy, 2.0f);
+            g.drawLine (cx + 2.0f, cy + 5.0f, cx + 7.0f, cy, 2.0f);
+        }
+
+        void mouseEnter (const juce::MouseEvent&) override
+        {
+            setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+            repaint();
+        }
+        void mouseExit (const juce::MouseEvent&) override { repaint(); }
 
         bool dragging = false;
     };

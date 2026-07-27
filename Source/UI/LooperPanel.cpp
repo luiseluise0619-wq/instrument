@@ -553,7 +553,8 @@ void LooperPanel::resized()
     mStrip.removeFromRight (8);
     exportButton.setBounds (mStrip.removeFromRight (76));
     mStrip.removeFromRight (6);
-    dragButton.setBounds (mStrip.removeFromRight (64));
+    // Wide enough to read as the slab it is, not as a third button.
+    dragButton.setBounds (mStrip.removeFromRight (juce::jmin (196, mStrip.getWidth() / 2)));
     mStrip.removeFromRight (12);
     const int mw = juce::jmax (60, (mStrip.getWidth() - 24) / 3);
     playAllButton.setBounds  (mStrip.removeFromLeft (mw));

@@ -956,6 +956,24 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     spaceKnob->setSubCaption ("reverb - width - delay");
     dirtKnob ->setSubCaption ("saturation - noise - grain");
 
+    // Hovering a macro lights every dial it moves. The sub-caption names them
+    // in words; this points at them, which is the difference between reading
+    // that HYPE touches unison and seeing WHICH unison dial that is.
+    auto learn = [this] (std::vector<KnobComponent*> driven)
+    {
+        return [this, driven] (bool on)
+        {
+            for (auto* k : driven)
+                if (k != nullptr) k->setLearnGlow (on);
+        };
+    };
+    hypeKnob ->onHoverChanged = learn ({ unisonKnob.get(), spreadKnob.get(),
+                                         fxRack.driveKnob(), outputGainKnob.get() });
+    spaceKnob->onHoverChanged = learn ({ fxRack.reverbKnob(), fxRack.delayKnob(),
+                                         widthKnob.get(), grainMixKnob.get() });
+    dirtKnob ->onHoverChanged = learn ({ fxRack.driveKnob(), noiseKnob.get(),
+                                         grainKnob.get(), detuneKnob.get() });
+
     // --- Filter knobs + combo ---
     addKnob (filterCutoffKnob, "filterCutoff", "Cutoff");
     addKnob (filterResoKnob,   "filterReso",   "Reso");
@@ -1549,6 +1567,16 @@ void VocalChopAudioProcessorEditor::timerCallback()
     // OS key state, so this catches them within a frame. When the editor is
     // hidden entirely, let go of everything.
     scanTypingKeys (! isShowing());
+
+    // Keep the waveform and the keyboard agreeing about which slice is
+    // selected. Each sets it, neither knows about the other, so the editor is
+    // the one place that can notice a change and repaint both.
+    if (processor.getSelectedSlice() != lastSelectedSlice)
+    {
+        lastSelectedSlice = processor.getSelectedSlice();
+        waveform.repaint();
+        sliceGrid.repaint();
+    }
 
     // Hide the UNLOCK affordance the moment activation succeeds.
     if (processor.isLicensed() && unlockButton.isVisible())

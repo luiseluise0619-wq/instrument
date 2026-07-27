@@ -18,7 +18,21 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** The three FX dials by name, so the macros can light the ones they
+        drive. Returns nullptr if the module is missing rather than asserting -
+        a macro pointing at a dial that does not exist should do nothing, not
+        crash. */
+    KnobComponent* driveKnob()  const { return knobAt (0); }
+    KnobComponent* reverbKnob() const { return knobAt (1); }
+    KnobComponent* delayKnob()  const { return knobAt (2); }
+
 private:
+    KnobComponent* knobAt (int i) const
+    {
+        return juce::isPositiveAndBelow (i, (int) modules.size())
+                 ? modules[(size_t) i].knob.get() : nullptr;
+    }
+
     struct Module
     {
         std::unique_ptr<KnobComponent> knob;

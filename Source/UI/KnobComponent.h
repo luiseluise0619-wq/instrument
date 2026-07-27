@@ -30,6 +30,14 @@ public:
         they do. Empty by default, and the layout only reserves space when one
         is set - so no other dial in the window moves. */
     void setSubCaption (const juce::String& text);
+
+    /** Lights the dial without the mouse being on it. Used by the macros to
+        show, on hover, which parameters they actually move - a macro is a
+        shortcut whose whole problem is that you cannot see what it does. */
+    void setLearnGlow (bool on);
+
+    /** Fires on mouse enter/exit so an owner can light other dials. */
+    std::function<void (bool)> onHoverChanged;
     void paint (juce::Graphics&) override;
 
 private:
@@ -47,10 +55,22 @@ private:
     void sliderValueChanged (juce::Slider*) override;
     void timerCallback() override;
 
+    struct HoverWatcher : juce::MouseListener
+    {
+        explicit HoverWatcher (KnobComponent& o) : owner (o) {}
+        void mouseEnter (const juce::MouseEvent&) override
+        { if (owner.onHoverChanged) owner.onHoverChanged (true); }
+        void mouseExit (const juce::MouseEvent&) override
+        { if (owner.onHoverChanged) owner.onHoverChanged (false); }
+        KnobComponent& owner;
+    };
+    HoverWatcher hoverWatcher { *this };
+
     juce::Slider slider;
     juce::Label  label, subLabel;
     KnobLookAndFeel lookAndFeel;
     float dragGlow = 0.0f;
+    bool  learnGlow = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KnobComponent)
 };

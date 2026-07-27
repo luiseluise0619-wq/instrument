@@ -157,6 +157,9 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
     const int sl = sliceAtFrac (f);
     if (sl >= 0)
         proc.triggerSlicePad (sl, 0.9f);
+            // Selecting a lane lights the matching key below - the other half
+            // of the link that keys make when they are pressed.
+            proc.setSelectedSlice (sl);
 
     selA = selB = f;
     updateEditButtons();
@@ -699,6 +702,27 @@ void WaveformView::paint (juce::Graphics& g)
         {
             const auto& slices = proc.getSliceEngine().getSlices();
             const float widthRatio = inner.getWidth() / (float) sample->getNumSamples();
+
+            // The selected lane, washed in accent behind everything else. It
+            // is the other end of the link the keyboard draws: pressing key 04
+            // lights lane 04 and vice versa, so a still screenshot shows which
+            // piece of audio a key plays.
+            const int selSlice = proc.isChopMode() ? proc.getSelectedSlice() : -1;
+            if (selSlice >= 0 && selSlice < (int) slices.size())
+            {
+                const float x0 = left + slices[(size_t) selSlice].startSample * widthRatio;
+                const float x1 = (selSlice + 1 < (int) slices.size())
+                                   ? left + slices[(size_t) selSlice + 1].startSample * widthRatio
+                                   : inner.getRight();
+                auto lane = juce::Rectangle<float> (x0, inner.getY(),
+                                                    juce::jmax (2.0f, x1 - x0),
+                                                    inner.getHeight())
+                                .getIntersection (inner);
+                g.setColour (theme.accent.withAlpha (0.15f));
+                g.fillRect (lane);
+                g.setColour (theme.accent.withAlpha (0.9f));
+                g.fillRect (lane.getX(), lane.getY(), lane.getWidth(), 2.0f);
+            }
 
             int sliceIdx = -1;
             for (const auto& s : slices)

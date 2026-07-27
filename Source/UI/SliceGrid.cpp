@@ -115,6 +115,8 @@ void SliceGrid::paint (juce::Graphics& g)
     g.drawRoundedRectangle (card.reduced (0.5f), theme.cornerRadius, 1.0f);
 
     const bool synthMode = proc.isSynthMode();
+    const bool chopMode  = proc.isChopMode();
+    const int  selSlice  = proc.getSelectedSlice();
 
     if (numSlices == 0 && ! synthMode)
     {
@@ -230,6 +232,21 @@ void SliceGrid::paint (juce::Graphics& g)
         g.fillRect (juce::Rectangle<float> (r.getX() + 2.0f, r.getBottom() - 2.5f,
                                             r.getWidth() - 4.0f, 1.2f));
 
+        // In Chop mode a key IS a slice, so say which one. This is the link
+        // that makes the window readable in a still screenshot: audio, slice
+        // and key all name the same thing.
+        if (chopMode && s < numSlices)
+        {
+            const bool sel = (s == selSlice);
+            g.setColour (theme.accent.withAlpha (sel ? 1.0f : 0.62f));
+            g.fillRect (juce::Rectangle<float> (r.getX() + 1.0f, r.getY(),
+                                                r.getWidth() - 2.0f, sel ? 4.0f : 3.0f));
+            g.setFont (juce::Font (juce::FontOptions (9.0f).withStyle ("Semibold")));
+            g.drawText (juce::String (s + 1).paddedLeft ('0', 2),
+                        r.withTrimmedTop (5.0f).withHeight (12.0f),
+                        juce::Justification::centred);
+        }
+
         // Octave labels on the Cs.
         if (s % 12 == 0 && enabled)
         {
@@ -248,6 +265,13 @@ void SliceGrid::paint (juce::Graphics& g)
         auto r = keyRect (s, span);
         const bool  enabled = synthMode || numSlices > 0;
         const float flash   = keyFlash[(size_t) s];
+        if (chopMode && s < numSlices)
+        {
+            const bool sel = (s == selSlice);
+            g.setColour (theme.accent.withAlpha (sel ? 1.0f : 0.55f));
+            g.fillRect (juce::Rectangle<float> (r.getX() + 1.0f, r.getY(),
+                                                r.getWidth() - 2.0f, sel ? 4.0f : 3.0f));
+        }
         const bool  hover   = (s == hoveredKey && enabled);
 
         // Drop shadow cast onto the white keys.
@@ -373,6 +397,10 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
 
     proc.pressSlicePad (key, velocity);
     pressedKey = key;
+    // Pressing a key selects its slice, which is what lights the matching
+    // lane in the waveform above.
+    if (proc.isChopMode() && key < proc.getSliceEngine().getNumSlices())
+        proc.setSelectedSlice (key);
 
     if (key < (int) keyFlash.size())
         keyFlash[(size_t) key] = 0.55f + 0.45f * velocity;   // light follows strength

@@ -215,6 +215,10 @@ private:
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
+    // Last slice the editor saw selected, so a change in either view can be
+    // mirrored into the other.
+    int lastSelectedSlice = -1;
+
     // Computer-keyboard note state (one flag per mapped key).
     std::array<bool, 32> typingKeyHeld {};
 

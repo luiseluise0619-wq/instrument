@@ -22,6 +22,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     auto discBounds = juce::Rectangle<float> (discRadius * 2.0f, discRadius * 2.0f).withCentre (centre);
 
     const bool  hover = slider.isMouseOverOrDragging();
+    const bool  learn = (bool) slider.getProperties().getWithDefault ("learnGlow", false);
     const float trail = (float) slider.getProperties()
                                       .getWithDefault ("dragGlow", 0.0f);
 
@@ -115,6 +116,17 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     else
         g.setColour (theme.separator);
     g.drawEllipse (discBounds, theme.glow >= 0.9f ? 1.2f : 1.0f);
+
+    // Learn glow: a soft accent halo behind the dial. Drawn first so the
+    // dial sits on top of it rather than being tinted by it.
+    if (learn)
+    {
+        const float hr = radius * 1.30f;
+        g.setGradientFill (juce::ColourGradient (
+            theme.accent.withAlpha (0.55f), centre.x, centre.y,
+            juce::Colours::transparentBlack, centre.x + hr, centre.y, true));
+        g.fillEllipse (juce::Rectangle<float> (hr * 2.0f, hr * 2.0f).withCentre (centre));
+    }
 
     //--------------------------------------------------------------------------
     // (b2) Tick ring - 24 marks across the 270 degree sweep, one every 11.25
@@ -301,6 +313,15 @@ KnobComponent::KnobComponent (const juce::String& caption)
     addChildComponent (subLabel);          // shown only once one is set
 
     slider.addListener (this);
+    slider.addMouseListener (&hoverWatcher, true);
+}
+
+void KnobComponent::setLearnGlow (bool on)
+{
+    if (learnGlow == on) return;
+    learnGlow = on;
+    slider.getProperties().set ("learnGlow", on);
+    slider.repaint();
 }
 
 void KnobComponent::setSubCaption (const juce::String& text)
@@ -331,6 +352,7 @@ void KnobComponent::timerCallback()
 KnobComponent::~KnobComponent()
 {
     stopTimer();
+    slider.removeMouseListener (&hoverWatcher);
     slider.removeListener (this);
     slider.setLookAndFeel (nullptr);
 }
