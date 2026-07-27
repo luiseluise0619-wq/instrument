@@ -149,3 +149,24 @@ target_link_libraries(VocalChopStudio
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# --- offline render harness (developer tool; not part of the plugin) -------
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_test.cpp)
+    juce_add_console_app(SlyceRenderTest PRODUCT_NAME "SlyceRenderTest")
+    target_sources(SlyceRenderTest PRIVATE tools/render_test.cpp)
+    target_compile_definitions(SlyceRenderTest PRIVATE
+        JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    # The shared-code target is named after the plugin target, not the product.
+    target_link_libraries(SlyceRenderTest PRIVATE
+        VocalChopStudio
+        juce::juce_audio_plugin_client
+        juce::juce_recommended_config_flags)
+    target_include_directories(SlyceRenderTest PRIVATE
+        Source
+        ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
+        ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode
+        ${signalsmith_stretch_SOURCE_DIR}
+        ${SIGNALSMITH_INCLUDE_ROOT}
+        ${signalsmith_linear_SOURCE_DIR})
+endif()
