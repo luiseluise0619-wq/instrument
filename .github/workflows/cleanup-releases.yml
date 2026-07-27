@@ -3,16 +3,22 @@ name: Cleanup releases
 # Deletes named releases AND their tags. Used to collapse a run of
 # incremental version bumps back into a single published version - the store
 # page advertises one number, and a shelf of near-identical releases next to
-# it just looks like churn.
+# it reads as churn rather than care.
 #
-# Manual only, and it takes an explicit list: nothing here should ever run on
-# its own.
+# Two ways in, and both need an explicit list of tags. Nothing here can fire
+# on its own, and nothing is deleted that was not named:
+#   1. Run manually from the Actions tab.
+#   2. Write the tags into `.cleanup-tags` and push it (same mechanism
+#      `.release-tag` uses, for environments that cannot dispatch workflows).
 on:
   workflow_dispatch:
     inputs:
       tags:
         description: "Space-separated tags to delete (e.g. v3.0.1 v3.0.2)"
         required: true
+  push:
+    branches: ["claude/vocalchop-studio-juce-vst3-ii0tcx", "main"]
+    paths: [".cleanup-tags"]
 
 permissions:
   contents: write
@@ -23,10 +29,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve tag list
+        id: list
+        shell: bash
+        env:
+          INPUT_TAGS: ${{ github.event.inputs.tags }}
+        run: |
+          set -e
+          if [ -n "${INPUT_TAGS}" ]; then
+            TAGS="${INPUT_TAGS}"
+          elif [ -f .cleanup-tags ]; then
+            # Strip comments and collapse to one line.
+            TAGS="$(grep -v '^[[:space:]]*#' .cleanup-tags | tr '\n' ' ')"
+          else
+            TAGS=""
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "Will delete: ${TAGS:-<nothing>}"
+
       - name: Delete releases and tags
+        if: steps.list.outputs.tags != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAGS: ${{ github.event.inputs.tags }}
+          TAGS: ${{ steps.list.outputs.tags }}
         run: |
           set -u
           for t in $TAGS; do
@@ -36,7 +61,7 @@ jobs:
             gh release delete "$t" --yes --cleanup-tag \
               || echo "no release named $t"
             git push --delete origin "refs/tags/$t" 2>/dev/null \
-              || echo "no tag named $t"
+              || echo "tag $t already gone"
             echo "::endgroup::"
           done
           echo "Remaining releases:"
