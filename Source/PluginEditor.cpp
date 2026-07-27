@@ -1078,8 +1078,8 @@ void VocalChopAudioProcessorEditor::promptSavePreset()
 
 void VocalChopAudioProcessorEditor::openFileChooser()
 {
-    const auto flags = juce::FileBrowserComponent::openMode
-                     | juce::FileBrowserComponent::canSelectFiles;
+    const auto browserFlags = juce::FileBrowserComponent::openMode
+                            | juce::FileBrowserComponent::canSelectFiles;
 
     // In Sampled mode the Load button loads an SFZ multisample bank
     // (real recorded instruments: Salamander grand, acoustic guitars...).
@@ -1088,7 +1088,7 @@ void VocalChopAudioProcessorEditor::openFileChooser()
         fileChooser = std::make_unique<juce::FileChooser> (
             "Select an SFZ instrument (.sfz)", juce::File{}, "*.sfz");
 
-        fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+        fileChooser->launchAsync (browserFlags, [this] (const juce::FileChooser& fc)
         {
             const auto file = fc.getResult();
             if (! file.existsAsFile())
@@ -1125,7 +1125,7 @@ void VocalChopAudioProcessorEditor::openFileChooser()
         juce::File{},
         "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
 
-    fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+    fileChooser->launchAsync (browserFlags, [this] (const juce::FileChooser& fc)
     {
         const auto file = fc.getResult();
         // In Melody mode a new sample should STAY melodic - snapping back
@@ -1904,20 +1904,20 @@ void VocalChopAudioProcessorEditor::layoutContent()
             // fixed 30px rows overflowed and stacked on top of each other.
             // Four rows now (the delay-sync division joined the card), so the
             // row height follows the card instead of a fixed guess.
-                const int rowH = juce::jlimit (18, 26, (controlsCol.getHeight() - 24) / 4 - 2);
-            reverseButton.setBounds  (controlsCol.removeFromTop (rowH));
+            const int btnH = juce::jlimit (18, 26, (controlsCol.getHeight() - 24) / 4 - 2);
+            reverseButton.setBounds  (controlsCol.removeFromTop (btnH));
             controlsCol.removeFromTop (2);
-            pingpongButton.setBounds (controlsCol.removeFromTop (rowH));
+            pingpongButton.setBounds (controlsCol.removeFromTop (btnH));
             controlsCol.removeFromTop (3);
-            playModeBox.setBounds    (captioned (controlsCol.removeFromTop (rowH + 12),
+            playModeBox.setBounds    (captioned (controlsCol.removeFromTop (btnH + 12),
                                                  "KEYS")
                                           .withSizeKeepingCentre (
-                                              juce::jmin (200, controlsCol.getWidth()), rowH));
+                                              juce::jmin (200, controlsCol.getWidth()), btnH));
             controlsCol.removeFromTop (3);
-            delaySyncBox.setBounds   (captioned (controlsCol.removeFromTop (rowH + 12),
+            delaySyncBox.setBounds   (captioned (controlsCol.removeFromTop (btnH + 12),
                                                  "DELAY SYNC")
                                           .withSizeKeepingCentre (
-                                              juce::jmin (200, controlsCol.getWidth()), rowH));
+                                              juce::jmin (200, controlsCol.getWidth()), btnH));
         }
     }
 

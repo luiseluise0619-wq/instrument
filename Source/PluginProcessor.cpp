@@ -573,11 +573,11 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             {
                 const auto into   = ph - (period - muteLen);
                 const auto remain = muteLen - into;
-                float gain = 0.0f;
-                if (into < 256)        gain = 1.0f - (float) into / 256.0f;
-                else if (remain < 256) gain = 1.0f - (float) remain / 256.0f;
+                float mute = 0.0f;
+                if (into < 256)        mute = 1.0f - (float) into / 256.0f;
+                else if (remain < 256) mute = 1.0f - (float) remain / 256.0f;
                 for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                    buffer.getWritePointer (ch)[n] *= gain;
+                    buffer.getWritePointer (ch)[n] *= mute;
             }
         }
         demoClock += numSamples;
@@ -625,8 +625,7 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 
         const auto msg = meta.getMessage();
 
-        const int  note  = msg.getNoteNumber();
-        const bool synth = isSynthMode();
+        const int note = msg.getNoteNumber();
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {

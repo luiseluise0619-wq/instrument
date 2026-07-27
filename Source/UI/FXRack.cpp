@@ -99,7 +99,7 @@ void FXRack::paint (juce::Graphics& g)
         for (auto ch : title)
         {
             const juce::String s = juce::String::charToString (ch);
-            const float w = font.getStringWidthFloat (s);
+            const float w = juce::GlyphArrangement::getStringWidth (font, s);
             const juce::Rectangle<float> glyphBox (x, cy - 8.0f, w + tracking, 16.0f);
 
             // Soft neon halo behind each glyph on the cyberpunk theme.
