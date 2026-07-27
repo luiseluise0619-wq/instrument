@@ -84,9 +84,11 @@ void AmbientPanel::setActive (bool shouldBeActive)
     {
         fadeIn = 0.0f;
         phase = 0.0;
-        // 30 Hz, not 60: this is ambient motion, and halving the frame rate
-        // halves what it costs the machine the audio thread is sharing.
-        startTimerHz (30);
+        // 24 Hz. This is ambient motion - nothing in it needs to be smooth to
+        // the frame - and every frame is a full-canvas repaint through a
+        // scaled parent, which is the most expensive kind.
+        sinceFullPaint = 0;
+        startTimerHz (24);
         // Needed for the arrow keys and Escape. Safe here because setActive is
         // called after setVisible, so the panel is already on screen.
         grabKeyboardFocus();
@@ -105,9 +107,20 @@ void AmbientPanel::step (int delta)
 
 void AmbientPanel::timerCallback()
 {
-    phase += 1.0 / 30.0;
-    fadeIn = juce::jmin (1.0f, fadeIn + 1.0f / 15.0f);   // 500 ms
-    repaint();
+    phase += 1.0 / 24.0;
+    fadeIn = juce::jmin (1.0f, fadeIn + 1.0f / 12.0f);   // 500 ms
+
+    // Only the stage moves. The footer - wordmark, voice name, metadata - is
+    // static between frames, and repainting it too means JUCE rescales the
+    // whole 1080x1268 canvas through this panel's scaled parent thirty times
+    // a second to redraw text that has not changed.
+    if (fadeIn < 1.0f || ++sinceFullPaint > 48)
+    {
+        sinceFullPaint = 0;
+        repaint();
+    }
+    else
+        repaint (stageBounds);
 }
 
 void AmbientPanel::mouseDown (const juce::MouseEvent&)
@@ -186,24 +199,24 @@ void AmbientPanel::paint (juce::Graphics& g)
 
     {
         // Two lobes drifting a few percent over ~22 s, blitted from the cache.
+        // One lobe, not two. The second was drawn underneath the first at 70%
+        // of its size and 22% opacity - a 1200px scaled blit whose entire
+        // contribution was hidden by the lobe on top of it.
         const float t = (float) phase;
-        g.setOpacity (0.22f * fadeIn);
-        for (int i = 0; i < 2; ++i)
-        {
-            const float dx = std::sin (t * 0.285f + (float) i * 2.1f) * b.getWidth() * 0.04f;
-            const float dy = std::cos (t * 0.221f + (float) i * 1.3f) * b.getHeight() * 0.04f;
-            const juce::Point<float> c (b.getCentreX() + dx,
-                                        b.getHeight() * 0.42f + dy);
-            const float rad = b.getWidth() * (i == 0 ? 0.55f : 0.40f);
-            g.drawImage (blobCache,
-                         juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (c),
-                         juce::RectanglePlacement::stretchToFit);
-        }
+        const float dx = std::sin (t * 0.285f) * b.getWidth() * 0.04f;
+        const float dy = std::cos (t * 0.221f) * b.getHeight() * 0.04f;
+        const juce::Point<float> c (b.getCentreX() + dx, b.getHeight() * 0.42f + dy);
+        const float rad = b.getWidth() * 0.55f;
+        g.setOpacity (0.26f * fadeIn);
+        g.drawImage (blobCache,
+                     juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (c),
+                     juce::RectanglePlacement::stretchToFit);
         g.setOpacity (1.0f);
     }
 
     // --- the look ----------------------------------------------------------
     auto stage = b.withTrimmedBottom (b.getHeight() * 0.30f);
+    stageBounds = stage.getSmallestIntegerContainer();
     {
         juce::Graphics::ScopedSaveState ss (g);
         g.reduceClipRegion (b.toNearestInt());

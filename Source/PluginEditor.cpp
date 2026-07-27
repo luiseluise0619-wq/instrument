@@ -471,9 +471,25 @@ namespace
     // onward through i 9 o 0 p [ = ] (C5..G5), matching FL Studio's layout.
     // ',' is deliberately NOT mapped: it would duplicate Q's C4, and two keys
     // driving one note means releasing either kills the other's sound.
-    const juce::String kTypingKeys ("zsxdcvgbhnjmq2w3er5t6y7ui9o0p[=]");
+    // Two rows, laid out the way every DAW does it: the lower row runs from C
+    // and keeps going past B onto , l . ; / , and the upper row starts again
+    // one octave up. The rows OVERLAP by an octave - that is the point of the
+    // layout, and it is why the semitone for each key has to be a table rather
+    // than the key's position in the string. The bottom row used to stop at M,
+    // so the four keys past it did nothing at all.
+    const juce::String kTypingKeys ("zsxdcvgbhnjm,l.;/q2w3er5t6y7ui9o0p[=]");
+    const int kTypingSemitone[] = {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,      // z s x d c v g b h n j m
+        12, 13, 14, 15, 16,                        // , l . ; /
+        12, 13, 14, 15, 16, 17, 18, 19, 20, 21,    // q 2 w 3 e r 5 t 6 y
+        22, 23, 24, 25, 26, 27, 28, 29, 30, 31     // 7 u i 9 o 0 p [ = ]
+    };
 
-    int typingKeySemitone (int i)     { return i; }   // 12 keys per row, contiguous
+    int typingKeySemitone (int i)
+    {
+        const int n = (int) (sizeof (kTypingSemitone) / sizeof (kTypingSemitone[0]));
+        return juce::isPositiveAndBelow (i, n) ? kTypingSemitone[i] : i;
+    }
 
     bool physicalKeyDown (juce::juce_wchar c)
     {
@@ -1521,7 +1537,9 @@ bool VocalChopAudioProcessorEditor::scanTypingKeys (bool forceReleaseAll)
                       && ! unlockPanel.isVisible()      // typing a license key
                       && ! welcomePanel.isVisible();    // reading the guide
 
-    for (int i = 0; i < kTypingKeys.length(); ++i)
+    jassert (kTypingKeys.length() <= (int) typingKeyHeld.size());
+    const int numKeys = juce::jmin (kTypingKeys.length(), (int) typingKeyHeld.size());
+    for (int i = 0; i < numKeys; ++i)
     {
         const bool down = ! forceReleaseAll && physicalKeyDown (kTypingKeys[i]);
         if (down == typingKeyHeld[(size_t) i])

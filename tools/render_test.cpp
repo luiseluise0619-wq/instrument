@@ -300,6 +300,83 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--harsh": find the voices that FATIGUE the ear.
+    //
+    // Not the loud ones and not the bright ones - the ones with too much
+    // energy in the 2-6 kHz band, where human hearing peaks and where a
+    // synthesised bell or pluck turns into an ice pick. Measured as the RMS of
+    // that band against the RMS of everything below it, so it is a question of
+    // BALANCE rather than of level: a sound can be quiet and still shrill.
+    //
+    // The band is isolated with two one-pole filters rather than an FFT. The
+    // slopes are gentle, which for a broad question like "is this thing
+    // top-heavy" is the right amount of precision.
+    if (argc > 1 && juce::String (argv[1]) == "--harsh")
+    {
+        struct Row { juce::String name, cat; double ratio, decayS; };
+        std::vector<Row> rows;
+        const auto cats = VocalChopAudioProcessor::getInstrumentCategories();
+
+        for (int idx = 0; idx < names.size(); ++idx)
+        {
+            proc.applyInstrument (idx);
+            juce::AudioBuffer<float> buf (2, 64);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 72, 1.0f), 0);   // C5
+            std::vector<float> mono;
+            for (int b = 0; b < 900; ++b)
+            {
+                buf.clear(); proc.processBlock (buf, midi); midi.clear();
+                if (b == 300) midi.addEvent (juce::MidiMessage::noteOff (1, 72), 0);
+                for (int i = 0; i < 64; ++i)
+                    mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+            }
+
+            // one-pole coefficients for 2 kHz and 6 kHz at 44.1 kHz
+            auto coeff = [] (double hz)
+            { return (float) std::exp (-2.0 * juce::MathConstants<double>::pi * hz / 44100.0); };
+            const float a2 = coeff (2000.0), a6 = coeff (6000.0);
+            float lp2 = 0.0f, lp6 = 0.0f;
+            double eBand = 0.0, eLow = 0.0;
+            for (float v : mono)
+            {
+                lp2 += (1.0f - a2) * (v - lp2);      // everything below 2 k
+                lp6 += (1.0f - a6) * (v - lp6);      // everything below 6 k
+                const float band = lp6 - lp2;        // the 2-6 kHz slice
+                eBand += (double) band * band;
+                eLow  += (double) lp2 * lp2;
+            }
+            const double ratio = 10.0 * std::log10 ((eBand + 1e-12) / (eLow + 1e-12));
+
+            // how long it rings after release, in seconds
+            float pk = 0.0f;
+            for (float v : mono) pk = juce::jmax (pk, std::abs (v));
+            size_t last = 0;
+            for (size_t i = 0; i < mono.size(); ++i)
+                if (std::abs (mono[i]) > pk * 0.02f) last = i;
+            rows.push_back ({ names[idx],
+                              juce::isPositiveAndBelow (idx, cats.size()) ? cats[idx] : juce::String(),
+                              ratio, (double) last / 44100.0 });
+        }
+
+        std::sort (rows.begin(), rows.end(),
+                   [] (const Row& a, const Row& b) { return a.ratio > b.ratio; });
+
+        printf ("%-22s %-8s %9s %8s  %s\n", "instrument", "cat", "2-6k dB", "ring s", "");
+        int bad = 0;
+        for (const auto& r : rows)
+        {
+            const bool harsh = r.ratio > -6.0;
+            if (harsh) ++bad;
+            if (harsh || (argc > 2 && juce::String (argv[2]) == "-v"))
+                printf ("%-22s %-8s %9.1f %8.2f  %s\n", r.name.toRawUTF8(),
+                        r.cat.toRawUTF8(), r.ratio, r.decayS, harsh ? "HARSH" : "");
+        }
+        printf ("\n%d instruments - %d above the -6 dB fatigue line\n",
+                names.size(), bad);
+        return 0;
+    }
+
     // "--noise": find voices whose STRIKE is broadband hiss rather than a
     // pitched knock. A real hammer, pick or mallet rings the body at a definite
     // frequency, so the attack's zero-crossing rate sits within a few multiples

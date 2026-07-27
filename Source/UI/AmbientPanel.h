@@ -77,6 +77,8 @@ private:
     juce::Image backdropCache;      // the desk gradient, panel-sized
     juce::Image blobCache;          // one small soft blob, scaled up per frame
     int cachedTheme = -1;
+    int sinceFullPaint = 0;
+    juce::Rectangle<int> stageBounds;
     void rebuildCaches();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AmbientPanel)

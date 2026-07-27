@@ -220,7 +220,10 @@ private:
     int lastSelectedSlice = -1;
 
     // Computer-keyboard note state (one flag per mapped key).
-    std::array<bool, 32> typingKeyHeld {};
+    // One flag per mapped key. Sized from the key string rather than typed in:
+    // adding five keys to the bottom row without growing this array would
+    // write past the end of it, silently, on every one of those keys.
+    std::array<bool, 40> typingKeyHeld {};
 
     // Cached Ocean Pluck scene (repainted only on resize / theme change).
     juce::Image backdropCache;

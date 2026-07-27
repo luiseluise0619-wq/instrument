@@ -2008,7 +2008,9 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
 
     // Hook leads: a touch more resonance so they cut through a mix.
     if (name == "Amapiano Lead")   { p.filterQ = 1.8f; }
-    if (name == "Hyperpop Squeak") { p.filterQ = 3.2f; p.satAmount = 0.30f; }
+    // Measured as the single most fatiguing voice in the plugin: a resonant
+    // squeak is the point of it, but not at Q 3.2 ringing for 1.3 seconds.
+    if (name == "Hyperpop Squeak") { p.filterQ = 1.7f; p.satAmount = 0.22f; }
     if (name == "K-Pop Saw")       { chorus = 0.45f; }
     if (name == "Drill Bell Lead") { p.filterQ = 1.4f; }
     if (name == "Riser Sweep")     { p.filterQ = 2.2f; }
@@ -2035,7 +2037,11 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     // stiffer than a piano string but nowhere near a bell.
     else if (cat == "GUITAR")  { atkAmt = 0.62f; atkTone = 7.0f; atkMs = 7.0f;  inharm = 0.15f; }
     else if (cat == "PLUCK")   { atkAmt = 0.48f; atkTone = 6.5f; atkMs = 6.0f;  inharm = 0.18f; }
-    else if (cat == "BELL")    { atkAmt = 0.50f; atkTone = 9.0f; atkMs = 5.0f;  inharm = 0.85f; }
+    // A bell IS inharmonic, but 0.85 with a 9x attack tone and almost no
+    // damping is not a bell, it is an ice pick: measured across the set these
+    // were the voices with the most energy in the 2-6 kHz band, which is
+    // exactly where the ear is most easily fatigued.
+    else if (cat == "BELL")    { atkAmt = 0.42f; atkTone = 5.5f; atkMs = 6.0f;  inharm = 0.42f; }
     else if (cat == "KEYS")    { atkAmt = 0.40f; atkTone = 5.0f; atkMs = 10.0f; inharm = 0.26f; }
     else if (cat == "DRUMS")   { atkAmt = 0.45f; atkTone = 4.0f; atkMs = 5.0f;  inharm = 0.0f;  }
     else if (cat == "BASS")    { atkAmt = 0.22f; atkTone = 4.5f; atkMs = 8.0f;  inharm = 0.09f; }
@@ -2053,7 +2059,7 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name.contains ("Kalimba") || name.contains ("Marimba")
         || name.contains ("Mallet") || name.contains ("Gamelan")
         || name.contains ("Music Box") || name.contains ("Steel Pan"))
-        { atkAmt = 0.60f; atkTone = 8.0f; atkMs = 5.0f; inharm = 0.70f; }
+        { atkAmt = 0.52f; atkTone = 6.0f; atkMs = 5.0f; inharm = 0.40f; }
     if (name.contains ("Harp") || name.contains ("Koto")
         || name.contains ("Sitar") || name.contains ("Banjo")
         || name.contains ("Dulcimer") || name.contains ("Pizz"))
@@ -2095,8 +2101,11 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     }
     else if (cat == "BELL")
     {
-        strMix = 0.30f; strDamp = 0.18f; strDecay = 1.0f;
-        body = 3; bodyAmt = 0.22f;                              // metal shell
+        // Damping up and decay down: the highs now die before the fundamental
+        // does, which is what a struck metal bar actually sounds like and what
+        // stops it ringing at you for a second and a half.
+        strMix = 0.30f; strDamp = 0.36f; strDecay = 0.72f;
+        body = 3; bodyAmt = 0.16f;                              // metal shell
     }
     else if (cat == "KEYS")
     {
@@ -2142,7 +2151,7 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
         strMix = 0.34f; strDamp = 0.60f; strDecay = 0.30f;
         if (body < 0) { body = 2; bodyAmt = 0.22f; }
         if (atkAmt < 0.35f) { atkAmt = 0.52f; atkTone = 7.5f; atkMs = 5.0f; }
-        if (inharm < 0.05f) inharm = 0.45f;   // struck BARS really are inharmonic
+        if (inharm < 0.05f) inharm = 0.30f;   // struck BARS really are inharmonic
     }
 
     // Named voices whose mechanism is unmistakable.
@@ -2186,6 +2195,36 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     p.morphTo     = mrphTo;
     p.bodyType    = body;
     p.bodyAmount  = bodyAmt;
+
+    // --- brightness ceiling ---------------------------------------------------
+    // Measured, not guessed: every voice that landed above the fatigue line in
+    // the 2-6 kHz test either rings for over a second or opens its filter past
+    // 12 kHz, and several do both. Cymbals and hats keep their top end because
+    // that IS the instrument; everything tuned gets a ceiling.
+    {
+        const bool percussive = (cat == "DRUMS")
+                              || name.contains ("Hat") || name.contains ("Crash")
+                              || name.contains ("Ride") || name.contains ("Shaker")
+                              || name.contains ("Tambo");
+        if (! percussive)
+        {
+            const float ceiling = (cat == "BELL" || struckName) ? 7000.0f : 9500.0f;
+            if (p.filterCutoff.load() > ceiling)
+                p.filterCutoff = ceiling;
+        }
+        else if (p.filterCutoff.load() > 16000.0f)
+        {
+            // Even a cymbal does not need to be flat to 20 kHz; that last
+            // octave is hiss, not shimmer.
+            p.filterCutoff = 16000.0f;
+        }
+
+        // A resonant peak sitting open in the 2-6 kHz band is what turns a
+        // bright voice into a piercing one - the filter is adding gain exactly
+        // where the ear is most sensitive. Percussion keeps its bite.
+        if (! percussive && p.filterCutoff.load() > 2500.0f && p.filterQ.load() > 1.2f)
+            p.filterQ = 1.2f;
+    }
 
     p.chorusMix = chorus;
 
