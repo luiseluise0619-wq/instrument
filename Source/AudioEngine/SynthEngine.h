@@ -72,6 +72,26 @@ public:
         // harmonic series. Perfectly harmonic partials are why synthesised
         // pianos and bells sound flat and glassy.
         std::atomic<float> inharmonic     { 0.0f };   // 0..1 stretch amount
+
+        // STAGE 3 — a plucked/struck string, modelled rather than imitated.
+        // A delay line the length of one period, fed back through a damping
+        // filter: the wave really does travel down the string and reflect.
+        // No oscillator shape reproduces the way that decays.
+        std::atomic<float> stringMix      { 0.0f };   // 0 = oscillator, 1 = string
+        std::atomic<float> stringDamp     { 0.55f };  // 0 dull .. 1 bright
+        std::atomic<float> stringDecay    { 0.6f };   // 0 short .. 1 long
+
+        // STAGE 4 — the waveform itself moves through the note, instead of
+        // the filter being the only thing that changes.
+        std::atomic<float> morphAmt       { 0.0f };   // 0..1 depth
+        std::atomic<float> morphMs        { 400.0f }; // time constant
+        std::atomic<int>   morphTo        { 2 };      // wave to arrive at
+
+        // STAGE 2/5 — the body. One instrument, many strings: the resonator
+        // bank lives on the BUS, not per voice, because that is physically
+        // what a soundboard is. Long decays give sympathetic ring.
+        std::atomic<int>   bodyType       { -1 };     // -1 off, else family id
+        std::atomic<float> bodyAmount     { 0.0f };   // 0..1 wet
         // Vocal formant bank: -1 = off, 0..4 = A E I O U vowel resonances.
         std::atomic<int>   formantVowel  { -1 };
         std::atomic<float> formantAmount { 0.0f };   // 0..1 dry/wet
@@ -88,6 +108,9 @@ public:
             glideMs = 0.0f;
             attackNoise = 0.0f; attackTone = 3.0f; attackMs = 14.0f;
             inharmonic = 0.0f;
+            stringMix = 0.0f; stringDamp = 0.55f; stringDecay = 0.6f;
+            morphAmt = 0.0f; morphMs = 400.0f; morphTo = 2;
+            bodyType = -1; bodyAmount = 0.0f;
             formantVowel = -1; formantAmount = 0.0f;
         }
     };
@@ -144,6 +167,19 @@ private:
         // which is what a struck string or a metal bar actually does.
         double inhPhase = 0.0, inhInc = 0.0;
         float  inhLevel = 0.0f;
+
+        // Karplus-Strong string: a circular buffer one period long, read with
+        // fractional interpolation so the pitch is exact rather than quantised
+        // to whole samples.
+        std::vector<float> ksBuf;
+        float  ksPos = 0.0f, ksDelay = 0.0f, ksFb = 0.995f;
+        float  ksLast = 0.0f, ksDamp = 0.5f, ksMix = 0.0f;
+        int    ksExcite = 0;
+
+        // Wavetable morph: the shape the note is heading toward, and where it
+        // currently is between the two.
+        float  morphPos = 0.0f, morphCoeff = 0.0f, morphDepth = 0.0f;
+        int    morphTarget = 2;
         double fmCarPhase = 0.0, fmCarInc = 0.0;
         double fmModPhase = 0.0, fmModInc = 0.0;
         double vibPhase = 0.0,  vibInc = 0.0;
@@ -198,6 +234,16 @@ private:
 
     // Synth-only scratch bus so chorus/saturation never touch the chop signal.
     juce::AudioBuffer<float> scratch;
+
+    /** The instrument's BODY. Six tuned resonators, struck by whatever the
+        voices produce and left to ring — a soundboard, a shell, a tube. One
+        bank for the whole engine, because an instrument has one body however
+        many strings are on it, and the long decays are what make a struck
+        note bloom instead of stopping dead. */
+    struct BodyMode { float f, q, gain; float z1L, z2L, z1R, z2R, b0, a1, a2; };
+    std::array<BodyMode, 6> bodyModes {};
+    int   bodyTypeSet = -2;
+    void  updateBodyBank (int type);
 
     // Chorus state.
     std::vector<float> chorusLine[2];

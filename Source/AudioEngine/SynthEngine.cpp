@@ -97,7 +97,10 @@ void SynthEngine::reset()
         v.driftCents = 0.0f;
         v.glideRatio = 1.0f;
         v.glideCoeff = 0.0f;
+        v.ksExcite = 0;
+        std::fill (v.ksBuf.begin(), v.ksBuf.end(), 0.0f);
     }
+    for (auto& m : bodyModes) { m.z1L = m.z2L = m.z1R = m.z2R = 0.0f; }
     lastStartedNote = -1;   // the first note after a reset must not slide in
 }
 
@@ -257,6 +260,50 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
         v.inhPhase = (double) noiseRng.nextFloat();
     }
 
+    // --- STAGE 3: the string --------------------------------------------------
+    // Karplus-Strong. The delay line holds exactly one period; every lap the
+    // signal loses its highs through a one-pole and a little amplitude through
+    // the feedback. That is a wave travelling and reflecting, which is why the
+    // decay sounds like a string instead of an envelope pretending to be one.
+    {
+        v.ksMix = juce::jlimit (0.0f, 1.0f, patchSettings.stringMix.load());
+        if (v.ksMix > 0.001f)
+        {
+            const double period = sampleRate / juce::jmax (20.0, hz);
+            const int cap = (int) std::ceil (period) + 4;
+            if ((int) v.ksBuf.size() < cap) v.ksBuf.resize ((size_t) cap);
+            std::fill (v.ksBuf.begin(), v.ksBuf.end(), 0.0f);
+
+            v.ksDelay = (float) period;
+            v.ksPos   = 0.0f;
+            v.ksLast  = 0.0f;
+            v.ksDamp  = juce::jlimit (0.02f, 0.95f, patchSettings.stringDamp.load());
+
+            // Decay is set as a target time, not a magic coefficient: a low
+            // string should ring longer than a high one at the same setting,
+            // which is what happens on a real instrument.
+            const float secs = 0.25f + juce::jlimit (0.0f, 1.0f, patchSettings.stringDecay.load()) * 5.5f;
+            v.ksFb = std::pow (0.001f, (float) (period / (secs * sampleRate)));
+            v.ksFb = juce::jlimit (0.80f, 0.99995f, v.ksFb);
+
+            // Pluck it: fill the line with noise shaped by velocity. THIS is
+            // the excitation - the string is not driven, it is hit once.
+            for (int i = 0; i < (int) period && i < (int) v.ksBuf.size(); ++i)
+                v.ksBuf[(size_t) i] = (noiseRng.nextFloat() * 2.0f - 1.0f) * v.velocity;
+            v.ksExcite = 1;
+        }
+        else v.ksExcite = 0;
+    }
+
+    // --- STAGE 4: wavetable morph ---------------------------------------------
+    {
+        v.morphDepth  = juce::jlimit (0.0f, 1.0f, patchSettings.morphAmt.load());
+        v.morphTarget = juce::jlimit (0, 3, patchSettings.morphTo.load());
+        v.morphPos    = 0.0f;
+        const float ms = juce::jmax (20.0f, patchSettings.morphMs.load());
+        v.morphCoeff  = std::exp (-1.0f / (ms * 0.001f * (float) sampleRate));
+    }
+
     // Percussion pitch envelope: start high, fall exponentially to base.
     v.penvOct = juce::jlimit (0.0f, 5.0f, patchSettings.pitchEnvOct.load());
     v.penv    = v.penvOct > 0.0f ? 1.0f : 0.0f;
@@ -403,6 +450,64 @@ void SynthEngine::updateFormantBank (int vowel)
     formantVowelSet = v;
 }
 
+void SynthEngine::updateBodyBank (int type)
+{
+    // Six modes per body. These are not measured impulse responses - they are
+    // the handful of resonances that make each shape recognisable, which is
+    // most of what a body does to a note anyway.
+    //   {Hz, Q, gain} x6
+    struct M { float f, q, g; };
+    static const M kBodies[][6] = {
+        // 0 — piano soundboard: low, broad, a long ring
+        { {  92, 11, 1.00f}, { 165, 14, 0.72f}, { 262, 16, 0.55f},
+          { 394, 18, 0.40f}, { 620, 20, 0.28f}, { 980, 22, 0.18f} },
+        // 1 — guitar box: the Helmholtz air mode plus the top plate
+        { { 100,  9, 1.00f}, { 200, 13, 0.62f}, { 385, 17, 0.48f},
+          { 560, 19, 0.36f}, { 830, 21, 0.24f}, {1250, 23, 0.15f} },
+        // 2 — wooden bar / marimba tube: strong, widely spaced, metallic
+        { { 260, 26, 1.00f}, { 700, 30, 0.60f}, {1450, 32, 0.42f},
+          {2300, 34, 0.28f}, {3400, 36, 0.18f}, {4800, 38, 0.11f} },
+        // 3 — metal bell shell: dense and inharmonic, very long decay
+        { { 420, 42, 1.00f}, { 830, 46, 0.74f}, {1240, 50, 0.58f},
+          {1980, 54, 0.44f}, {2950, 58, 0.30f}, {4300, 60, 0.20f} },
+        // 4 — drum shell: short, low, no ring
+        { {  78,  6, 1.00f}, { 155,  8, 0.55f}, { 240, 10, 0.34f},
+          { 390, 12, 0.20f}, { 610, 13, 0.12f}, { 900, 14, 0.07f} },
+        // 5 — small wooden box (kalimba, thumb piano, toy)
+        { { 175, 16, 1.00f}, { 430, 20, 0.66f}, { 890, 24, 0.46f},
+          {1500, 27, 0.30f}, {2400, 30, 0.19f}, {3600, 32, 0.12f} },
+    };
+
+    const int n = (int) (sizeof (kBodies) / sizeof (kBodies[0]));
+    const int t = juce::jlimit (0, n - 1, type);
+
+    // Normalise the bank so `bodyAmount` means the same thing for every body.
+    // Without this the piano's six broad modes summed to ~3x while the drum
+    // shell's summed to ~2.3x, and the piano came out 15 dB louder than every
+    // other instrument in the plugin.
+    float gainSum = 0.0f;
+    for (const auto& src : kBodies[t]) gainSum += src.g;
+    const float norm = gainSum > 0.0f ? 1.0f / gainSum : 1.0f;
+
+    for (size_t i = 0; i < bodyModes.size(); ++i)
+    {
+        auto& m = bodyModes[i];
+        const auto& src = kBodies[t][i];
+        m.f = src.f; m.q = src.q; m.gain = src.g * norm;
+
+        // Constant-peak-gain band-pass biquad, transposed direct form II.
+        const float w  = juce::MathConstants<float>::twoPi
+                       * juce::jmin (src.f, 0.42f * (float) sampleRate) / (float) sampleRate;
+        const float al = std::sin (w) / (2.0f * src.q);
+        const float a0 = 1.0f + al;
+        m.b0 = al / a0;
+        m.a1 = (-2.0f * std::cos (w)) / a0;
+        m.a2 = (1.0f - al) / a0;
+        m.z1L = m.z2L = m.z1R = m.z2R = 0.0f;
+    }
+    bodyTypeSet = type;
+}
+
 void SynthEngine::processBus (int numSamples)
 {
     float* L = scratch.getWritePointer (0);
@@ -442,6 +547,43 @@ void SynthEngine::processBus (int numSamples)
             }
             L[n] = L[n] * (1.0f - famt) + wetL * makeup * famt;
             R[n] = R[n] * (1.0f - famt) + wetR * makeup * famt;
+        }
+    }
+
+    // --- STAGE 2/5: the body --------------------------------------------------
+    // Six resonators struck by everything the voices produce and left to ring.
+    // Sitting on the BUS rather than inside a voice is the whole point: one
+    // instrument has one body, and a note struck now excites the same wood
+    // that the last note is still ringing in. That cross-talk is sympathetic
+    // resonance, and it is why real instruments bloom instead of stopping.
+    const int   bodyRaw = patchSettings.bodyType.load (std::memory_order_relaxed);
+    const float bodyAmt = juce::jlimit (0.0f, 1.0f,
+                              patchSettings.bodyAmount.load (std::memory_order_relaxed));
+    if (bodyRaw >= 0 && bodyAmt > 0.001f)
+    {
+        if (bodyRaw != bodyTypeSet)
+            updateBodyBank (bodyRaw);
+
+        const float makeup = 1.7f;
+        for (int n = 0; n < numSamples; ++n)
+        {
+            float wetL = 0.0f, wetR = 0.0f;
+            for (auto& m : bodyModes)
+            {
+                const float xL = L[n];
+                const float yL = m.b0 * xL - m.b0 * m.z2L - m.a1 * m.z1L - m.a2 * m.z2L;
+                m.z2L = m.z1L; m.z1L = yL;
+                wetL += yL * m.gain;
+
+                const float xR = R[n];
+                const float yR = m.b0 * xR - m.b0 * m.z2R - m.a1 * m.z1R - m.a2 * m.z2R;
+                m.z2R = m.z1R; m.z1R = yR;
+                wetR += yR * m.gain;
+            }
+            // Parallel, not in series: the body ADDS to the direct sound the
+            // way a soundboard does. Replacing it would just be a filter.
+            L[n] += wetL * makeup * bodyAmt;
+            R[n] += wetR * makeup * bodyAmt;
         }
     }
 
@@ -562,10 +704,35 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
 
             // --- Unison oscillator bank -------------------------------------
             float oscL = 0.0f, oscR = 0.0f;
+            // STAGE 4: the shape travels from where it started toward its
+            // target across the note, so the timbre moves even when the filter
+            // is parked. A filter sweep dims a sound; a morph changes what the
+            // sound IS.
+            float mp = 0.0f;
+            if (v.morphDepth > 0.001f)
+            {
+                v.morphPos = 1.0f + (v.morphPos - 1.0f) * v.morphCoeff;
+                mp = v.morphPos * v.morphDepth;
+            }
+
+            // Morphing costs a second oscillator per unison voice per sample,
+            // so it is skipped outright at the ends of its travel rather than
+            // crossfading against something it is already equal to.
+            const bool doMorph = mp > 0.004f && v.morphTarget != v.waveSnap;
             for (int u = 0; u < v.unison; ++u)
             {
                 const double inc = v.incs[u] * pitchRatio;
-                const float  s   = renderOsc (v.phases[u], inc, v.waveSnap);
+                float s;
+                if (doMorph)
+                {
+                    if (mp > 0.996f) s = renderOsc (v.phases[u], inc, v.morphTarget);
+                    else
+                    {
+                        s = renderOsc (v.phases[u], inc, v.waveSnap);
+                        s += (renderOsc (v.phases[u], inc, v.morphTarget) - s) * mp;
+                    }
+                }
+                else s = renderOsc (v.phases[u], inc, v.waveSnap);
                 oscL += s * v.panL[u];
                 oscR += s * v.panR[u];
                 advance (v.phases[u], inc);
@@ -608,6 +775,33 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 advance (v.inhPhase, v.inhInc * (double) pitchRatio);
                 oscL += ih;
                 oscR += ih;
+            }
+
+            // --- STAGE 3: string ---------------------------------------------
+            if (v.ksExcite && ! v.ksBuf.empty())
+            {
+                const int cap = (int) v.ksBuf.size();
+                const float rp = v.ksPos - v.ksDelay + (float) cap;
+                const int   i0 = ((int) rp) % cap;
+                const int   i1 = (i0 + 1) % cap;
+                const float fr = rp - std::floor (rp);
+                const float rd = v.ksBuf[(size_t) i0] * (1.0f - fr)
+                               + v.ksBuf[(size_t) i1] * fr;
+
+                // one-pole damping: the string loses its highs on every lap
+                v.ksLast += (rd - v.ksLast) * v.ksDamp;
+                const float out = v.ksLast * v.ksFb;
+
+                const int wp = ((int) v.ksPos) % cap;
+                v.ksBuf[(size_t) wp] = out;
+                v.ksPos += 1.0f;
+                if (v.ksPos >= (float) cap) v.ksPos -= (float) cap;
+
+                // crossfade against the oscillator bank rather than replacing
+                // it, so a patch can be part modelled and part synthesised
+                const float sm = v.ksMix, om = 1.0f - v.ksMix;
+                oscL = oscL * om + out * sm * 1.9f;
+                oscR = oscR * om + out * sm * 1.9f;
             }
 
             // --- Attack transient -------------------------------------------

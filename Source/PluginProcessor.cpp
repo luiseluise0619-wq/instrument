@@ -2031,6 +2031,70 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     p.attackMs    = atkMs;
     p.inharmonic  = inharm;
 
+    // --- STAGES 2-5, by family ------------------------------------------------
+    // The string model, the morph and the body all get assigned from the same
+    // place, because they describe one physical object between them: what is
+    // vibrating, how its timbre travels, and what it is mounted in.
+    float strMix = 0.0f, strDamp = 0.55f, strDecay = 0.6f;
+    float mrphAmt = 0.0f, mrphMs = 400.0f;
+    int   mrphTo = 2, body = -1;
+    float bodyAmt = 0.0f;
+
+    if (cat == "GUITAR")
+    {
+        strMix = 0.72f; strDamp = 0.42f; strDecay = 0.55f;      // plucked steel
+        body = 1; bodyAmt = 0.30f;
+    }
+    else if (cat == "PLUCK")
+    {
+        strMix = 0.58f; strDamp = 0.55f; strDecay = 0.35f;
+        body = 5; bodyAmt = 0.26f;                              // small wooden box
+    }
+    else if (cat == "PIANO")
+    {
+        strMix = 0.38f; strDamp = 0.30f; strDecay = 0.85f;      // struck, long
+        body = 0; bodyAmt = 0.32f;                              // soundboard
+    }
+    else if (cat == "BELL")
+    {
+        strMix = 0.30f; strDamp = 0.18f; strDecay = 1.0f;
+        body = 3; bodyAmt = 0.34f;                              // metal shell
+    }
+    else if (cat == "KEYS")
+    {
+        strMix = 0.22f; strDamp = 0.45f; strDecay = 0.6f;
+        body = 0; bodyAmt = 0.18f;
+        mrphAmt = 0.35f; mrphTo = 2; mrphMs = 320.0f;           // tine -> sine
+    }
+    else if (cat == "DRUMS") { body = 4; bodyAmt = 0.22f; }     // shell
+    // Morph only where it is clearly audible. It doubles the oscillator work,
+    // and at 0.14-0.22 on leads and basses it was inaudible while costing the
+    // same as the pad's 0.55, which does change the sound.
+    else if (cat == "PAD")   { mrphAmt = 0.55f; mrphTo = 2; mrphMs = 1400.0f; }
+
+    // Named voices whose mechanism is unmistakable.
+    if (name.contains ("Kalimba") || name.contains ("Music Box")
+        || name.contains ("Toy"))
+        { strMix = 0.66f; strDamp = 0.60f; strDecay = 0.30f; body = 5; bodyAmt = 0.38f; }
+    if (name.contains ("Marimba") || name.contains ("Gamelan")
+        || name.contains ("Mallet") || name.contains ("Woodblock"))
+        { strMix = 0.30f; strDamp = 0.70f; strDecay = 0.25f; body = 2; bodyAmt = 0.42f; }
+    if (name.contains ("Harp") || name.contains ("Koto")
+        || name.contains ("Sitar") || name.contains ("Banjo")
+        || name.contains ("Dulcimer") || name.contains ("Pizz"))
+        { strMix = 0.80f; strDamp = 0.38f; strDecay = 0.50f; body = 1; bodyAmt = 0.34f; }
+    if (name.contains ("Steel Pan"))
+        { strMix = 0.34f; strDamp = 0.22f; strDecay = 0.75f; body = 3; bodyAmt = 0.40f; }
+
+    p.stringMix   = strMix;
+    p.stringDamp  = strDamp;
+    p.stringDecay = strDecay;
+    p.morphAmt    = mrphAmt;
+    p.morphMs     = mrphMs;
+    p.morphTo     = mrphTo;
+    p.bodyType    = body;
+    p.bodyAmount  = bodyAmt;
+
     p.chorusMix = chorus;
 
     // --- Portamento defaults ------------------------------------------------
