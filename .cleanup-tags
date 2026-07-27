@@ -1,8 +1,6 @@
 # Tags to delete on the next push of this file. One per line.
-# These six were the v3.0 audit sequence; everything in them ships as v3.0.0.
-v3.0.0
-v3.0.1
-v3.0.2
-v3.1.0
-v3.1.1
-v3.1.2
+#
+# EMPTY ON PURPOSE. This file is a loaded gun: whatever is listed here gets
+# deleted, releases and tags both, the next time the file is touched. Leaving
+# the last run's list in place would mean the next unrelated edit wiped the
+# shipping release. Add tags, push, then blank it again.
