@@ -5,7 +5,7 @@
 // sidechain pump, portamento and limiter the buyer gets. Nothing is sweetened
 // afterwards beyond one gain stage into the plugin's own limiter.
 //
-//   SlyceDemoRender <out.wav> [edm|hiphop|pop] [soloInstrument]
+//   SlyceDemoRender <out.wav> [edm|hiphop|pop|funk] [soloInstrument]
 #include "PluginProcessor.h"
 #include "DSP/Limiter.h"
 #include <cstdio>
@@ -488,6 +488,113 @@ std::vector<Part> buildPop()
 }
 
 //==============================================================================
+//  4. BRAZILIAN FUNK  -  130 BPM, A minor, tamborzao
+//==============================================================================
+// Built for a promo reel, which is why it exists at all: Instagram mutes
+// commercial music on accounts that promote a product, so the beat under the
+// video has to be one we own. Every sound in it is Slyce.
+//
+// The rhythm is the tamborzao - the 3-3-2-ish kick against a busy rim/clave
+// pattern that every funk mandelao record is built on. Sparse on purpose:
+// this style is impact and space, not layers.
+//   Am | Am | F | G
+const int kFnkBass[4]     = { 33, 33, 29, 31 };
+const int kFnkChord[4][3] = { { 69, 72, 76 },   // Am
+                              { 69, 72, 76 },   // Am
+                              { 65, 69, 72 },   // F
+                              { 67, 71, 74 } }; // G
+
+const std::vector<Phrase> kFnkLead[4] = {
+    { {0.00,69,0.45},{0.75,72,0.45},{1.50,69,0.45},{2.50,76,0.90} },
+    { {0.00,67,0.70},{1.00,69,0.45},{2.00,72,1.40} },
+    { {0.00,65,0.45},{0.75,69,0.45},{1.50,72,0.45},{2.50,69,0.90} },
+    { {0.00,67,0.45},{1.00,71,0.45},{2.00,74,1.40} },
+};
+
+// Sixteenth positions, one bar. The kick is the signature; the rim fills the
+// gaps it leaves.
+const int kFnkKick[] = { 0, 3, 6, 10, 12 };
+const int kFnkRim[]  = { 2, 4, 5, 7, 9, 11, 13, 14 };
+
+std::vector<Part> buildFunk()
+{
+    gBpm = 130.0; gBars = 48;
+    const Range intro { 0, 4 }, main1 { 4, 20 }, brk { 20, 24 },
+                main2 { 24, 44 }, outro { 44, 48 };
+
+    Part kick  { "Kick 808",      1.00f, {}, {} };
+    Part knock { "Trap Knock",    0.55f, {}, {} };
+    Part rim   { "Rim Snap",      0.34f, {}, {} };
+    Part clave { "Clave",         0.22f, {}, {} };
+    Part clap  { "Clap",          0.55f, { { "reverb", 0.14f } }, {} };
+    Part perc  { "Reggaeton Perc",0.28f, {}, {} };
+    Part sub   { "Reggaeton Sub", 0.85f, { { "synthGlide", 90.0f }, { "drive", 0.24f } }, {} };
+    Part vox   { "Vox Stab",      0.40f, { { "reverb", 0.30f }, { "delay", 0.18f },
+                                           { "delaySync", 5.0f } }, {} };
+    Part lead  { "Drill Bell Lead", 0.38f, { { "reverb", 0.38f }, { "delay", 0.24f },
+                                             { "delaySync", 3.0f } }, {} };
+    Part crash { "Crash Splash",  0.36f, {}, {} };
+    Part sweep { "Riser Sweep",   0.40f, { { "reverb", 0.35f } }, {} };
+
+    for (int bar = 0; bar < gBars; ++bar)
+    {
+        const double b0 = bar * 4.0;
+        const int    ch = bar % 4;
+        const bool   beat = ! inAny (bar, { intro, brk });
+        const bool   full = inAny (bar, { main1, main2 });
+
+        if (beat)
+        {
+            for (int p : kFnkKick)
+            {
+                add (kick.notes,  b0 + p * 0.25, 36, p == 0 ? 1.0f : 0.9f, 0.35);
+                add (knock.notes, b0 + p * 0.25, 36, 0.8f, 0.25);
+            }
+            for (int p : kFnkRim)
+                add (rim.notes, b0 + p * 0.25, 40, (p % 2) ? 0.55f : 0.8f, 0.12);
+            for (int p : { 2, 7, 11 })
+                add (clave.notes, b0 + p * 0.25, 44, 0.6f, 0.12);
+
+            add (clap.notes, b0 + 1.0, 38, 0.9f, 0.3);
+            add (clap.notes, b0 + 3.0, 38, 0.9f, 0.3);
+            if (bar % 2 == 1)
+                add (perc.notes, b0 + 3.5, 45, 0.7f, 0.3);
+        }
+
+        // 808: long root that slides, with a walk-up every fourth bar.
+        if (beat)
+        {
+            add (sub.notes, b0 + 0.0, kFnkBass[ch], 1.0f, 1.40);
+            add (sub.notes, b0 + 1.5, kFnkBass[ch], 0.9f, 0.90);
+            add (sub.notes, b0 + 2.5, kFnkBass[ch], 0.9f, 1.40);
+            if (bar % 4 == 3)
+                add (sub.notes, b0 + 3.75, kFnkBass[(ch + 1) % 4], 0.85f, 0.25);
+        }
+
+        // Vocal chops on the offbeats - the hook of the style.
+        if (full)
+            for (double t : { 0.75, 1.75, 2.25, 3.25 })
+                add (vox.notes, b0 + t, kFnkChord[ch][0], 0.85f, 0.28);
+
+        if (full || inAny (bar, { brk }))
+            for (const auto& h : kFnkLead[ch])
+                add (lead.notes, b0 + h.beat, h.note,
+                     inAny (bar, { brk }) ? 0.6f : 0.9f, h.len);
+
+        if (inAny (bar, { intro, brk }))
+            for (int n : kFnkChord[ch])
+                add (vox.notes, b0, n, 0.5f, 3.8);
+
+        if (bar == 3 || bar == 23 || bar == 43)
+            add (sweep.notes, b0, 60, 0.9f, 4.0);
+        if (bar == 4 || bar == 20 || bar == 24 || bar == 36)
+            add (crash.notes, b0, 60, 0.9f, 2.0);
+    }
+
+    return { kick, knock, rim, clave, clap, perc, sub, vox, lead, crash, sweep };
+}
+
+//==============================================================================
 void setParam (VocalChopAudioProcessor& p, const juce::String& id, float value)
 {
     if (auto* param = p.getAPVTS().getParameter (id))
@@ -555,6 +662,7 @@ int main (int argc, char** argv)
     float push = 7.0f;                       // pre-limiter drive, per genre
     if      (song == "hiphop") { parts = buildHipHop(); push = 5.0f; }
     else if (song == "pop")    { parts = buildPop();    push = 4.0f; }
+    else if (song == "funk")   { parts = buildFunk();   push = 6.0f; }
     else                       { parts = buildEdm();    push = 7.0f; }
 
     printf ("song %s  %.0f BPM  %d bars\n", song.toRawUTF8(), gBpm, gBars);
