@@ -295,7 +295,19 @@ KnobComponent::KnobComponent (const juce::String& caption)
     label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (label);
 
+    subLabel.setJustificationType (juce::Justification::centred);
+    subLabel.setInterceptsMouseClicks (false, false);
+    subLabel.setFont (juce::Font (juce::FontOptions (9.5f)));
+    addChildComponent (subLabel);          // shown only once one is set
+
     slider.addListener (this);
+}
+
+void KnobComponent::setSubCaption (const juce::String& text)
+{
+    subLabel.setText (text, juce::dontSendNotification);
+    subLabel.setVisible (text.isNotEmpty());
+    resized();
 }
 
 void KnobComponent::sliderValueChanged (juce::Slider*)
@@ -326,6 +338,8 @@ KnobComponent::~KnobComponent()
 void KnobComponent::resized()
 {
     auto area = getLocalBounds();
+    if (subLabel.isVisible())
+        subLabel.setBounds (area.removeFromBottom (12));
     label.setBounds (area.removeFromBottom (14));
     slider.setBounds (area);
 }
@@ -336,6 +350,7 @@ void KnobComponent::paint (juce::Graphics& /*g*/)
 
     // Caption: secondary colour, medium weight (font set in constructor).
     label.setColour (juce::Label::textColourId, theme.textSecondary);
+    subLabel.setColour (juce::Label::textColourId, theme.textSecondary.withAlpha (0.55f));
 
     // Minimal value readout under the dial: transparent background/outline.
     slider.setColour (juce::Slider::textBoxTextColourId, theme.text);

@@ -656,8 +656,83 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     engineBox.addItem ("Melody", 4);    // the loaded sample, pitched across keys
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "engine", engineBox));
-    engineBox.onChange = [this] { syncEngineEnablement(); refreshChildren(); grabKeysSoon(); };
-    addAndMakeVisible (engineBox);
+    engineBox.onChange = [this] { syncEngineEnablement(); refreshChildren();
+                                  refreshInstrumentHero(); grabKeysSoon(); };
+    // Attached but not shown - the tabs below are its face. Keeping the combo
+    // means the host automation binding and every saved session still work.
+    addChildComponent (engineBox);
+
+    // --- Engine tabs --------------------------------------------------------
+    // Four engines, and half the controls change meaning between them. A combo
+    // hid that: you had to open a menu to find out which mode you were in.
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& t = engineTab[i];
+        t.setButtonText (engineBox.getItemText (i));
+        t.setClickingTogglesState (false);
+        t.setConnectedEdges (juce::Button::ConnectedOnTop | juce::Button::ConnectedOnBottom);
+        t.onClick = [this, i]
+        {
+            engineBox.setSelectedItemIndex (i, juce::sendNotificationSync);
+            refreshChildren();
+        };
+        t.setTooltip (engineBox.getTooltip());
+        addAndMakeVisible (t);
+    }
+
+    // --- Instrument hero ----------------------------------------------------
+    instCategoryLabel.setJustificationType (juce::Justification::centredLeft);
+    instCategoryLabel.setInterceptsMouseClicks (false, false);
+    instCategoryLabel.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Medium")));
+    addAndMakeVisible (instCategoryLabel);
+
+    instNameLabel.setJustificationType (juce::Justification::centredLeft);
+    instNameLabel.setInterceptsMouseClicks (false, false);
+    // The largest type on the screen, on purpose: this is the control the
+    // first tester could not find at all.
+    instNameLabel.setFont (juce::Font (juce::FontOptions (27.0f).withStyle ("Bold")));
+    addAndMakeVisible (instNameLabel);
+
+    instBrowseButton.setTooltip ("Browse all 376 instruments by category");
+    instBrowseButton.onClick = [this]
+    {
+        // The combo still OWNS the 376-entry categorised menu - this shows a
+        // copy of it - so there is exactly one list in the program to keep
+        // correct. Going through the menu rather than ComboBox::showPopup()
+        // is what lets the combo itself stay hidden.
+        if (auto* root = instrumentBox.getRootMenu())
+        {
+            juce::PopupMenu menu (*root);
+            menu.setLookAndFeel (&appleLaf);
+            menu.showMenuAsync (juce::PopupMenu::Options()
+                                    .withTargetComponent (&instBrowseButton)
+                                    .withMinimumWidth (240)
+                                    .withMaximumNumColumns (3),
+                                [this] (int id)
+                                {
+                                    if (id != 0)
+                                        instrumentBox.setSelectedId (id, juce::sendNotificationSync);
+                                });
+        }
+    };
+    addAndMakeVisible (instBrowseButton);
+
+    // Eight category chips: one click lands on the first voice of a family,
+    // instead of scrolling a 376-entry menu to find out what is in there.
+    {
+        static const char* chips[kNumChips] =
+            { "BASS", "DRUMS", "LEAD", "PAD", "KEYS", "PLUCK", "VOCAL", "BELL" };
+        for (int i = 0; i < kNumChips; ++i)
+        {
+            auto& c = categoryChip[i];
+            const juce::String cat (chips[i]);
+            c.setButtonText (cat.substring (0, 1) + cat.substring (1).toLowerCase());
+            c.setClickingTogglesState (false);
+            c.setTooltip ("Jump to the " + c.getButtonText() + " voices");
+            c.onClick = [this, cat] { jumpToCategory (cat); };
+            addAndMakeVisible (c);
+        }
+    }
 
     synthWaveBox.addItem ("Saw", 1);
     synthWaveBox.addItem ("Square", 2);
@@ -756,7 +831,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         // update themselves. The full refresh made every pick stutter.
         grabKeysSoon();   // pick a patch, play it immediately
     };
-    addAndMakeVisible (instrumentBox);
+    // Hidden: the hero shows the name, Browse opens the menu, and the
+    // steppers move through it. The combo remains as the one list.
+    addChildComponent (instrumentBox);
 
     // Auditioning 376 sounds through a nested menu means six clicks per
     // sound. These step one at a time, so you can hold the keyboard down and
@@ -864,6 +941,12 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (hypeKnob,  "macroHype",  "HYPE");
     addKnob (spaceKnob, "macroSpace", "SPACE");
     addKnob (dirtKnob,  "macroDirt",  "DIRT");
+    // A macro moves many parameters at once, and the whole point of it is that
+    // you do not have to know which. Naming them on the panel is what turns
+    // the dial from a mystery into a shortcut.
+    hypeKnob ->setSubCaption ("unison - drive - air");
+    spaceKnob->setSubCaption ("reverb - width - delay");
+    dirtKnob ->setSubCaption ("saturation - noise - grain");
 
     // --- Filter knobs + combo ---
     addKnob (filterCutoffKnob, "filterCutoff", "Cutoff");
@@ -1103,6 +1186,53 @@ void VocalChopAudioProcessorEditor::promptSavePreset()
         }), false);
 }
 
+/** Mirrors the current voice into the hero, and greys it when the engine is
+    not one that plays instruments. */
+void VocalChopAudioProcessorEditor::refreshInstrumentHero()
+{
+    const auto& th = ThemeManager::active();
+    const int idx = juce::jmax (0, instrumentBox.getSelectedItemIndex());
+    const auto names = VocalChopAudioProcessor::getInstrumentNames();
+    const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
+
+    const bool live = instrumentBox.isEnabled();
+    instNameLabel.setText (instrumentBox.getText(), juce::dontSendNotification);
+    instNameLabel.setColour (juce::Label::textColourId,
+                             live ? th.text : th.textSecondary.withAlpha (0.45f));
+
+    juce::String sub;
+    if (juce::isPositiveAndBelow (idx, cats.size()))
+        sub = cats[idx];
+    if (! live)
+        sub = "Chop mode - the loaded sample plays across the keys";
+    instCategoryLabel.setText (sub, juce::dontSendNotification);
+    instCategoryLabel.setColour (juce::Label::textColourId,
+                                 live ? th.accent : th.textSecondary.withAlpha (0.45f));
+
+    for (auto& c : categoryChip) c.setEnabled (live);
+    instBrowseButton.setEnabled (live);
+    instPrevButton.setEnabled (live);
+    instNextButton.setEnabled (live);
+
+    for (int i = 0; i < 4; ++i)
+        engineTab[i].setToggleState (i == engineBox.getSelectedItemIndex(),
+                                     juce::dontSendNotification);
+}
+
+/** Selects the first instrument in `category`. */
+void VocalChopAudioProcessorEditor::jumpToCategory (const juce::String& category)
+{
+    const auto cats = VocalChopAudioProcessor::getInstrumentCategories();
+    for (int i = 0; i < cats.size(); ++i)
+        if (cats[i] == category)
+        {
+            instrumentBox.setSelectedItemIndex (i, juce::sendNotificationSync);
+            refreshInstrumentHero();
+            grabKeysSoon();
+            return;
+        }
+}
+
 void VocalChopAudioProcessorEditor::stepInstrument (int delta)
 {
     const int n = VocalChopAudioProcessor::getInstrumentNames().size();
@@ -1274,6 +1404,7 @@ void VocalChopAudioProcessorEditor::refreshChildren()
     waveform.refresh();
     sliceGrid.refresh();
     chordBar.refreshKeyLabel();
+    refreshInstrumentHero();
     repaint();
 }
 
@@ -1604,6 +1735,19 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     if (theme.glow >= 0.9f)
         drawHeroFx (g);
 
+    // The instrument panel is the one place accent is used as decoration
+    // rather than as state, because it is the hierarchy: this is what the eye
+    // should land on first.
+    if (! instCardBounds.isEmpty())
+    {
+        auto r = instCardBounds.toFloat();
+        juce::ColourGradient hair (theme.accent.withAlpha (0.85f), r.getX(), r.getY(),
+                                   theme.accent.withAlpha (0.0f), r.getRight(), r.getY(), false);
+        g.setGradientFill (hair);
+        g.fillRoundedRectangle (r.getX() + 1.0f, r.getY() + 0.5f,
+                                r.getWidth() - 2.0f, 2.0f, 1.0f);
+    }
+
     // --- Wordmark: accent-graded with a soft bloom (the brand focal point).
     {
         auto tb = titleLabel.getBounds().toFloat();
@@ -1654,6 +1798,9 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     drawStripCaptions (g);
     if (! showLooper)
     {
+        drawCard (g, engineCardBounds.toFloat());
+        drawCard (g, instCardBounds.toFloat());
+        drawCard (g, contextCardBounds.toFloat());
         drawCard (g, macroCardBounds.toFloat());
         drawCard (g, envCardBounds.toFloat());
         drawCard (g, toneCardBounds.toFloat());
@@ -1663,6 +1810,16 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
         drawCard (g, arpCardBounds.toFloat());
 
         // Section captions.
+        drawCaption (g, "Engine",     engineCardBounds);
+        drawCaption (g, "Instrument", instCardBounds);
+        {
+            // The context panel's header names the engine it belongs to, so
+            // the two can never disagree about which mode you are in.
+            static const char* ctxName[4] =
+                { "Slicing", "Oscillator", "Sample bank", "Chromatic" };
+            const int e = juce::jlimit (0, 3, engineBox.getSelectedItemIndex());
+            drawCaption (g, ctxName[e], contextCardBounds);
+        }
         drawCaption (g, "Macros",     macroCardBounds);
         drawCaption (g, "Envelope",   envCardBounds);
         drawCaption (g, "Pitch / Tone", toneCardBounds);
@@ -1745,50 +1902,129 @@ void VocalChopAudioProcessorEditor::layoutContent()
     else
         heroRect = {};
 
-    // --- Slice control card ---
-    // Every control here carries a caption. Without them the strip is six
-    // anonymous combos, and the one that actually picks the SOUND
-    // (instrumentBox) is indistinguishable from the rest.
-    auto sliceCard = area.removeFromTop (104);
-    sliceCardBounds = sliceCard;
+    // --- Engine | Instrument | Context ------------------------------------
+    // Three panels replacing what used to be one row of seven identical
+    // combos. The old row had no hierarchy at all: the control that picks the
+    // SOUND sat in a queue of look-alikes and the first tester could not find
+    // it. Now the engine is a set of tabs you can read without opening
+    // anything, the instrument is the biggest thing on the strip, and the
+    // controls that only apply to the current engine live in their own panel
+    // instead of being dimmed in place.
+    auto strip = area.removeFromTop (152);
+    sliceCardBounds = strip;
     stripCaptions.clear();
     {
-        auto inner = sliceCard.reduced (kPadding, kPadding - 6);
-        const int capH = 15;
-        const int rowH = 34;
+        auto engineCard  = strip.removeFromLeft (212);
+        strip.removeFromLeft (kGap);
+        auto contextCard = strip.removeFromRight (274);
+        strip.removeFromRight (kGap);
+        auto instCard    = strip;
 
-        auto take = [&] (int w, const juce::String& caption) -> juce::Rectangle<int>
-        {
-            auto col = inner.removeFromLeft (w);
-            inner.removeFromLeft (kGap);
-            auto cap = col.removeFromTop (capH);
-            if (caption.isNotEmpty())
-                stripCaptions.push_back ({ caption, cap });
-            return col;
-        };
+        engineCardBounds  = engineCard;
+        instCardBounds    = instCard;
+        contextCardBounds = contextCard;
 
-        engineBox.setBounds     (take (110, "ENGINE")    .withSizeKeepingCentre (110, rowH));
-        sliceModeBox.setBounds  (take (130, "SLICE BY")  .withSizeKeepingCentre (130, rowH));
-        gridBox.setBounds       (take (120, "GRID")      .withSizeKeepingCentre (120, rowH));
-        sensitivityKnob.setBounds (take (90, ""));
-        synthWaveBox.setBounds  (take (110, "WAVE")      .withSizeKeepingCentre (110, rowH));
+        // ---- Engine: four vertical tabs ----------------------------------
         {
-            // < [ instrument ] > as one unit, so the caption sits over all three.
-            auto col = take (196, "INSTRUMENT");
-            auto row = col.withSizeKeepingCentre (196, rowH);
-            instPrevButton.setBounds (row.removeFromLeft (26));
-            row.removeFromLeft (4);
-            instNextButton.setBounds (row.removeFromRight (26));
-            row.removeFromRight (4);
-            instrumentBox.setBounds (row);
+            auto in = engineCard.reduced (10, 9);
+            in.removeFromTop (16);                     // room for the header
+            const int th = in.getHeight() / 4;
+            for (auto& t : engineTab)
+                t.setBounds (in.removeFromTop (th).reduced (0, 1));
         }
 
-        auto octCol = inner;
-        auto octCap = octCol.removeFromTop (capH);
-        stripCaptions.push_back ({ "OCTAVE", octCap.withWidth (120) });
-        octDownButton.setBounds (octCol.removeFromLeft (34).withSizeKeepingCentre (34, rowH));
-        octLabel.setBounds      (octCol.removeFromLeft (52).withSizeKeepingCentre (52, rowH));
-        octUpButton.setBounds   (octCol.removeFromLeft (34).withSizeKeepingCentre (34, rowH));
+        // ---- Instrument hero ---------------------------------------------
+        {
+            auto in = instCard.reduced (14, 9);
+            in.removeFromTop (16);
+
+            auto chipRow = in.removeFromBottom (24);
+            in.removeFromBottom (6);
+
+            // steppers and browse on the right, name fills what is left
+            auto right = in.removeFromRight (150);
+            {
+                auto r = right.withSizeKeepingCentre (150, 40);
+                instPrevButton.setBounds (r.removeFromLeft (34));
+                r.removeFromLeft (4);
+                instNextButton.setBounds (r.removeFromLeft (34));
+                r.removeFromLeft (8);
+                instBrowseButton.setBounds (r);
+            }
+            in.removeFromRight (10);
+
+            instCategoryLabel.setBounds (in.removeFromTop (16));
+            instNameLabel.setBounds     (in.removeFromTop (36));
+
+            // The combo itself is never seen; it owns the categorised menu
+            // that the Browse button opens, so there is one list to maintain.
+            instrumentBox.setBounds (instBrowseButton.getBounds());
+
+            const int cw = (chipRow.getWidth() - (kNumChips - 1) * 4) / kNumChips;
+            for (auto& c : categoryChip)
+            {
+                c.setBounds (chipRow.removeFromLeft (cw));
+                chipRow.removeFromLeft (4);
+            }
+        }
+
+        // ---- Context: swaps with the engine rather than dimming ----------
+        {
+            const int eng = engineBox.getSelectedItemIndex();
+            auto in = contextCard.reduced (12, 9);
+            in.removeFromTop (16);
+            const int capH = 15, rowH = 32;
+
+            auto slot = [&] (int h, const juce::String& caption) -> juce::Rectangle<int>
+            {
+                auto row = in.removeFromTop (h);
+                if (caption.isNotEmpty())
+                    stripCaptions.push_back ({ caption, row.removeFromTop (capH) });
+                return row;
+            };
+
+            const bool chop    = (eng == 0);
+            const bool synth   = (eng == 1);
+            const bool sampled = (eng == 2);
+            const bool melody  = (eng == 3);
+
+            sliceModeBox.setVisible    (chop);
+            gridBox.setVisible         (chop);
+            sensitivityKnob.setVisible (chop);
+            synthWaveBox.setVisible    (synth);
+            // Octave means something in every engine except Chop, where the
+            // slices are laid out one per key and there is nothing to transpose.
+            const bool showOct = ! chop;
+            octDownButton.setVisible (showOct);
+            octUpButton.setVisible   (showOct);
+            octLabel.setVisible      (showOct);
+
+            if (chop)
+            {
+                auto a = slot (capH + rowH, "SLICE BY");
+                sliceModeBox.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
+                in.removeFromTop (4);
+                auto b = slot (capH + rowH + 12, "GRID");
+                auto sens = b.removeFromRight (66);
+                b.removeFromRight (8);
+                gridBox.setBounds (b.withSizeKeepingCentre (b.getWidth(), rowH));
+                sensitivityKnob.setBounds (sens);
+            }
+            else if (synth || melody || sampled)
+            {
+                if (synth)
+                {
+                    auto a = slot (capH + rowH, "WAVE");
+                    synthWaveBox.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
+                    in.removeFromTop (4);
+                }
+                auto o = slot (capH + rowH, "OCTAVE");
+                auto oo = o.withSizeKeepingCentre (juce::jmin (150, o.getWidth()), rowH);
+                octDownButton.setBounds (oo.removeFromLeft (36));
+                octUpButton.setBounds   (oo.removeFromRight (36));
+                octLabel.setBounds      (oo);
+            }
+        }
     }
 
     area.removeFromTop (kGap);
@@ -1887,12 +2123,12 @@ void VocalChopAudioProcessorEditor::layoutContent()
     {
         const int gap = kGap;
         const int free = bottomCards.getWidth() - gap * 3;
-        auto filterCard  = bottomCards.removeFromLeft (free * 19 / 100);
+        auto filterCard  = bottomCards.removeFromLeft (free * 16 / 100);
         filterCardBounds = filterCard;
         bottomCards.removeFromLeft (gap);
 
         // ARP + PUMP: the two tempo-locked performance engines.
-        auto arpCard = bottomCards.removeFromLeft (free * 26 / 100);
+        auto arpCard = bottomCards.removeFromLeft (free * 24 / 100);
         arpCardBounds = arpCard;
         bottomCards.removeFromLeft (gap);
         {
@@ -1924,10 +2160,22 @@ void VocalChopAudioProcessorEditor::layoutContent()
                     k->setBounds (inner.removeFromLeft (aw).reduced (6, 0));
         }
 
-        auto macroCard  = bottomCards.removeFromLeft (free * 26 / 100);
+        // HYPE / SPACE / DIRT are the "make it sound better" controls, meant
+        // for someone who does not want to learn synthesis. They were the
+        // SMALLEST dials on the panel, which is exactly backwards - so they
+        // get their own wider card and the largest dials in the window.
+        auto macroCard  = bottomCards.removeFromLeft (free * 31 / 100);
         macroCardBounds = macroCard;
         bottomCards.removeFromLeft (gap);
-        layoutKnobRow (macroCard, { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() });
+        {
+            auto in = macroCard.reduced (kPadding, kPadding - 4);
+            in.removeFromTop (kCaptionH);
+            const int w = in.getWidth() / 3;
+            KnobComponent* mk[3] = { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() };
+            for (auto* k : mk)
+                if (k != nullptr)
+                    k->setBounds (in.removeFromLeft (w).reduced (4, 0));
+        }
 
         auto playbackCard  = bottomCards;
         playbackCardBounds = playbackCard;

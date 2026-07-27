@@ -85,6 +85,24 @@ private:
     juce::TextButton looperTabButton { "LOOPER" };
     bool             showLooper = false;
 
+    // --- Engine / Instrument / Context strip (the top three panels) --------
+    // engineBox stays alive and parameter-attached but INVISIBLE: the four
+    // tabs drive it. Replacing it outright would have thrown away the host
+    // automation binding and every saved session's engine setting.
+    juce::TextButton engineTab[4];
+    static constexpr const char* kEngineSub[4] =
+        { "Slices", "376 voices", "SFZ", "Chromatic" };
+
+    // Instrument hero: the voice name is the largest type in the window,
+    // because it is the control people are actually looking for.
+    juce::Label      instCategoryLabel, instNameLabel;
+    juce::TextButton instBrowseButton { "Browse" };
+    static constexpr int kNumChips = 8;
+    juce::TextButton categoryChip[kNumChips];
+    juce::Rectangle<int> engineCardBounds, instCardBounds, contextCardBounds;
+    void refreshInstrumentHero();
+    void jumpToCategory (const juce::String& category);
+
     // Slicing controls.
     juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox sliceModeBox;
@@ -199,7 +217,7 @@ private:
 
     // Fixed-size design canvas, scaled as one unit so the window can shrink
     // to 60% without per-widget cramming. All children live inside it.
-    static constexpr int kBaseW = 1080, kBaseH = 1220;
+    static constexpr int kBaseW = 1080, kBaseH = 1268;
     struct ContentComp : juce::Component
     {
         explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}

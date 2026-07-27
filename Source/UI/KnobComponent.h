@@ -25,6 +25,11 @@ public:
     juce::Slider& getSlider() { return slider; }
 
     void resized() override;
+
+    /** A second line under the caption, for dials whose name does not say what
+        they do. Empty by default, and the layout only reserves space when one
+        is set - so no other dial in the window moves. */
+    void setSubCaption (const juce::String& text);
     void paint (juce::Graphics&) override;
 
 private:
@@ -43,7 +48,7 @@ private:
     void timerCallback() override;
 
     juce::Slider slider;
-    juce::Label  label;
+    juce::Label  label, subLabel;
     KnobLookAndFeel lookAndFeel;
     float dragGlow = 0.0f;
 
