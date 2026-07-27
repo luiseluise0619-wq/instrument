@@ -1,4 +1,5 @@
 // Offline render harness: load each named instrument, play a note, measure.
+#include <algorithm>
 #include "PluginProcessor.h"
 #include <cstdio>
 int main (int argc, char** argv)
@@ -315,26 +316,44 @@ int main (int argc, char** argv)
         for (int idx = 0; idx < names.size(); ++idx)
         {
             proc.applyInstrument (idx);
-            juce::AudioBuffer<float> buf (2, 64);
-            juce::MidiBuffer midi;
-            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 1.0f), 0);
-            std::vector<float> mono;
-            for (int b = 0; b < 400; ++b)
+
+            // Three takes, median reported. A voice's unison bank starts at
+            // random phases - that is what stops repeated notes machine-
+            // gunning - so a single take's zero-crossing count wanders, and a
+            // borderline instrument crossed the threshold about one run in
+            // ten. A check that flags something every tenth run teaches you to
+            // ignore it, which is worse than not having it.
+            double aTakes[3] {}, bTakes[3] {};
+            for (int take = 0; take < 3; ++take)
             {
-                buf.clear(); proc.processBlock (buf, midi); midi.clear();
-                for (int i = 0; i < 64; ++i)
-                    mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+                juce::AudioBuffer<float> buf (2, 64);
+                juce::MidiBuffer midi;
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, 1.0f), 0);
+                std::vector<float> mono;
+                for (int bl = 0; bl < 400; ++bl)
+                {
+                    buf.clear(); proc.processBlock (buf, midi); midi.clear();
+                    for (int i = 0; i < 64; ++i)
+                        mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+                }
+                auto zcOf = [&mono] (int from, int to)
+                {
+                    int zc = 0, n = 0;
+                    for (int i = juce::jmax (1, from); i < to && i < (int) mono.size(); ++i, ++n)
+                        if ((mono[(size_t) i - 1] <= 0) != (mono[(size_t) i] <= 0)) ++zc;
+                    return n > 0 ? zc * 0.5 * 44100.0 / n : 0.0;
+                };
+                // First 15 ms is the strike; 150-400 ms is the body it decays into.
+                aTakes[take] = zcOf (0, (int) (44100 * 0.015));
+                bTakes[take] = zcOf ((int) (44100 * 0.15), (int) (44100 * 0.40));
             }
-            auto zcOf = [&mono] (int from, int to)
+            auto median3 = [] (double* v)
             {
-                int zc = 0, n = 0;
-                for (int i = juce::jmax (1, from); i < to && i < (int) mono.size(); ++i, ++n)
-                    if ((mono[(size_t) i - 1] <= 0) != (mono[(size_t) i] <= 0)) ++zc;
-                return n > 0 ? zc * 0.5 * 44100.0 / n : 0.0;
+                std::sort (v, v + 3);
+                return v[1];
             };
-            // First 15 ms is the strike; 150-400 ms is the body it decays into.
-            const double a = zcOf (0, (int) (44100 * 0.015));
-            const double b = zcOf ((int) (44100 * 0.15), (int) (44100 * 0.40));
+            const double a = median3 (aTakes);
+            const double b = median3 (bTakes);
 
             // Hats, shakers and cymbals ARE broadband noise - that is the
             // instrument, not a defect. Flagging them taught me nothing except
