@@ -135,7 +135,11 @@ VocalChopAudioProcessor::createParameterLayout()
         "filterReso", "Filter Reso", Range (0.1f, 8.0f, 0.01f), 0.707f));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "filterType", "Filter Type",
-        juce::StringArray { "Off", "Low Pass", "High Pass", "Band Pass" }, 0));
+        // Defaults to Low Pass, not Off. With Off as the default, Cutoff and
+        // Reso sat there turning freely and doing absolutely nothing until you
+        // found a fourth control and changed it - which reads, entirely
+        // reasonably, as "the filter is broken".
+        juce::StringArray { "Off", "Low Pass", "High Pass", "Band Pass" }, 1));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "delayFeedback", "Delay FB", Range (0.0f, 0.95f, 0.001f), 0.4f));

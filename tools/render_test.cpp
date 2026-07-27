@@ -300,6 +300,78 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--filter": does the filter actually filter?
+    //
+    // Sweeps the cutoff across the range for each type and reports the
+    // brightness of what comes out, as a zero-crossing rate. A working low
+    // pass makes that number fall as the cutoff closes; a working high pass
+    // makes it rise. If the column is flat, the control is decorative.
+    if (argc > 1 && juce::String (argv[1]) == "--filter")
+    {
+        const char* typeName[4] = { "Off", "Low pass", "High pass", "Band pass" };
+        proc.applyInstrument (juce::jmax (0, names.indexOf ("Supersaw Lead")));
+
+        auto set = [&] (const char* id, float v)
+        {
+            if (auto* pp = proc.getAPVTS().getParameter (id))
+                pp->setValueNotifyingHost (pp->convertTo0to1 (v));
+        };
+        // A filter envelope would move the cutoff underneath the measurement.
+        set ("filterReso", 0.7f);
+
+        printf ("%-10s", "cutoff Hz");
+        for (int t = 0; t < 4; ++t) printf (" %11s", typeName[t]);
+        printf ("   (zero-crossing rate, Hz)\n");
+
+        const float cuts[] = { 200.0f, 500.0f, 1200.0f, 3000.0f, 8000.0f, 18000.0f };
+        // Two passes: the synth engine, then CHOP - the filter living in the
+        // synth voice path and never touching sliced sample playback is
+        // exactly the kind of gap a synth-only test would never notice.
+        for (int pass = 0; pass < 2; ++pass)
+        {
+          const bool chop = (pass == 1);
+          if (chop)
+          {
+              if (! proc.loadDemoSample()) { printf ("\n(no demo sample; skipping Chop)\n"); break; }
+              set ("engine", 0.0f);
+              printf ("\n-- CHOP engine (sliced sample playback) --\n%-10s", "cutoff Hz");
+              for (int t = 0; t < 4; ++t) printf (" %11s", typeName[t]);
+              printf ("\n");
+          }
+          else
+              set ("engine", 1.0f);
+
+          for (float cut : cuts)
+          {
+            printf ("%-10.0f", cut);
+            for (int t = 0; t < 4; ++t)
+            {
+                set ("filterType", (float) t);
+                set ("filterCutoff", cut);
+
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+                int zc = 0; long n = 0; float prev = 0.0f; double sumSq = 0.0;
+                for (int b = 0; b < 60; ++b)
+                {
+                    buf.clear(); proc.processBlock (buf, midi); midi.clear();
+                    if (b < 10) continue;             // let the envelope settle
+                    for (int i = 0; i < 512; ++i)
+                    {
+                        const float v = 0.5f * (buf.getSample (0, i) + buf.getSample (1, i));
+                        if ((prev <= 0) != (v <= 0)) ++zc;
+                        prev = v; ++n; sumSq += (double) v * v;
+                    }
+                }
+                printf (" %11.0f", n > 0 ? zc * 0.5 * 44100.0 / (double) n : 0.0);
+            }
+            printf ("\n");
+          }
+        }
+        return 0;
+    }
+
     // "--harsh": find the voices that FATIGUE the ear.
     //
     // Not the loud ones and not the bright ones - the ones with too much

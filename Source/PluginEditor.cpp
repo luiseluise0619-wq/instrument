@@ -999,6 +999,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     filterTypeBox.addItem ("High Pass", 3);
     filterTypeBox.addItem ("Band Pass", 4);
     filterTypeBox.setJustificationType (juce::Justification::centred);
+    // Changing the type has to re-run the enablement pass, or the two dials
+    // stay greyed out after the filter is switched on.
+    filterTypeBox.onChange = [this] { syncEngineEnablement(); grabKeysSoon(); };
     addAndMakeVisible (filterTypeBox);
     comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (
         processor.getAPVTS(), "filterType", filterTypeBox));
@@ -1448,6 +1451,23 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
 
     auto dim = [] (juce::Component& c, bool on)
     { c.setAlpha (on ? 1.0f : 0.38f); };
+
+    // Cutoff and Reso do nothing while the filter type is Off. Leaving them
+    // looking live was the whole reason the filter read as broken: you turn
+    // them, nothing happens, and there is no hint why.
+    {
+        const bool filterOn = filterTypeBox.getSelectedId() > 1;
+        if (filterCutoffKnob != nullptr)
+        {
+            filterCutoffKnob->setEnabled (filterOn);
+            dim (*filterCutoffKnob, filterOn);
+        }
+        if (filterResoKnob != nullptr)
+        {
+            filterResoKnob->setEnabled (filterOn);
+            dim (*filterResoKnob, filterOn);
+        }
+    }
 
     dim (sliceModeBox,    slicing);
     dim (gridBox,         slicing && byBeats);
