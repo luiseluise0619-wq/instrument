@@ -310,41 +310,62 @@ int main (int argc, char** argv)
         std::vector<double> rmsAll;
         int bad = 0;
 
+        // Three takes, median reported. Voices start their unison bank at random
+        // phases on purpose - it is what stops repeated notes machine-gunning -
+        // so a single take's PEAK wobbles by up to ~6 dB on identical code.
+        // Comparing two single-take runs made noise look like regressions.
+        constexpr int kTakes = 3;
         for (int idx = 0; idx < names.size(); ++idx)
         {
-            proc.applyInstrument (idx);
-            juce::AudioBuffer<float> buf (2, 512);
-            juce::MidiBuffer midi;
-            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.95f), 0);
+            double pk[kTakes] {}, rm[kTakes] {}, tl[kTakes] {}, zh[kTakes] {};
+            bool nan = false;
 
-            double sq = 0; float peak = 0; int zc = 0; float prev = 0;
-            bool nan = false; long n = 0;
-            double tailSq = 0; long tailN = 0;
-
-            for (int b = 0; b < 200; ++b)          // ~2.3 s
+            for (int take = 0; take < kTakes; ++take)
             {
-                buf.clear();
-                proc.processBlock (buf, midi);
-                midi.clear();
-                if (b == 60) midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
-                for (int i = 0; i < 512; ++i)
+                proc.applyInstrument (idx);
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.95f), 0);
+
+                double sq = 0; float peak = 0; int zc = 0; float prev = 0; long n = 0;
+                double tailSq = 0; long tailN = 0;
+
+                for (int b = 0; b < 200; ++b)          // ~2.3 s
                 {
-                    const float v = 0.5f * (buf.getSample (0, i) + buf.getSample (1, i));
-                    if (! std::isfinite (v)) nan = true;
-                    peak = juce::jmax (peak, std::abs (v));
-                    sq += (double) v * v;
-                    if ((prev <= 0) != (v <= 0)) ++zc;
-                    prev = v; ++n;
-                    if (b >= 170) { tailSq += (double) v * v; ++tailN; }
+                    buf.clear();
+                    proc.processBlock (buf, midi);
+                    midi.clear();
+                    if (b == 60) midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                    for (int i = 0; i < 512; ++i)
+                    {
+                        const float v = 0.5f * (buf.getSample (0, i) + buf.getSample (1, i));
+                        if (! std::isfinite (v)) nan = true;
+                        peak = juce::jmax (peak, std::abs (v));
+                        sq += (double) v * v;
+                        if ((prev <= 0) != (v <= 0)) ++zc;
+                        prev = v; ++n;
+                        if (b >= 170) { tailSq += (double) v * v; ++tailN; }
+                    }
                 }
+                pk[take] = peak;
+                rm[take] = std::sqrt (sq / (double) juce::jmax (1L, n));
+                tl[take] = std::sqrt (tailSq / (double) juce::jmax (1L, tailN));
+                zh[take] = zc * 0.5 * 44100.0 / (double) n;
             }
-            const double rms  = std::sqrt (sq / (double) juce::jmax (1L, n));
-            const double tail = std::sqrt (tailSq / (double) juce::jmax (1L, tailN));
+
+            auto median3 = [] (double* v) {
+                double a2 = v[0], b2 = v[1], c2 = v[2];
+                return juce::jmax (juce::jmin (a2, b2), juce::jmin (juce::jmax (a2, b2), c2));
+            };
+            const double peak = median3 (pk);
+            const double rms  = median3 (rm);
+            const double tail = median3 (tl);
+            const double zcHz = median3 (zh);
             rmsAll.push_back (rms);
 
             juce::String flags;
             if (nan)                 flags << "NAN ";
-            if (peak >= 0.999f)      flags << "CLIP ";
+            if (peak >= 0.999)       flags << "CLIP ";
             if (rms < 1.0e-4)        flags << "SILENT ";
             // Still loud a second after the key came up: a runaway resonator
             // or a feedback path that never settles.
@@ -353,8 +374,8 @@ int main (int argc, char** argv)
 
             if (flags.isNotEmpty() || (argc > 2 && juce::String (argv[2]) == "-v"))
                 printf ("%-20s %8.4f %8.4f %8.4f %8.0f  %s\n",
-                        names[idx].toRawUTF8(), peak, rms, tail,
-                        zc * 0.5 * 44100.0 / (double) n, flags.toRawUTF8());
+                        names[idx].toRawUTF8(), peak, rms, tail, zcHz,
+                        flags.toRawUTF8());
         }
 
         std::sort (rmsAll.begin(), rmsAll.end());
