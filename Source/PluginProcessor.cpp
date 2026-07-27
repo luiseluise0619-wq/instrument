@@ -1301,7 +1301,11 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
         set ("arpMode", (float) sp.arpMode);
         set ("arpRate", (float) sp.arpRate);
         set ("arpOct",  (float) sp.arpOct);
-        set ("filterType", 0.0f);
+        // Low pass wide open, NOT off. Sonically identical - 20 kHz passes
+        // everything - but it leaves the filter as a control the user can
+        // actually reach for, instead of switching it off under them every
+        // time they pick a preset.
+        set ("filterType", 1.0f);
         set ("filterCutoff", 20000.0f);
         set ("grainMix", 0.0f);
         set ("reverse", 0.0f);
@@ -1317,7 +1321,7 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
     set ("width", 1.0f);      set ("grainSize", 80.0f); set ("grainMix", 0.0f);
     set ("drive", 0.0f);      set ("reverb", 0.0f);    set ("delay", 0.0f);
     set ("attack", 5.0f);     set ("decay", 0.0f);     set ("sustain", 1.0f);
-    set ("release", 20.0f);   set ("filterType", 0.0f); set ("filterCutoff", 20000.0f);
+    set ("release", 20.0f);   set ("filterType", 1.0f); set ("filterCutoff", 20000.0f);
     set ("filterReso", 0.707f); set ("delayFeedback", 0.4f); set ("pingpong", 0.0f);
     set ("reverse", 0.0f);    set ("playMode", 0.0f);  set ("outputGain", 0.0f);
     set ("delaySync", 0.0f);   // factory presets start on a free-running delay

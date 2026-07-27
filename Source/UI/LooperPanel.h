@@ -61,9 +61,13 @@ private:
     TrackUI trackUI[LoopStation::kNumTracks];
     int visibleTracks = 4;
 
-    juce::TextButton playAllButton  { "PLAY ALL" };
-    juce::TextButton stopAllButton  { "STOP ALL" };
-    juce::TextButton clearAllButton { "CLEAR ALL" };
+    // Short labels on purpose. The transport row has to fit ten controls plus
+    // the drag slab at the 1020px minimum width, and "PLAY ALL" was being cut
+    // to "PLAY AL" - a clipped word reads as a bug, where a short one reads as
+    // a label. What they act on is in the tooltip.
+    juce::TextButton playAllButton  { "PLAY" };
+    juce::TextButton stopAllButton  { "STOP" };
+    juce::TextButton clearAllButton { "CLEAR" };
     juce::TextButton exportButton   { "EXPORT" };
     juce::TextButton addTrackButton { "+ TRACK" };
     juce::TextButton metroButton    { "MET" };
