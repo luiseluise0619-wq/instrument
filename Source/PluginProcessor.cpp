@@ -395,8 +395,16 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (auto* ph = getPlayHead())
     {
         if (auto pos = ph->getPosition())
+        {
             if (auto bpm = pos->getBpm())
                 hostBpm.store (*bpm > 20.0 && *bpm < 400.0 ? *bpm : 0.0);
+
+            hostPlaying.store (pos->getIsPlaying());
+            if (auto ppq = pos->getPpqPosition())
+                hostPpq.store (*ppq);
+            else
+                hostPpq.store (-1.0);
+        }
     }
 
     juce::ScopedNoDenormals noDenormals;
@@ -518,6 +526,16 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             const double beat = 60.0 / juce::jmax (20.0, currentBpm());
             const double cycle = juce::jmax (1.0, beat * cycleBeats[rate] * currentSampleRate);
             const double inc = 1.0 / cycle;
+
+            // Phase-lock to the transport. Free-running, the duck landed
+            // wherever the plugin happened to start - the one thing a
+            // sidechain pump must never do is drift off the bar line.
+            const double ppq = hostPpq.load();
+            if (ppq >= 0.0 && hostPlaying.load())
+            {
+                const double cyc = ppq / cycleBeats[rate];
+                pumpPhase = cyc - std::floor (cyc);
+            }
 
             for (int n = 0; n < numSamples; ++n)
             {
@@ -753,13 +771,29 @@ void VocalChopAudioProcessor::advanceArp (int numSamples)
         }
     }
 
-    arpStepSamples -= numSamples;
-    if (arpStepSamples > 0)
-        return;
+    // Step boundary. With a rolling transport the grid comes from the host's
+    // musical position, so the pattern sits on the DAW's beats no matter when
+    // the chord was pressed; otherwise fall back to a free-running counter.
+    const double ppq = hostPpq.load();
+    if (ppq >= 0.0 && hostPlaying.load())
+    {
+        const auto step = (int64_t) std::floor (ppq / rateMult[rate]);
+        if (step == arpLastStep)
+            return;
+        arpLastStep = step;
+    }
+    else
+    {
+        arpLastStep = std::numeric_limits<int64_t>::min();
 
-    arpStepSamples += stepLen;
-    if (arpStepSamples <= 0)          // very long blocks / very fast rates
-        arpStepSamples = stepLen;
+        arpStepSamples -= numSamples;
+        if (arpStepSamples > 0)
+            return;
+
+        arpStepSamples += stepLen;
+        if (arpStepSamples <= 0)      // very long blocks / very fast rates
+            arpStepSamples = stepLen;
+    }
 
     // Pick the next note in the pattern.
     int pick = 0;
@@ -903,12 +937,16 @@ void VocalChopAudioProcessor::drainPadQueue()
             return;
         }
 
-        // With the arp on, a held pad feeds the pattern like a held key does.
-        if (arpModeParam != nullptr && (int) arpModeParam->load() > 0
+        // With the arp on, a HELD pad feeds the pattern like a held key does.
+        // A tap does not: the chord bar fires taps with no matching release,
+        // so latching them left the chord stuck in the arp forever. Taps stay
+        // one-shot hits and play straight through.
+        if (type == padOn && arpModeParam != nullptr && (int) arpModeParam->load() > 0
             && juce::isPositiveAndBelow (note, 128))
         {
-            if (type == padOn)  { arpHeld[(size_t) note] = true;  return; }
-            if (type == padTap) { arpHeld[(size_t) note] = true;  return; }
+            arpHeld[(size_t) note] = true;
+            arpVel[(size_t) note]  = juce::jlimit (0.0f, 1.0f, vel);
+            return;
         }
 
         routeNoteOn (note, vel, type != padOn);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <limits>
+
 #include <JuceHeader.h>
 
 #include "AudioEngine/SliceEngine.h"
@@ -259,6 +261,12 @@ private:
 
     std::atomic<float> outputLevel { 0.0f };
     std::atomic<double> hostBpm { 0.0 };   // 0 = host published no tempo
+    // Musical position at the top of the block, and whether the transport is
+    // rolling. The arp and the pump PHASE-LOCK to this: without it they run
+    // free and land off the DAW's grid, which is the whole point of them.
+    std::atomic<double> hostPpq { -1.0 };  // < 0 = host published no position
+    std::atomic<bool>   hostPlaying { false };
+    int64_t arpLastStep = std::numeric_limits<int64_t>::min();
 
     // --- Arpeggiator (audio thread state) ---------------------------------
     std::array<bool, 128> arpHeld {};
