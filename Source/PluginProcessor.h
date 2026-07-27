@@ -141,6 +141,9 @@ public:
     /** Applies a named factory preset's parameter values. */
     void applyPreset (int presetIndex);
     static juce::StringArray getPresetNames();
+    /** Presets 0..N-1 are CHOP presets (FX only, your sample keeps playing);
+        everything after is a SOUND preset that loads an instrument too. */
+    static int getNumChopPresets();
 
     /** User presets: the whole parameter tree saved under a name, stored as
         one XML file each next to the licence so every session sees them. */

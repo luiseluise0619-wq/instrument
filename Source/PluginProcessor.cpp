@@ -141,23 +141,6 @@ VocalChopAudioProcessor::createParameterLayout()
         "delayFeedback", "Delay FB", Range (0.0f, 0.95f, 0.001f), 0.4f));
 
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "arpMode", "Arp",
-        juce::StringArray { "Off", "Up", "Down", "Up-Down", "Random" }, 0));
-    params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "arpRate", "Arp Rate",
-        juce::StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 3));
-    params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        "arpGate", "Arp Gate", Range (0.05f, 1.0f, 0.01f), 0.6f));
-    params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "arpOct", "Arp Octaves", juce::StringArray { "1", "2", "3" }, 0));
-
-    params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        "pumpAmt", "Pump", Range (0.0f, 1.0f, 0.001f), 0.0f));
-    params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "pumpRate", "Pump Rate",
-        juce::StringArray { "1 bar", "1/2", "1/4", "1/8" }, 2));
-
-    params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "delaySync", "Delay Sync",
         juce::StringArray { "Free", "1/4", "1/4.", "1/8", "1/8.", "1/16", "1/32" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> (
@@ -202,10 +185,6 @@ VocalChopAudioProcessor::createParameterLayout()
         "synthLfoRate", "LFO Rate", Range (0.05f, 8.0f, 0.01f, 0.5f), 2.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "synthLfoAmt", "Motion", Range (0.0f, 1.0f, 0.001f), 0.0f));
-    // Portamento. Skewed low: everything musical lives under 300 ms, and the
-    // long end is there for 808 slides and dub sirens.
-    params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        "synthGlide", "Glide", Range (0.0f, 1500.0f, 1.0f, 0.35f), 0.0f));
 
     // Performance macros: one knob each for "the hook hits harder", "wetter
     // space" and "dirtier texture". They OFFSET the underlying values in the
@@ -216,6 +195,32 @@ VocalChopAudioProcessor::createParameterLayout()
         "macroSpace", "SPACE", Range (0.0f, 1.0f, 0.001f), 0.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "macroDirt", "DIRT", Range (0.0f, 1.0f, 0.001f), 0.0f));
+
+    // --- v3 additions -------------------------------------------------------
+    // APPENDED, never inserted. Hosts that store automation by parameter INDEX
+    // instead of by ID would re-point every lane after an insertion, so a v2
+    // project would come back with the wrong knobs automated.
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "arpMode", "Arp",
+        juce::StringArray { "Off", "Up", "Down", "Up-Down", "Random" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "arpRate", "Arp Rate",
+        juce::StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 3));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "arpGate", "Arp Gate", Range (0.05f, 1.0f, 0.01f), 0.6f));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "arpOct", "Arp Octaves", juce::StringArray { "1", "2", "3" }, 0));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "pumpAmt", "Pump", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "pumpRate", "Pump Rate",
+        juce::StringArray { "1 bar", "1/2", "1/4", "1/8" }, 2));
+
+    // Portamento. Skewed low: everything musical lives under 300 ms, and the
+    // long end is there for 808 slides and dub sirens.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthGlide", "Glide", Range (0.0f, 1500.0f, 1.0f, 0.35f), 0.0f));
 
     return { params.begin(), params.end() };
 }
@@ -1190,10 +1195,47 @@ void VocalChopAudioProcessor::parameterChanged (const juce::String& id, float ne
 }
 
 //==============================================================================
+namespace
+{
+/** A complete patch: which instrument, and how it is dressed. Kept as data so
+    adding a preset is one line and can never fall out of sync with the name
+    list (getPresetNames builds itself from this table). */
+struct SoundPreset
+{
+    const char* name;
+    const char* instrument;
+    float drive, reverb, delay, width, pump;
+    int   delaySync;   // 0 Free, 1 1/4, 2 1/4., 3 1/8, 4 1/8., 5 1/16, 6 1/32
+    int   arpMode, arpRate, arpOct;
+};
+
+const SoundPreset kSoundPresets[] = {
+//    name                instrument         drv   rev   dly   wid  pump  sync arp rate oct
+    { "Festival Supersaw", "Supersaw Lead",  0.15f, 0.30f, 0.22f, 1.0f, 0.70f, 3,  0, 3, 0 },
+    { "Club Sub",          "Sub 808",        0.22f, 0.05f, 0.00f, 0.4f, 0.55f, 0,  0, 3, 0 },
+    { "Crystal Arp",       "Crystal Pluck",  0.00f, 0.35f, 0.30f, 1.0f, 0.00f, 3,  1, 3, 1 },
+    { "Choir Pad",         "Vox Ahh",        0.00f, 0.55f, 0.18f, 1.0f, 0.35f, 3,  0, 3, 0 },
+    { "Slide 808",         "Drill Slide",    0.28f, 0.08f, 0.00f, 0.5f, 0.00f, 0,  0, 3, 0 },
+    { "Future Chords",     "Future Chords",  0.10f, 0.32f, 0.20f, 1.0f, 0.55f, 3,  0, 3, 0 },
+    { "Rave Stab",         "Rave Stab",      0.35f, 0.22f, 0.28f, 0.9f, 0.60f, 5,  0, 3, 0 },
+    { "Trap Bell",         "Cloud Bell",     0.05f, 0.42f, 0.34f, 1.0f, 0.00f, 3,  0, 3, 0 },
+    { "Amapiano Log",      "Amapiano Log",   0.08f, 0.26f, 0.22f, 0.9f, 0.30f, 3,  0, 3, 0 },
+    { "Acid Runner",       "Acid Lead",      0.30f, 0.18f, 0.26f, 0.8f, 0.45f, 5,  1, 3, 1 },
+};
+} // namespace
+
 juce::StringArray VocalChopAudioProcessor::getPresetNames()
 {
-    return { "Init", "Clean Chops", "Vocal Shimmer", "Lo-Fi Tape",
-             "Reverse Swell", "Hard Stutter" };
+    juce::StringArray names { "Init", "Clean Chops", "Vocal Shimmer", "Lo-Fi Tape",
+                              "Reverse Swell", "Hard Stutter" };
+    for (const auto& sp : kSoundPresets)
+        names.add (sp.name);
+    return names;
+}
+
+int VocalChopAudioProcessor::getNumChopPresets()
+{
+    return 6;   // Init .. Hard Stutter: FX only, they keep your sample
 }
 
 void VocalChopAudioProcessor::applyPreset (int presetIndex)
@@ -1203,6 +1245,43 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
         if (auto* p = apvts.getParameter (id))
             p->setValueNotifyingHost (p->convertTo0to1 (value));
     };
+
+    // SOUND presets are complete patches: they switch the engine to Synth,
+    // load an instrument and then dress it. The first tester of the preset
+    // menu could not work out why picking a preset never changed the sound -
+    // because until now no preset touched the instrument at all.
+    const int sound = presetIndex - getNumChopPresets();
+    if (sound >= 0 && sound < (int) (sizeof (kSoundPresets) / sizeof (kSoundPresets[0])))
+    {
+        const auto& sp = kSoundPresets[(size_t) sound];
+
+        set ("engine", 1.0f);                       // Synth
+        const int inst = getInstrumentNames().indexOf (sp.instrument);
+        if (inst >= 0)
+            applyInstrument (inst);                 // sets the voice AND its envelope
+
+        // Dress it. Deliberately applied AFTER applyInstrument so the preset's
+        // character wins, and the envelope the instrument chose is left alone.
+        set ("drive",   sp.drive);
+        set ("reverb",  sp.reverb);
+        set ("delay",   sp.delay);
+        set ("delaySync", (float) sp.delaySync);
+        set ("width",   sp.width);
+        set ("pumpAmt", sp.pump);
+        set ("pumpRate", 2.0f);                     // 1/4
+        set ("arpMode", (float) sp.arpMode);
+        set ("arpRate", (float) sp.arpRate);
+        set ("arpOct",  (float) sp.arpOct);
+        set ("filterType", 0.0f);
+        set ("filterCutoff", 20000.0f);
+        set ("grainMix", 0.0f);
+        set ("reverse", 0.0f);
+        set ("playMode", 0.0f);
+        set ("pitch", 0.0f);
+        set ("formant", 0.0f);
+        set ("mix", 1.0f);
+        return;
+    }
 
     // Start every preset from a known baseline, then apply the character.
     set ("pitch", 0.0f);      set ("formant", 0.0f);   set ("mix", 1.0f);

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <vector>
+#include <set>
 
 #include "PluginProcessor.h"
 #include "UI/WaveformView.h"
@@ -158,6 +159,16 @@ private:
     static constexpr int kSavePresetId     = 4999;
     void rebuildPresetMenu();
     void promptSavePreset();
+
+    // Per-control captions for the slice strip. A row of six unlabelled
+    // combos read as "some other preset menu" to the first tester who saw it
+    // - nobody could tell which one picked the SOUND.
+    std::vector<std::pair<juce::String, juce::Rectangle<int>>> stripCaptions;
+    std::set<juce::String> stripDimmed;   // captions whose control is inert
+    void drawStripCaptions (juce::Graphics&) const;
+
+    /** Greys out the strip controls the current engine does not use. */
+    void syncEngineEnablement();
 
     // Cached card rectangles (populated in resized(), painted in paint()).
     juce::Rectangle<int> macroCardBounds;

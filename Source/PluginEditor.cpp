@@ -651,7 +651,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     engineBox.addItem ("Melody", 4);    // the loaded sample, pitched across keys
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "engine", engineBox));
-    engineBox.onChange = [this] { refreshChildren(); grabKeysSoon(); };
+    engineBox.onChange = [this] { syncEngineEnablement(); refreshChildren(); grabKeysSoon(); };
     addAndMakeVisible (engineBox);
 
     synthWaveBox.addItem ("Saw", 1);
@@ -763,7 +763,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     sliceModeBox.setSelectedId (engine.getMode() == SliceEngine::Grid ? 2 : 1,
                                 juce::dontSendNotification);
     sliceModeBox.setJustificationType (juce::Justification::centred);
-    sliceModeBox.onChange = [this] { applySlicing(); };
+    sliceModeBox.onChange = [this] { applySlicing(); syncEngineEnablement(); };
     addAndMakeVisible (sliceModeBox);
 
     for (int div : { 4, 8, 16, 32 })
@@ -1011,11 +1011,26 @@ void VocalChopAudioProcessorEditor::rebuildPresetMenu()
 {
     presetBox.clear (juce::dontSendNotification);
 
-    int presetId = 1;
-    for (const auto& name : VocalChopAudioProcessor::getPresetNames())
-        presetBox.addItem (name, presetId++);
-
     auto* root = presetBox.getRootMenu();
+    const auto all   = VocalChopAudioProcessor::getPresetNames();
+    const int  chops = VocalChopAudioProcessor::getNumChopPresets();
+
+    // Two kinds of preset, and the difference matters: the first group only
+    // re-dresses whatever you already loaded, the second replaces the sound
+    // outright. Unlabelled, testers assumed the menu was broken because
+    // picking a preset never changed what they heard.
+    int presetId = 1;
+    root->addSectionHeader ("Chop FX - keeps your sample");
+    for (int i = 0; i < all.size(); ++i)
+    {
+        if (i == chops)
+        {
+            root->addSeparator();
+            root->addSectionHeader ("Sounds - loads an instrument");
+        }
+        presetBox.addItem (all[i], presetId++);
+    }
+
     const auto mine = VocalChopAudioProcessor::getUserPresetNames();
     if (! mine.isEmpty())
     {
@@ -1145,6 +1160,53 @@ void VocalChopAudioProcessorEditor::syncSliceControls()
     const int div = engine.getGridDivision();
     if (div == 4 || div == 8 || div == 16 || div == 32)
         gridBox.setSelectedId (div, juce::dontSendNotification);
+
+    syncEngineEnablement();
+}
+
+void VocalChopAudioProcessorEditor::syncEngineEnablement()
+{
+    // Half of this strip is dead in any given engine - WAVE and INSTRUMENT do
+    // nothing while you are chopping a sample, and the slice controls do
+    // nothing while you are playing the synth. Leaving them all lit is how a
+    // tester ended up staring at "Supersaw Lead" in Chop mode wondering why
+    // picking a sound changed nothing.
+    const bool synth   = processor.isSynthMode();
+    const bool sampler = processor.isSamplerMode();
+    const bool melody  = processor.isMelodyMode();
+    const bool chop    = ! synth;                    // Chop is engine 0
+
+    // Chop with NOTHING loaded falls through to the synth (routeNoteOn keeps
+    // the keys from ever being silent), so the instrument picker is live
+    // there too - greying it out on a fresh instance would hide the only
+    // control that makes a sound.
+    const bool emptyChop = chop && processor.getSliceEngine().getNumSlices() == 0;
+    const bool voice     = (synth && ! sampler && ! melody) || emptyChop;
+
+    const bool byBeats = sliceModeBox.getSelectedId() == 2;
+
+    const bool slicing = chop && ! emptyChop;
+    sliceModeBox.setEnabled (slicing);
+    gridBox.setEnabled      (slicing && byBeats);
+    sensitivityKnob.setEnabled (slicing && ! byBeats);
+    synthWaveBox.setEnabled  (voice);
+    instrumentBox.setEnabled (voice);
+
+    auto dim = [] (juce::Component& c, bool on)
+    { c.setAlpha (on ? 1.0f : 0.38f); };
+
+    dim (sliceModeBox,    slicing);
+    dim (gridBox,         slicing && byBeats);
+    dim (sensitivityKnob, slicing && ! byBeats);
+    dim (synthWaveBox,    voice);
+    dim (instrumentBox,   voice);
+
+    stripDimmed.clear();
+    if (! slicing)             stripDimmed.insert ("SLICE BY");
+    if (! (slicing && byBeats)) stripDimmed.insert ("GRID");
+    if (! voice)             { stripDimmed.insert ("WAVE"); stripDimmed.insert ("INSTRUMENT"); }
+
+    content.repaint (sliceCardBounds);
 }
 
 void VocalChopAudioProcessorEditor::refreshChildren()
@@ -1401,6 +1463,21 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
                 bounds.getWidth() - radius * 2.0f, 1.0f);
 }
 
+void VocalChopAudioProcessorEditor::drawStripCaptions (juce::Graphics& g) const
+{
+    const auto& theme = ThemeManager::active();
+    g.setColour (theme.textSecondary.withAlpha (0.75f));
+    g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold"))
+                   .withExtraKerningFactor (0.14f));
+
+    for (const auto& c : stripCaptions)
+    {
+        const bool off = stripDimmed.count (c.first) > 0;
+        g.setColour (theme.textSecondary.withAlpha (off ? 0.28f : 0.75f));
+        g.drawText (c.first, c.second, juce::Justification::centred, false);
+    }
+}
+
 void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
                                                  const juce::String& text,
                                                  juce::Rectangle<int> cardBounds) const
@@ -1506,6 +1583,7 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     // strip, and its own card has rounded corners - drawing the ones beneath
     // left ghost outlines poking out of those corners.
     drawCard (g, sliceCardBounds.toFloat());
+    drawStripCaptions (g);
     if (! showLooper)
     {
         drawCard (g, macroCardBounds.toFloat());
@@ -1554,6 +1632,9 @@ void VocalChopAudioProcessorEditor::resized()
     content.setTransform (juce::AffineTransform::scale (scale));
     content.setBounds (0, 0, kBaseW, kBaseH);
     layoutContent();
+    // The caption rectangles only exist after layout, and the dim state has
+    // to survive every relayout (theme swap, looper toggle, host resize).
+    syncEngineEnablement();
 }
 
 void VocalChopAudioProcessorEditor::layoutContent()
@@ -1597,25 +1678,40 @@ void VocalChopAudioProcessorEditor::layoutContent()
         heroRect = {};
 
     // --- Slice control card ---
-    auto sliceCard = area.removeFromTop (94);
+    // Every control here carries a caption. Without them the strip is six
+    // anonymous combos, and the one that actually picks the SOUND
+    // (instrumentBox) is indistinguishable from the rest.
+    auto sliceCard = area.removeFromTop (104);
     sliceCardBounds = sliceCard;
+    stripCaptions.clear();
     {
-        auto inner = sliceCard.reduced (kPadding, kPadding - 4);
-        engineBox.setBounds (inner.removeFromLeft (110).withSizeKeepingCentre (110, 34));
-        inner.removeFromLeft (kGap);
-        sliceModeBox.setBounds (inner.removeFromLeft (130).withSizeKeepingCentre (130, 34));
-        inner.removeFromLeft (kGap);
-        gridBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 34));
-        inner.removeFromLeft (kGap);
-        sensitivityKnob.setBounds (inner.removeFromLeft (90));
-        inner.removeFromLeft (kGap);
-        synthWaveBox.setBounds (inner.removeFromLeft (120).withSizeKeepingCentre (120, 34));
-        inner.removeFromLeft (kGap);
-        instrumentBox.setBounds (inner.removeFromLeft (160).withSizeKeepingCentre (160, 34));
-        inner.removeFromLeft (kGap);
-        octDownButton.setBounds (inner.removeFromLeft (34).withSizeKeepingCentre (34, 34));
-        octLabel.setBounds      (inner.removeFromLeft (52).withSizeKeepingCentre (52, 34));
-        octUpButton.setBounds   (inner.removeFromLeft (34).withSizeKeepingCentre (34, 34));
+        auto inner = sliceCard.reduced (kPadding, kPadding - 6);
+        const int capH = 15;
+        const int rowH = 34;
+
+        auto take = [&] (int w, const juce::String& caption) -> juce::Rectangle<int>
+        {
+            auto col = inner.removeFromLeft (w);
+            inner.removeFromLeft (kGap);
+            auto cap = col.removeFromTop (capH);
+            if (caption.isNotEmpty())
+                stripCaptions.push_back ({ caption, cap });
+            return col;
+        };
+
+        engineBox.setBounds     (take (110, "ENGINE")    .withSizeKeepingCentre (110, rowH));
+        sliceModeBox.setBounds  (take (130, "SLICE BY")  .withSizeKeepingCentre (130, rowH));
+        gridBox.setBounds       (take (120, "GRID")      .withSizeKeepingCentre (120, rowH));
+        sensitivityKnob.setBounds (take (90, ""));
+        synthWaveBox.setBounds  (take (120, "WAVE")      .withSizeKeepingCentre (120, rowH));
+        instrumentBox.setBounds (take (160, "INSTRUMENT").withSizeKeepingCentre (160, rowH));
+
+        auto octCol = inner;
+        auto octCap = octCol.removeFromTop (capH);
+        stripCaptions.push_back ({ "OCTAVE", octCap.withWidth (120) });
+        octDownButton.setBounds (octCol.removeFromLeft (34).withSizeKeepingCentre (34, rowH));
+        octLabel.setBounds      (octCol.removeFromLeft (52).withSizeKeepingCentre (52, rowH));
+        octUpButton.setBounds   (octCol.removeFromLeft (34).withSizeKeepingCentre (34, rowH));
     }
 
     area.removeFromTop (kGap);

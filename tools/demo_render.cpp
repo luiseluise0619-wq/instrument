@@ -81,50 +81,77 @@ bool inAny (int bar, std::initializer_list<Range> rs)
 std::vector<Part> buildArrangement()
 {
     // Section map (bars):
-    //   0-3   intro   arp + hats
-    //   4-7   build   + sub, claps, vox bed, riser on bar 7
-    //   8-15  DROP    supersaw chords, four-on-the-floor, pumped bass
-    //   16-19 break   pad + vox, drums out
-    //   20-23 DROP 2  everything
+    //   0-3   intro   filtered pluck arp + offbeat hats
+    //   4-7   build   + offbeat bass, claps, vox bed, snare roll + riser in 7
+    //   8-15  DROP    hook melody over stabbed chords, four-on-the-floor
+    //   16-19 break   pad + vox, drums out, riser back in
+    //   20-23 DROP 2  the drop with the hook doubled an octave up
+    //
+    // The FIRST version of this held one four-beat chord per bar under the
+    // drums and read as background music, not as EDM. A drop needs a HOOK
+    // and it needs RHYTHM: the chords are stabs on a syncopated eighth
+    // pattern now, a lead plays an actual melody over them, the bass sits on
+    // the offbeats, and a snare roll pulls into the drop.
     const Range intro { 0, 4 }, build { 4, 8 }, drop1 { 8, 16 },
                 brk { 16, 20 }, drop2 { 20, 24 };
 
-    Part kick  { "Kick Punch",    1.00f, {}, {} };
-    Part sub   { "Sub 808",       0.85f, { { "pumpAmt", 0.85f }, { "pumpRate", 2.0f } }, {} };
-    Part clap  { "Clap",          0.55f, {}, {} };
-    Part hat   { "Hat Closed",    0.34f, {}, {} };
-    Part ohat  { "Hat Open",      0.24f, {}, {} };
-    Part arp   { "Crystal Pluck", 0.50f,
-                 { { "arpMode", 1.0f },   // Up
-                   { "arpRate", 3.0f },   // 1/16
-                   { "arpOct",  1.0f },   // 2 octaves
-                   { "arpGate", 0.45f },
-                   { "delay",   0.28f },
-                   { "delaySync", 2.0f },
-                   { "reverb",  0.30f } }, {} };
-    Part lead  { "Supersaw Lead", 0.55f,
-                 { { "pumpAmt", 0.80f }, { "pumpRate", 2.0f },
-                   { "reverb", 0.28f }, { "width", 1.0f } }, {} };
-    Part pad   { "Vox Ahh",       0.40f,
-                 { { "reverb", 0.45f }, { "width", 1.0f } }, {} };
-    Part fx    { "Riser Sweep",   0.45f, { { "reverb", 0.35f } }, {} };
-    Part crash { "Crash Splash",  0.42f, {}, {} };
+    // Two kicks layered: one for the body, one for the click. A single synth
+    // kick is thin, and thin kick = "this is not a dance record".
+    Part kickLo { "Kick 808",       0.95f, {}, {} };
+    Part kickHi { "Kick Punch",     0.75f, {}, {} };
+    Part sub    { "Sub 808",        0.80f, { { "pumpAmt", 0.75f }, { "pumpRate", 2.0f } }, {} };
+    Part clap   { "Clap",           0.60f, { { "reverb", 0.18f } }, {} };
+    Part snare  { "Snare Tight",    0.45f, {}, {} };
+    Part hat    { "Hat Closed",     0.34f, {}, {} };
+    Part ohat   { "Hat Open",       0.26f, {}, {} };
+    Part arp    { "Crystal Pluck",  0.42f,
+                  { { "arpMode", 1.0f }, { "arpRate", 3.0f }, { "arpOct", 1.0f },
+                    { "arpGate", 0.45f }, { "delay", 0.28f }, { "delaySync", 3.0f },
+                    { "reverb", 0.30f } }, {} };
+    Part stab   { "Supersaw Lead",  0.40f,
+                  { { "pumpAmt", 0.80f }, { "pumpRate", 2.0f },
+                    { "reverb", 0.22f }, { "width", 1.0f }, { "release", 90.0f } }, {} };
+    Part hook   { "Mainstage",      0.62f,
+                  { { "pumpAmt", 0.55f }, { "pumpRate", 2.0f },
+                    { "reverb", 0.30f }, { "delay", 0.20f }, { "delaySync", 5.0f },
+                    { "width", 0.85f } }, {} };
+    Part pad    { "Vox Ahh",        0.40f, { { "reverb", 0.45f }, { "width", 1.0f } }, {} };
+    Part fx     { "Riser Sweep",    0.50f, { { "reverb", 0.35f } }, {} };
+    Part crash  { "Crash Splash",   0.45f, {}, {} };
+
+    // The hook, one line per chord of the loop: {beat within the bar, note}.
+    // Written out rather than generated - a melody is the one thing that has
+    // to be composed, not derived.
+    struct HookNote { double beat; int note; double len; };
+    static const std::vector<HookNote> kHook[4] = {
+        { {0.00, 72, 0.70}, {0.75, 68, 0.70}, {1.50, 72, 0.45},
+          {2.00, 75, 0.90}, {3.00, 72, 0.90} },                       // Fm
+        { {0.00, 77, 0.90}, {1.00, 75, 0.70}, {1.75, 73, 0.70},
+          {2.50, 77, 0.90}, {3.50, 80, 0.45} },                       // Db
+        { {0.00, 75, 0.70}, {0.75, 72, 0.70}, {1.50, 75, 0.45},
+          {2.00, 68, 0.90}, {3.00, 72, 0.90} },                       // Ab
+        { {0.00, 70, 0.90}, {1.00, 72, 0.70}, {1.75, 75, 0.70},
+          {2.50, 79, 0.65}, {3.25, 77, 0.70} },                       // Eb
+    };
+
+    // Syncopated stab pattern - the "and" hits are what make it move.
+    static const double kStab[] = { 0.00, 0.75, 1.50, 2.25, 3.00, 3.50 };
 
     for (int bar = 0; bar < kBars; ++bar)
     {
         const double b0 = bar * 4.0;
         const int    ch = bar % 4;
 
-        // --- drums ------------------------------------------------------
-        // The build runs HALF a kit (kick from bar 6 only): if the build is
-        // as dense as the drop the drop lands flat, which is exactly what the
-        // first render of this arrangement did.
-        const bool fullKit  = inAny (bar, { drop1, drop2 });
-        const bool halfKit  = (bar == 6 || bar == 7);
+        const bool fullKit = inAny (bar, { drop1, drop2 });
+        const bool halfKit = (bar == 6 || bar == 7);
 
+        // --- drums ------------------------------------------------------
         if (fullKit || halfKit)
             for (int beat = 0; beat < 4; ++beat)
-                add (kick.notes, b0 + beat, 36, 1.0f, 0.5);
+            {
+                add (kickLo.notes, b0 + beat, 36, 1.0f, 0.5);
+                add (kickHi.notes, b0 + beat, 36, 0.9f, 0.3);
+            }
 
         if (fullKit || halfKit)
         {
@@ -136,48 +163,83 @@ std::vector<Part> buildArrangement()
             for (int eighth = 0; eighth < 8; ++eighth)
             {
                 const double t = b0 + eighth * 0.5;
-                if (eighth % 2 == 1)                       // classic offbeat
-                    add (hat.notes, t, 42, bar < 4 ? 0.6f : 0.85f, 0.2);
-                else if (fullKit)                          // filled 8ths in the drop
+                if (eighth % 2 == 1)
+                    add (hat.notes, t, 42, bar < 4 ? 0.6f : 0.9f, 0.2);
+                else if (fullKit)
                     add (hat.notes, t, 42, 0.5f, 0.15);
             }
 
-        if (inAny (bar, { drop1, drop2 }) && bar % 2 == 1)
+        if (fullKit && bar % 2 == 1)
             add (ohat.notes, b0 + 3.5, 46, 0.7f, 0.5);
 
-        // --- bass -------------------------------------------------------
+        // Snare roll: quarters, then eighths, then a 16th run into the drop.
+        if (bar == 6)
+            for (int k = 0; k < 4; ++k)
+                add (snare.notes, b0 + k, 40, 0.55f, 0.25);
+        if (bar == 7)
+        {
+            for (int k = 0; k < 4; ++k)                       // eighths
+                add (snare.notes, b0 + k * 0.5, 40, 0.6f, 0.2);
+            for (int k = 0; k < 8; ++k)                       // 16ths, rising
+                add (snare.notes, b0 + 2.0 + k * 0.25, 40,
+                     0.55f + 0.05f * (float) k, 0.15);
+        }
+
+        // --- bass: offbeat eighths, the engine of a house drop ------------
         if (fullKit)
         {
-            add (sub.notes, b0 + 0.0, kBassRoot[ch], 1.0f, 1.75);
-            add (sub.notes, b0 + 2.0, kBassRoot[ch], 0.9f, 0.75);
-            add (sub.notes, b0 + 3.0, kBassRoot[ch], 0.85f, 0.75);
+            add (sub.notes, b0, kBassRoot[ch], 1.0f, 0.45);
+            for (int k = 0; k < 4; ++k)
+                add (sub.notes, b0 + k + 0.5, kBassRoot[ch], 0.9f, 0.4);
         }
-        else if (inAny (bar, { build }))   // one long root, no rhythm yet
-            add (sub.notes, b0, kBassRoot[ch], 0.65f, 3.75);
+        else if (inAny (bar, { build }))
+            for (int k = 0; k < 4; ++k)
+                add (sub.notes, b0 + k + 0.5, kBassRoot[ch], 0.6f, 0.4);
 
-        // --- arp: holds the triad, the arpeggiator does the rest --------
-        if (inAny (bar, { intro, build, drop1, drop2 }))
+        // --- arp ----------------------------------------------------------
+        if (inAny (bar, { intro, build }) || (fullKit && bar % 4 >= 2))
             for (int n : kChord[ch])
-                add (arp.notes, b0, n + 12, bar < 4 ? 0.7f : 0.85f, 3.9);
+                add (arp.notes, b0, n + 12, bar < 4 ? 0.7f : 0.8f, 3.9);
 
-        // --- drop chords ------------------------------------------------
-        if (inAny (bar, { drop1, drop2 }))
-            for (int n : kChord[ch])
-                add (lead.notes, b0, n, 0.9f, 3.9);
+        // --- drop: stabbed chords + the hook on top ------------------------
+        if (fullKit)
+        {
+            for (double t : kStab)
+                for (int n : kChord[ch])
+                    add (stab.notes, b0 + t, n, 0.85f, 0.42);
 
-        // --- vocal bed --------------------------------------------------
-        if (inAny (bar, { brk }) || bar == 6 || bar == 7)
+            for (const auto& h : kHook[ch])
+            {
+                add (hook.notes, b0 + h.beat, h.note, 0.95f, h.len);
+                if (inAny (bar, { drop2 }))          // second drop: octave up
+                    add (hook.notes, b0 + h.beat, h.note + 12, 0.55f, h.len);
+            }
+        }
+
+        // --- break: the hook again, soft, over the vocal bed ---------------
+        if (inAny (bar, { brk }))
+        {
             for (int n : kChord[ch])
                 add (pad.notes, b0, n, 0.75f, 3.9);
+            if (bar >= 18)
+                for (const auto& h : kHook[ch])
+                    add (hook.notes, b0 + h.beat, h.note, 0.55f, h.len);
+        }
+        if (bar == 6 || bar == 7)
+            for (int n : kChord[ch])
+                add (pad.notes, b0, n, 0.7f, 3.9);
 
-        // --- transitions ------------------------------------------------
+        // --- transitions ---------------------------------------------------
         if (bar == 7 || bar == 19)
-            add (fx.notes, b0, 60, 0.9f, 4.0);
-        if (bar == 8 || bar == 20 || bar == 16)
-            add (crash.notes, b0, 60, 0.9f, 2.0);
+            add (fx.notes, b0, 60, 0.95f, 4.0);
+        if (bar == 8 || bar == 16 || bar == 20)
+        {
+            add (crash.notes, b0, 60, 0.95f, 2.0);
+            add (sub.notes,   b0, kBassRoot[ch] - 12, 1.0f, 1.0);   // impact
+        }
     }
 
-    return { kick, sub, clap, hat, ohat, arp, lead, pad, fx, crash };
+    return { kickLo, kickHi, sub, clap, snare, hat, ohat, arp, stab, hook, pad, fx, crash };
 }
 
 //==============================================================================

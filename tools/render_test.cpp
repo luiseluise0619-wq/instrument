@@ -46,6 +46,41 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--presets": apply every factory preset and measure what comes out, so
+    // a preset that silently fails to change the sound cannot ship again.
+    if (argc > 1 && juce::String (argv[1]) == "--presets")
+    {
+        const auto pn = VocalChopAudioProcessor::getPresetNames();
+        printf ("%-20s %8s %8s %8s\n", "preset", "peak", "rms", "zcHz");
+        for (int p = 0; p < pn.size(); ++p)
+        {
+            proc.applyPreset (p);
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            double sumSq = 0; float peak = 0; int zc = 0; float prev = 0;
+            long n = 0;
+            for (int b = 0; b < 130; ++b)
+            {
+                buf.clear();
+                proc.processBlock (buf, midi);
+                midi.clear();
+                if (b == 60) midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                for (int i = 0; i < 512; ++i)
+                {
+                    const float v = 0.5f * (buf.getSample (0, i) + buf.getSample (1, i));
+                    peak = juce::jmax (peak, std::abs (v));
+                    sumSq += v * v;
+                    if ((prev <= 0) != (v <= 0)) ++zc;
+                    prev = v; ++n;
+                }
+            }
+            printf ("%-20s %8.4f %8.4f %8.0f\n", pn[p].toRawUTF8(), peak,
+                    std::sqrt (sumSq / (double) n), zc * 0.5 * 44100.0 / (double) n);
+        }
+        return 0;
+    }
+
     juce::StringArray want;
     for (int i = 1; i < argc; ++i) want.add (juce::String (argv[i]));
 
