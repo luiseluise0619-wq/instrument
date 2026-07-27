@@ -8,6 +8,44 @@ int main (int argc, char** argv)
     proc.prepareToPlay (44100.0, 512);
 
     const auto names = VocalChopAudioProcessor::getInstrumentNames();
+
+    // "--glide": play C4 then C5 with portamento on and print the pitch
+    // trajectory, so the slide can be verified as a NUMBER rather than by ear.
+    if (argc > 1 && juce::String (argv[1]) == "--glide")
+    {
+        proc.applyInstrument (juce::jmax (0, names.indexOf ("Init Synth")));
+        if (auto* g = proc.getAPVTS().getParameter ("synthGlide"))
+            g->setValueNotifyingHost (g->convertTo0to1 (200.0f));
+        // Sine, so the zero-crossing count IS the pitch (a saw's harmonics
+        // add crossings and make the measurement meaningless).
+        if (auto* w = proc.getAPVTS().getParameter ("synthWave"))
+            w->setValueNotifyingHost (w->convertTo0to1 (2.0f));
+
+        juce::AudioBuffer<float> buf (2, 512);
+        std::vector<float> mono;
+        for (int b = 0; b < 90; ++b)
+        {
+            juce::MidiBuffer midi;
+            if (b == 0)  midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            if (b == 40) { midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                           midi.addEvent (juce::MidiMessage::noteOn (1, 72, 0.9f), 1); }
+            buf.clear();
+            proc.processBlock (buf, midi);
+            for (int i = 0; i < 512; ++i)
+                mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+        }
+        const int win = 1024;
+        printf ("ms      Hz   (C4=262, C5=523; glide 200 ms starts at ~465 ms)\n");
+        for (size_t start = 40 * 512; start + win < mono.size(); start += win)
+        {
+            int zc = 0;
+            for (size_t i = start + 1; i < start + win; ++i)
+                if ((mono[i-1] <= 0) != (mono[i] <= 0)) ++zc;
+            printf ("%5.0f %7.1f\n", start / 44.1, zc * 0.5 * 44100.0 / win);
+        }
+        return 0;
+    }
+
     juce::StringArray want;
     for (int i = 1; i < argc; ++i) want.add (juce::String (argv[i]));
 

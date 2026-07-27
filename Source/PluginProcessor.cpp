@@ -33,6 +33,12 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     filterTypeParam    = apvts.getRawParameterValue ("filterType");
     delayFeedbackParam = apvts.getRawParameterValue ("delayFeedback");
     delaySyncParam     = apvts.getRawParameterValue ("delaySync");
+    arpModeParam   = apvts.getRawParameterValue ("arpMode");
+    arpRateParam   = apvts.getRawParameterValue ("arpRate");
+    arpGateParam   = apvts.getRawParameterValue ("arpGate");
+    arpOctParam    = apvts.getRawParameterValue ("arpOct");
+    pumpAmtParam   = apvts.getRawParameterValue ("pumpAmt");
+    pumpRateParam  = apvts.getRawParameterValue ("pumpRate");
     pingpongParam  = apvts.getRawParameterValue ("pingpong");
     reverseParam   = apvts.getRawParameterValue ("reverse");
     playModeParam  = apvts.getRawParameterValue ("playMode");
@@ -50,6 +56,7 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     synthChorusParam  = apvts.getRawParameterValue ("synthChorus");
     synthLfoRateParam = apvts.getRawParameterValue ("synthLfoRate");
     synthLfoAmtParam  = apvts.getRawParameterValue ("synthLfoAmt");
+    synthGlideParam   = apvts.getRawParameterValue ("synthGlide");
     macroHypeParam  = apvts.getRawParameterValue ("macroHype");
     macroSpaceParam = apvts.getRawParameterValue ("macroSpace");
     macroDirtParam  = apvts.getRawParameterValue ("macroDirt");
@@ -134,6 +141,23 @@ VocalChopAudioProcessor::createParameterLayout()
         "delayFeedback", "Delay FB", Range (0.0f, 0.95f, 0.001f), 0.4f));
 
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "arpMode", "Arp",
+        juce::StringArray { "Off", "Up", "Down", "Up-Down", "Random" }, 0));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "arpRate", "Arp Rate",
+        juce::StringArray { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" }, 3));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "arpGate", "Arp Gate", Range (0.05f, 1.0f, 0.01f), 0.6f));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "arpOct", "Arp Octaves", juce::StringArray { "1", "2", "3" }, 0));
+
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "pumpAmt", "Pump", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
+        "pumpRate", "Pump Rate",
+        juce::StringArray { "1 bar", "1/2", "1/4", "1/8" }, 2));
+
+    params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "delaySync", "Delay Sync",
         juce::StringArray { "Free", "1/4", "1/4.", "1/8", "1/8.", "1/16", "1/32" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterBool> (
@@ -178,6 +202,10 @@ VocalChopAudioProcessor::createParameterLayout()
         "synthLfoRate", "LFO Rate", Range (0.05f, 8.0f, 0.01f, 0.5f), 2.0f));
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "synthLfoAmt", "Motion", Range (0.0f, 1.0f, 0.001f), 0.0f));
+    // Portamento. Skewed low: everything musical lives under 300 ms, and the
+    // long end is there for 808 slides and dub sirens.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "synthGlide", "Glide", Range (0.0f, 1500.0f, 1.0f, 0.35f), 0.0f));
 
     // Performance macros: one knob each for "the hook hits harder", "wetter
     // space" and "dirtier texture". They OFFSET the underlying values in the
@@ -216,6 +244,16 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     noteToVoice.fill (-1);
     padKeyToVoice.fill (-1);
+
+    // Transport/device changes must not resurrect an arp pattern or leave the
+    // pump mid-duck (a stale phase makes the first bar after a restart lopsided).
+    arpHeld.fill (false);
+    arpVel.fill (0.0f);
+    arpNote = -1;
+    arpStepSamples = 0;
+    arpGateSamples = 0;
+    arpIndex = 0; arpDir = 1; arpOctave = 0;
+    pumpPhase = 0.0;
 
     // Total plugin latency: the pitch/formant engine's inherent latency plus
     // the limiter's look-ahead delay.
@@ -395,6 +433,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         pt.chorusMix     = synthChorusParam->load();
         pt.lfoRateHz     = synthLfoRateParam->load();
         pt.lfoDepthOct   = synthLfoAmtParam->load() * 2.0f;
+        pt.glideMs       = synthGlideParam->load();
 
         // Performance macros offset the modules they shadow (never the
         // parameters themselves, so host automation stays untouched).
@@ -423,6 +462,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // 1) MIDI + pad-queue → slice / synth triggers.
     handleMidi (midi, numSamples);
     drainPadQueue();
+    advanceArp (numSamples);
 
     // 2) Render both sources (the unused engine is simply silent, so
     //    switching modes mid-note never clicks).
@@ -464,6 +504,38 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     // 9) Brick-wall limiter.
     limiter.process (buffer);
+
+    // 9b) Sidechain pump: the EDM signature. A tempo-locked duck applied to
+    //     the whole mix - no external sidechain routing needed.
+    {
+        const float amt = pumpAmtParam != nullptr
+                            ? juce::jlimit (0.0f, 1.0f, pumpAmtParam->load()) : 0.0f;
+        if (amt > 0.001f)
+        {
+            static const double cycleBeats[] = { 4.0, 2.0, 1.0, 0.5 };
+            const int rate = pumpRateParam != nullptr
+                               ? juce::jlimit (0, 3, (int) pumpRateParam->load()) : 2;
+            const double beat = 60.0 / juce::jmax (20.0, currentBpm());
+            const double cycle = juce::jmax (1.0, beat * cycleBeats[rate] * currentSampleRate);
+            const double inc = 1.0 / cycle;
+
+            for (int n = 0; n < numSamples; ++n)
+            {
+                // Ducked hard on the beat, recovering with a curve - the
+                // classic pumped compressor shape.
+                const float rise = (float) pumpPhase;
+                const float duck = 1.0f - amt * (1.0f - rise) * (1.0f - rise);
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    buffer.getWritePointer (ch)[n] *= duck;
+
+                pumpPhase += inc;
+                if (pumpPhase >= 1.0)
+                    pumpPhase -= 1.0;
+            }
+        }
+        else
+            pumpPhase = 0.0;
+    }
 
     // 10) Demo gate: without a license the output mutes for 2 s every
     //     minute (short fades at the window edges so there is no click).
@@ -535,57 +607,24 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {
-            // Sampled/Melody modes without a loaded bank fall through to the
-            // synth branch below (isSynthMode() is true there too): keys must
-            // NEVER be silent - dead keys read as "the plugin is broken".
-            if (isMelodyMode() && melodyEngine.hasBank())
+            // With the arp on, held notes feed the PATTERN instead of
+            // sounding directly; advanceArp() plays them on the grid.
+            if (arpModeParam != nullptr && (int) arpModeParam->load() > 0)
             {
-                melodyEngine.noteOn (note, msg.getVelocity() / 127.0f);
-            }
-            else if (isSamplerMode() && samplerEngine.hasBank())
-            {
-                samplerEngine.noteOn (note, msg.getVelocity() / 127.0f);
-            }
-            else if (synth)
-            {
-                if (kitMode.load (std::memory_order_relaxed))
-                    kitNoteOn (note, msg.getVelocity() / 127.0f, false);
-                else
-                    synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
-            }
-            else if (sliceEngine.getNumSlices() == 0)
-            {
-                // Chop mode with no sample loaded (a freshly inserted
-                // instance): play the current synth patch instead of nothing.
-                synthEngine.noteOn (note, msg.getVelocity() / 127.0f);
+                if (juce::isPositiveAndBelow (note, 128))
+                {
+                    arpHeld[(size_t) note] = true;
+                    arpVel[(size_t) note]  = msg.getVelocity() / 127.0f;
+                }
             }
             else
-            {
-                // Retriggering a still-held note releases its old voice so
-                // the previous hit doesn't ring on as an orphan.
-                if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
-                    voicePool.releaseVoice (noteToVoice[(size_t) note]);
-
-                const int voice = triggerSliceIndex (diatonicSliceIndex (note - kRootNote),
-                                                     msg.getVelocity() / 127.0f);
-                if (juce::isPositiveAndBelow (note, 128))
-                    noteToVoice[(size_t) note] = voice;
-            }
+                routeNoteOn (note, msg.getVelocity() / 127.0f, false);
         }
         else if (msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0))
         {
-            // Release EVERY engine regardless of the current mode: the note
-            // may have started before an engine switch, and each call is a
-            // safe no-op when that engine holds nothing for this note.
-            synthEngine.noteOff (note);
-            samplerEngine.noteOff (note);
-            melodyEngine.noteOff (note);
-
-            if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
-            {
-                voicePool.releaseVoice (noteToVoice[(size_t) note]);
-                noteToVoice[(size_t) note] = -1;
-            }
+            if (juce::isPositiveAndBelow (note, 128))
+                arpHeld[(size_t) note] = false;
+            routeNoteOff (note);
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
@@ -601,8 +640,163 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
             melodyEngine.releaseAll();
             noteToVoice.fill (-1);
             padKeyToVoice.fill (-1);
+            arpHeld.fill (false);
+            arpVel.fill (0.0f);
+            arpNote = -1;
         }
     }
+}
+
+void VocalChopAudioProcessor::routeNoteOn (int note, float velocity, bool selfReleasing)
+{
+    // Sampled/Melody modes without a loaded bank fall through to the synth
+    // branch (isSynthMode() is true there too): keys must NEVER be silent.
+    if (isMelodyMode() && melodyEngine.hasBank())
+    {
+        if (selfReleasing) melodyEngine.tapNote (note, velocity);
+        else               melodyEngine.noteOn  (note, velocity);
+    }
+    else if (isSamplerMode() && samplerEngine.hasBank())
+    {
+        if (selfReleasing) samplerEngine.tapNote (note, velocity);
+        else               samplerEngine.noteOn  (note, velocity);
+    }
+    else if (isSynthMode() || sliceEngine.getNumSlices() == 0)
+    {
+        if (isSynthMode() && kitMode.load (std::memory_order_relaxed))
+            kitNoteOn (note, velocity, selfReleasing);
+        else if (selfReleasing) synthEngine.tapNote (note, velocity);
+        else                    synthEngine.noteOn  (note, velocity);
+    }
+    else
+    {
+        // Retriggering a still-held note releases its old voice so the
+        // previous hit doesn't ring on as an orphan.
+        if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+            voicePool.releaseVoice (noteToVoice[(size_t) note]);
+
+        const int voice = triggerSliceIndex (diatonicSliceIndex (note - kRootNote), velocity);
+        if (juce::isPositiveAndBelow (note, 128))
+            noteToVoice[(size_t) note] = voice;
+    }
+}
+
+void VocalChopAudioProcessor::routeNoteOff (int note)
+{
+    // Release EVERY engine regardless of the current mode: the note may have
+    // started before an engine switch, and each call safely no-ops when that
+    // engine holds nothing for this note.
+    synthEngine.noteOff (note);
+    samplerEngine.noteOff (note);
+    melodyEngine.noteOff (note);
+
+    if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+    {
+        voicePool.releaseVoice (noteToVoice[(size_t) note]);
+        noteToVoice[(size_t) note] = -1;
+    }
+}
+
+double VocalChopAudioProcessor::currentBpm() const
+{
+    const double host = hostBpm.load();
+    return host > 0.0 ? host : (double) looper.getMetroBpm();
+}
+
+void VocalChopAudioProcessor::advanceArp (int numSamples)
+{
+    const int mode = arpModeParam != nullptr ? (int) arpModeParam->load() : 0;
+
+    if (mode <= 0)
+    {
+        // Turning the arp off must not leave its last note hanging.
+        if (arpNote >= 0) { routeNoteOff (arpNote); arpNote = -1; }
+        arpStepSamples = 0;
+        return;
+    }
+
+    // Collect the held notes, lowest first.
+    int notes[128];
+    int count = 0;
+    for (int n = 0; n < 128 && count < 128; ++n)
+        if (arpHeld[(size_t) n])
+            notes[count++] = n;
+
+    if (count == 0)
+    {
+        if (arpNote >= 0) { routeNoteOff (arpNote); arpNote = -1; }
+        arpStepSamples = 0;       // the next held note starts a step at once
+        arpIndex = 0; arpDir = 1; arpOctave = 0;
+        return;
+    }
+
+    // Step length from the tempo grid.
+    static const double rateMult[] = { 1.0, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0, 0.125 };
+    const int  rate = arpRateParam != nullptr
+                        ? juce::jlimit (0, 5, (int) arpRateParam->load()) : 3;
+    const double beat = 60.0 / juce::jmax (20.0, currentBpm());
+    const int stepLen = juce::jmax (32, (int) (beat * rateMult[rate] * currentSampleRate));
+
+    const float gate = arpGateParam != nullptr
+                         ? juce::jlimit (0.05f, 1.0f, arpGateParam->load()) : 0.6f;
+    const int octaves = arpOctParam != nullptr
+                          ? juce::jlimit (1, 3, (int) arpOctParam->load() + 1) : 1;
+
+    // Note-off for the current step's note (block granularity, like the pads).
+    if (arpNote >= 0)
+    {
+        arpGateSamples -= numSamples;
+        if (arpGateSamples <= 0)
+        {
+            routeNoteOff (arpNote);
+            arpNote = -1;
+        }
+    }
+
+    arpStepSamples -= numSamples;
+    if (arpStepSamples > 0)
+        return;
+
+    arpStepSamples += stepLen;
+    if (arpStepSamples <= 0)          // very long blocks / very fast rates
+        arpStepSamples = stepLen;
+
+    // Pick the next note in the pattern.
+    int pick = 0;
+    switch (mode)
+    {
+        case 1:  pick = arpIndex % count; ++arpIndex; break;                    // Up
+        case 2:  pick = (count - 1) - (arpIndex % count); ++arpIndex; break;    // Down
+        case 3:                                                                 // Up-Down
+            pick = juce::jlimit (0, count - 1, arpIndex);
+            arpIndex += arpDir;
+            if (arpIndex >= count) { arpIndex = juce::jmax (0, count - 2); arpDir = -1; }
+            else if (arpIndex < 0) { arpIndex = juce::jmin (count - 1, 1);  arpDir =  1; }
+            break;
+        default: pick = arpRandom.nextInt (count); break;                       // Random
+    }
+
+    if (mode != 3 && arpIndex >= count * 4)
+        arpIndex %= count;            // keep the counter small
+
+    // Octave stack: every full pass climbs, then wraps. Random has no "full
+    // pass" to hang that on, so it just picks an octave per step.
+    if (octaves > 1)
+        arpOctave = mode == 4 ? arpRandom.nextInt (octaves)
+                              : (pick == 0 ? (arpOctave + 1) % octaves : arpOctave);
+    else
+        arpOctave = 0;
+
+    const int note = juce::jlimit (0, 127, notes[pick] + arpOctave * 12);
+
+    if (arpNote >= 0)
+        routeNoteOff (arpNote);
+
+    // Play it as hard as the key that fed it, so the arp still responds to
+    // touch instead of flattening every pattern to one velocity.
+    routeNoteOn (note, juce::jlimit (0.05f, 1.0f, arpVel[(size_t) notes[pick]]), false);
+    arpNote = note;
+    arpGateSamples = juce::jmax (16, (int) (stepLen * gate));
 }
 
 void VocalChopAudioProcessor::clearVoiceMapping (int voiceIndex)
@@ -696,11 +890,10 @@ void VocalChopAudioProcessor::drainPadQueue()
 
         if (type == padOff)
         {
-            // Release every engine: the pad may have been pressed before an
-            // engine switch (each call safely no-ops when not applicable).
-            synthEngine.noteOff (note);
-            samplerEngine.noteOff (note);
-            melodyEngine.noteOff (note);
+            if (juce::isPositiveAndBelow (note, 128))
+                arpHeld[(size_t) note] = false;
+
+            routeNoteOff (note);
 
             if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
             {
@@ -710,33 +903,20 @@ void VocalChopAudioProcessor::drainPadQueue()
             return;
         }
 
-        // Same never-silent policy as handleMidi: an empty sampler bank or a
-        // chop mode with no sample both fall back to the synth patch.
-        if (isMelodyMode() && melodyEngine.hasBank())
+        // With the arp on, a held pad feeds the pattern like a held key does.
+        if (arpModeParam != nullptr && (int) arpModeParam->load() > 0
+            && juce::isPositiveAndBelow (note, 128))
         {
-            if (type == padOn) melodyEngine.noteOn (note, vel);
-            else               melodyEngine.tapNote (note, vel);
+            if (type == padOn)  { arpHeld[(size_t) note] = true;  return; }
+            if (type == padTap) { arpHeld[(size_t) note] = true;  return; }
         }
-        else if (isSamplerMode() && samplerEngine.hasBank())
-        {
-            if (type == padOn) samplerEngine.noteOn (note, vel);
-            else               samplerEngine.tapNote (note, vel);   // self-releasing
-        }
-        else if (synth || sliceEngine.getNumSlices() == 0)
-        {
-            if (synth && kitMode.load (std::memory_order_relaxed))
-                kitNoteOn (note, vel, type != padOn);
-            else if (type == padOn)
-                synthEngine.noteOn (note, vel);
-            else
-                synthEngine.tapNote (note, vel);
-        }
-        else
-        {
-            const int voice = triggerSliceIndex (diatonicSliceIndex (idx), vel);
-            if (type == padOn && juce::isPositiveAndBelow (idx, 128))
-                padKeyToVoice[(size_t) idx] = voice;
-        }
+
+        routeNoteOn (note, vel, type != padOn);
+
+        // Chop voices are tracked per pad so a release can stop them.
+        if (type == padOn && ! isSynthMode() && sliceEngine.getNumSlices() > 0
+            && juce::isPositiveAndBelow (idx, 128))
+            padKeyToVoice[(size_t) idx] = noteToVoice[(size_t) note];
     };
 
     for (int i = 0; i < size1; ++i)
@@ -995,6 +1175,7 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
     set ("filterReso", 0.707f); set ("delayFeedback", 0.4f); set ("pingpong", 0.0f);
     set ("reverse", 0.0f);    set ("playMode", 0.0f);  set ("outputGain", 0.0f);
     set ("delaySync", 0.0f);   // factory presets start on a free-running delay
+    set ("arpMode", 0.0f);     set ("pumpAmt", 0.0f);
 
     switch (presetIndex)
     {
@@ -1696,10 +1877,21 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
 
     p.chorusMix = chorus;
 
+    // --- Portamento defaults ------------------------------------------------
+    // Only the voices whose whole identity is the SLIDE ship with glide on;
+    // everything else starts at zero and the Glide knob is there if wanted.
+    float glide = 0.0f;
+    if (name == "Drill Slide" || name == "Talk Bass" || name == "Glide Solo"
+        || name == "Whistle Lead" || name == "Phonk Whistle" || name == "Acid Lead"
+        || name == "Squelch 303" || name == "Wobble Growl")
+        glide = 90.0f;
+
+    p.glideMs = glide;
+
     // Publish the resolved module values for applyInstrument to mirror into
     // the knobs (race-free snapshot; see ModuleDefaults in the header).
     moduleDefaults = { d.unison, d.spread, d.sub, d.noise, d.fm,
-                       d.vibCents, chorus };
+                       d.vibCents, chorus, glide };
 
     currentInstrument = i;
 }
@@ -1736,6 +1928,7 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     set ("synthVibrato", juce::jlimit (0.0f, 1.0f, moduleDefaults.vibCents / 30.0f));
     set ("synthChorus",  moduleDefaults.chorus);
     set ("synthLfoAmt",  0.0f);   // motion is a per-user seasoning, not baked in
+    set ("synthGlide",   moduleDefaults.glideMs);
     set ("attack",       d.atk);
     set ("decay",        d.dec);
     set ("sustain",      d.sus);

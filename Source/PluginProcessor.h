@@ -173,6 +173,16 @@ private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
     void handleMidi (const juce::MidiBuffer& midi, int numSamples);
+
+    /** Every note the plugin plays goes through here, whatever its source
+        (MIDI, on-screen keys, chord bar, arpeggiator). */
+    void routeNoteOn (int note, float velocity, bool selfReleasing);
+    void routeNoteOff (int note);
+
+    /** Arpeggiator: while it is on, held notes feed the pattern instead of
+        sounding directly, and it triggers them on the tempo grid. */
+    void advanceArp (int numSamples);
+    double currentBpm() const;   // host tempo, else the looper's own BPM
     void drainPadQueue();
     int  triggerSliceIndex (int sliceIndex, float velocity);
     static int diatonicSliceIndex (int semis);   // white-key order -> slice order
@@ -240,6 +250,7 @@ private:
     std::atomic<float>* synthChorusParam  = nullptr;
     std::atomic<float>* synthLfoRateParam = nullptr;
     std::atomic<float>* synthLfoAmtParam  = nullptr;
+    std::atomic<float>* synthGlideParam   = nullptr;
     std::atomic<float>* delaySyncParam  = nullptr;
     bool lastDelayWasSynced = false;   // audio thread only
     std::atomic<float>* macroHypeParam  = nullptr;
@@ -248,6 +259,27 @@ private:
 
     std::atomic<float> outputLevel { 0.0f };
     std::atomic<double> hostBpm { 0.0 };   // 0 = host published no tempo
+
+    // --- Arpeggiator (audio thread state) ---------------------------------
+    std::array<bool, 128> arpHeld {};
+    std::array<float, 128> arpVel {};   // how hard each held key was struck
+    int   arpStepSamples = 0;     // samples left in the current step
+    int   arpGateSamples = 0;     // samples left before the current note ends
+    int   arpNote = -1;           // the note currently sounding
+    int   arpIndex = 0;           // walk position in the held set
+    int   arpDir = 1;             // for up-down
+    int   arpOctave = 0;          // octave stack position
+    juce::Random arpRandom;
+
+    std::atomic<float>* arpModeParam = nullptr;
+    std::atomic<float>* arpRateParam = nullptr;
+    std::atomic<float>* arpGateParam = nullptr;
+    std::atomic<float>* arpOctParam  = nullptr;
+
+    // --- Sidechain pump ----------------------------------------------------
+    double pumpPhase = 0.0;
+    std::atomic<float>* pumpAmtParam  = nullptr;
+    std::atomic<float>* pumpRateParam = nullptr;
 
     // Live-output oscilloscope ring (audio thread writes, UI paint reads).
     std::array<float, 2048> scopeRing {};
@@ -324,7 +356,7 @@ private:
     {
         int   unison = 1;
         float spread = 0.5f, sub = 0.0f, noise = 0.0f,
-              fm = 0.0f, vibCents = 0.0f, chorus = 0.0f;
+              fm = 0.0f, vibCents = 0.0f, chorus = 0.0f, glideMs = 0.0f;
     };
     ModuleDefaults moduleDefaults;
 

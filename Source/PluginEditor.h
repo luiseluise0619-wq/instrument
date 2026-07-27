@@ -107,7 +107,7 @@ private:
     // Synth module knobs (Serum-style architecture controls).
     std::unique_ptr<KnobComponent> unisonKnob, spreadKnob, subKnob, noiseKnob,
                                    fmKnob, vibratoKnob, chorusKnob,
-                                   lfoRateKnob, motionKnob;
+                                   lfoRateKnob, motionKnob, glideKnob;
 
     // Performance macros (HYPE / SPACE / DIRT).
     std::unique_ptr<KnobComponent> hypeKnob, spaceKnob, dirtKnob;
@@ -116,6 +116,10 @@ private:
     juce::ComboBox   filterTypeBox;
     juce::ComboBox   playModeBox;
     juce::ComboBox   delaySyncBox;   // delay time locked to the host tempo
+
+    // Arp + pump: the two tempo-locked performance engines.
+    juce::ComboBox   arpModeBox, arpRateBox, arpOctBox, pumpRateBox;
+    std::unique_ptr<KnobComponent> arpGateKnob, pumpKnob;
     juce::ToggleButton reverseButton  { "Reverse" };
     juce::ToggleButton pingpongButton { "Ping-Pong" };
 
@@ -163,6 +167,7 @@ private:
     juce::Rectangle<int> synthCardBounds;
     juce::Rectangle<int> filterCardBounds;
     juce::Rectangle<int> playbackCardBounds;
+    juce::Rectangle<int> arpCardBounds;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
@@ -175,7 +180,7 @@ private:
 
     // Fixed-size design canvas, scaled as one unit so the window can shrink
     // to 60% without per-widget cramming. All children live inside it.
-    static constexpr int kBaseW = 1080, kBaseH = 1060;
+    static constexpr int kBaseW = 1080, kBaseH = 1140;
     struct ContentComp : juce::Component
     {
         explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}

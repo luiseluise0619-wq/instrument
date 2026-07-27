@@ -58,6 +58,7 @@ public:
         std::atomic<float> lfoDepthOct   { 0.0f };   // filter LFO depth (octaves)
         std::atomic<float> pitchEnvOct   { 0.0f };   // pitch drop (octaves, drums)
         std::atomic<float> pitchEnvMs    { 60.0f };  // pitch envelope decay
+        std::atomic<float> glideMs       { 0.0f };   // portamento from the last note
         // Vocal formant bank: -1 = off, 0..4 = A E I O U vowel resonances.
         std::atomic<int>   formantVowel  { -1 };
         std::atomic<float> formantAmount { 0.0f };   // 0..1 dry/wet
@@ -71,6 +72,7 @@ public:
             chorusMix = 0.0f; satAmount = 0.15f;
             lfoRateHz = 2.0f; lfoDepthOct = 0.0f;
             pitchEnvOct = 0.0f; pitchEnvMs = 60.0f;
+            glideMs = 0.0f;
             formantVowel = -1; formantAmount = 0.0f;
         }
     };
@@ -112,6 +114,10 @@ private:
 
         // Pitch envelope (percussion "drop"): 1 -> 0 exponential.
         float penv = 0.0f, penvCoeff = 0.0f, penvOct = 0.0f;
+
+        // Portamento: the note starts at the PREVIOUS note's pitch and slides
+        // to its own. Held as a frequency ratio that decays toward 1.
+        float glideRatio = 1.0f, glideCoeff = 0.0f;
         double fmCarPhase = 0.0, fmCarInc = 0.0;
         double fmModPhase = 0.0, fmModInc = 0.0;
         double vibPhase = 0.0,  vibInc = 0.0;
@@ -159,6 +165,8 @@ private:
     std::array<Voice, kMaxVoices> voices;
 
     Patch  patchSettings;
+    // Where the next note glides FROM (-1 = no previous note).
+    int    lastStartedNote = -1;
     juce::Random noiseRng;
     double lfoPhaseBase = 0.0;   // global filter-LFO phase (0..1)
 

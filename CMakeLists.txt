@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VocalChopStudio VERSION 2.9.1 LANGUAGES C CXX)
+project(VocalChopStudio VERSION 3.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -163,6 +163,26 @@ if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_test.cpp)
         juce::juce_audio_plugin_client
         juce::juce_recommended_config_flags)
     target_include_directories(SlyceRenderTest PRIVATE
+        Source
+        ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
+        ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode
+        ${signalsmith_stretch_SOURCE_DIR}
+        ${SIGNALSMITH_INCLUDE_ROOT}
+        ${signalsmith_linear_SOURCE_DIR})
+endif()
+
+# --- offline arrangement renderer: builds the demo track for the store page --
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/demo_render.cpp)
+    juce_add_console_app(SlyceDemoRender PRODUCT_NAME "SlyceDemoRender")
+    target_sources(SlyceDemoRender PRIVATE tools/demo_render.cpp)
+    target_compile_definitions(SlyceDemoRender PRIVATE
+        JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(SlyceDemoRender PRIVATE
+        VocalChopStudio
+        juce::juce_audio_plugin_client
+        juce::juce_recommended_config_flags)
+    target_include_directories(SlyceDemoRender PRIVATE
         Source
         ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
         ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode

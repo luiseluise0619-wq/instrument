@@ -95,7 +95,10 @@ void SynthEngine::reset()
         v.autoOffCounter = -1;
         v.ic1L = v.ic2L = v.ic1R = v.ic2R = 0.0f;
         v.driftCents = 0.0f;
+        v.glideRatio = 1.0f;
+        v.glideCoeff = 0.0f;
     }
+    lastStartedNote = -1;   // the first note after a reset must not slide in
 }
 
 void SynthEngine::setEnvelope (float a, float d, float s, float r)
@@ -189,6 +192,28 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     v.vibInc        = patchSettings.vibRateHz.load() / sampleRate;
 
     v.driftDepth = juce::jlimit (0.0f, 15.0f, patchSettings.driftCents.load());
+
+    // Portamento: slide in from wherever the last note was. Poly voices each
+    // glide from the last note started, which is what a mono lead or an 808
+    // slide wants and is harmless when the knob is at zero.
+    {
+        const float gms = patchSettings.glideMs.load();
+        if (gms > 1.0f && pitchNoteOverride < 0
+            && lastStartedNote >= 0 && lastStartedNote != (int) baseNote)
+        {
+            const double semis = juce::jlimit (-36.0, 36.0,
+                                               (double) lastStartedNote - baseNote);
+            v.glideRatio = (float) std::pow (2.0, semis / 12.0);
+            v.glideCoeff = std::exp (-1.0f / (gms * 0.001f * (float) sampleRate));
+        }
+        else
+        {
+            v.glideRatio = 1.0f;
+            v.glideCoeff = 0.0f;
+        }
+        if (pitchNoteOverride < 0)
+            lastStartedNote = (int) baseNote;
+    }
 
     // Percussion pitch envelope: start high, fall exponentially to base.
     v.penvOct = juce::jlimit (0.0f, 5.0f, patchSettings.pitchEnvOct.load());
@@ -484,6 +509,13 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 // Exponential drop from +penvOct octaves down to the note.
                 pitchRatio *= std::exp2 (v.penvOct * v.penv);
                 v.penv *= v.penvCoeff;
+            }
+            if (v.glideCoeff > 0.0f)
+            {
+                pitchRatio *= v.glideRatio;
+                v.glideRatio = 1.0f + (v.glideRatio - 1.0f) * v.glideCoeff;
+                if (std::abs (v.glideRatio - 1.0f) < 1.0e-4f)
+                    v.glideCoeff = 0.0f;      // arrived: stop paying for it
             }
 
             // --- Unison oscillator bank -------------------------------------

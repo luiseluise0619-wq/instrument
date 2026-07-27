@@ -619,11 +619,11 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // Hover help everywhere a first-timer might hesitate.
     demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
-    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 343 built-in sounds.  "
+    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 376 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
                           "Melody = play the loaded sample as pitched notes");
     synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
-    instrumentBox.setTooltip ("343 built-in sounds, organised by category - start with FEATURED");
+    instrumentBox.setTooltip ("376 built-in sounds, organised by category - start with FEATURED");
     looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
     themeBox.setTooltip ("Color themes and artwork skins");
     presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
@@ -839,6 +839,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addKnob (chorusKnob,  "synthChorus",  "Chorus");
     addKnob (lfoRateKnob, "synthLfoRate", "LFO Rate");
     addKnob (motionKnob,  "synthLfoAmt",  "Motion");
+    addKnob (glideKnob,   "synthGlide",   "Glide");
 
     // --- Performance macros: the three most prominent knobs on screen ---
     addKnob (hypeKnob,  "macroHype",  "HYPE");
@@ -866,6 +867,49 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (pingpongButton);
     buttonAttachments.push_back (std::make_unique<ButtonAttachment> (
         processor.getAPVTS(), "pingpong", pingpongButton));
+
+    // --- Arp + pump ---------------------------------------------------------
+    arpModeBox.setTooltip ("Arpeggiator: hold a chord and it plays the notes in "
+                           "time with your DAW");
+    for (const auto* m : { "Off", "Up", "Down", "Up-Down", "Random" })
+        arpModeBox.addItem (m, arpModeBox.getNumItems() + 1);
+    arpModeBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (arpModeBox);
+    comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (
+        processor.getAPVTS(), "arpMode", arpModeBox));
+
+    arpRateBox.setTooltip ("How fast the arp steps");
+    for (const auto* r : { "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32" })
+        arpRateBox.addItem (r, arpRateBox.getNumItems() + 1);
+    arpRateBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (arpRateBox);
+    comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (
+        processor.getAPVTS(), "arpRate", arpRateBox));
+
+    arpOctBox.setTooltip ("How many octaves the pattern climbs");
+    for (const auto* o : { "1 oct", "2 oct", "3 oct" })
+        arpOctBox.addItem (o, arpOctBox.getNumItems() + 1);
+    arpOctBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (arpOctBox);
+    comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (
+        processor.getAPVTS(), "arpOct", arpOctBox));
+
+    pumpRateBox.setTooltip ("How often the pump ducks");
+    for (const auto* r : { "1 bar", "1/2", "1/4", "1/8" })
+        pumpRateBox.addItem (r, pumpRateBox.getNumItems() + 1);
+    pumpRateBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (pumpRateBox);
+    comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (
+        processor.getAPVTS(), "pumpRate", pumpRateBox));
+
+    addKnob (arpGateKnob, "arpGate", "Gate");
+    addKnob (pumpKnob,    "pumpAmt", "Pump");
+    arpGateKnob->getSlider().setTooltip ("How long each arp note holds");
+    if (glideKnob != nullptr)
+        glideKnob->getSlider().setTooltip ("Portamento: each note slides in from the "
+                                           "one before it (0 = off)");
+    pumpKnob->getSlider().setTooltip ("Sidechain pump: ducks the whole mix on the "
+                                      "beat, no routing needed");
 
     delaySyncBox.setTooltip ("Delay time locked to your DAW's tempo "
                              "(Free = the plugin's own 350 ms)");
@@ -1466,6 +1510,7 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     drawCard (g, synthCardBounds.toFloat());
     drawCard (g, filterCardBounds.toFloat());
     drawCard (g, playbackCardBounds.toFloat());
+    drawCard (g, arpCardBounds.toFloat());
 
     // Section captions.
     drawCaption (g, "Macros",     macroCardBounds);
@@ -1474,6 +1519,7 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     drawCaption (g, "Synth",      synthCardBounds);
     drawCaption (g, "Filter",     filterCardBounds);
     drawCaption (g, "Playback",   playbackCardBounds);
+    drawCaption (g, "Arp / Pump",  arpCardBounds);
 
     // Footer hint.
     g.setColour (theme.textSecondary);
@@ -1604,8 +1650,13 @@ void VocalChopAudioProcessorEditor::layoutContent()
 
     // Remaining width split into labelled cards over three rows:
     // [Envelope | Pitch/Tone], [Synth modules], [Filter | Playback].
+    // The first two rows are a single row of dials; the bottom row stacks
+    // combos ON TOP of dials (filter type, arp/pump, playback modes), so an
+    // even three-way split starved it - the dials collapsed to dots. Give it
+    // 38% and split the remainder between the two simple rows.
     const int rowGap = kGap;
-    const int rowH   = (controls.getHeight() - rowGap * 2) / 3;
+    const int freeH  = controls.getHeight() - rowGap * 2;
+    const int rowH   = freeH * 31 / 100;
     auto topCards   = controls.removeFromTop (rowH);
     controls.removeFromTop (rowGap);
     auto synthCard  = controls.removeFromTop (rowH);
@@ -1645,16 +1696,48 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // Middle row: the synth architecture modules.
     layoutKnobRow (synthCard, { unisonKnob.get(), spreadKnob.get(), subKnob.get(),
                                 noiseKnob.get(), fmKnob.get(), vibratoKnob.get(),
-                                chorusKnob.get(), lfoRateKnob.get(), motionKnob.get() });
+                                chorusKnob.get(), lfoRateKnob.get(), motionKnob.get(),
+                                glideKnob.get() });
 
     // Bottom row: Filter | Macros | Playback.
     {
         const int gap = kGap;
-        auto filterCard  = bottomCards.removeFromLeft ((bottomCards.getWidth() - gap * 2) * 30 / 100);
+        const int free = bottomCards.getWidth() - gap * 3;
+        auto filterCard  = bottomCards.removeFromLeft (free * 19 / 100);
         filterCardBounds = filterCard;
         bottomCards.removeFromLeft (gap);
 
-        auto macroCard  = bottomCards.removeFromLeft ((bottomCards.getWidth() - gap) * 52 / 100);
+        // ARP + PUMP: the two tempo-locked performance engines.
+        auto arpCard = bottomCards.removeFromLeft (free * 26 / 100);
+        arpCardBounds = arpCard;
+        bottomCards.removeFromLeft (gap);
+        {
+            // A 2x2 combo grid over a two-dial row. The dials keep whatever
+            // height is left, so the card degrades gracefully when the window
+            // is scaled down rather than collapsing them to nothing.
+            auto inner = arpCard.reduced (kPadding - 4, kPadding - 4);
+            inner.removeFromTop (kCaptionH);
+
+            const int comboH = juce::jlimit (22, 30, inner.getHeight() / 5);
+            auto grid = inner.removeFromTop (comboH * 2 + 4);
+
+            auto row1 = grid.removeFromTop (comboH);
+            arpModeBox.setBounds (row1.removeFromLeft (row1.getWidth() / 2).reduced (2, 0));
+            arpRateBox.setBounds (row1.reduced (2, 0));
+
+            auto row2 = grid.removeFromBottom (comboH);
+            arpOctBox.setBounds   (row2.removeFromLeft (row2.getWidth() / 2).reduced (2, 0));
+            pumpRateBox.setBounds (row2.reduced (2, 0));
+
+            inner.removeFromTop (2);
+            KnobComponent* ak[] = { arpGateKnob.get(), pumpKnob.get() };
+            const int aw = inner.getWidth() / 2;
+            for (auto* k : ak)
+                if (k != nullptr)
+                    k->setBounds (inner.removeFromLeft (aw).reduced (6, 0));
+        }
+
+        auto macroCard  = bottomCards.removeFromLeft (free * 26 / 100);
         macroCardBounds = macroCard;
         bottomCards.removeFromLeft (gap);
         layoutKnobRow (macroCard, { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() });
