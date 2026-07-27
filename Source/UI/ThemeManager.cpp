@@ -1,196 +1,198 @@
 #include "ThemeManager.h"
 
-int ThemeManager::idx = 0; // default to the flat "Studio" look
+int ThemeManager::idx = 0; // default to Studio Violet
 
-// Apple's rule, applied literally: the CHROME is neutral (near-black greys in
-// dark mode, paper greys in light mode) and colour appears only where it means
-// something - the accent. Picking a theme here is like picking an accent colour
-// in System Settings: the room stays the same, the highlights change.
+// ---------------------------------------------------------------------------
+// Every chrome token is DERIVED, not hand-picked.
 //
-// Greys are the macOS system greys (#1c1c1e / #2c2c2e / #3a3a3c / #48484a) and
-// the accents are the system colours (systemBlue, systemPurple, systemPink...).
+// The old table hand-wrote fifteen themes that shared one set of greys and
+// differed only in their accent. That is a recolour: switch theme and the room
+// stays exactly the same, one highlight changes. A theme should feel like a
+// different physical instrument.
+//
+// So each theme now declares three things - an accent, an ink colour for text
+// sitting ON the accent, and a tint strength - and every other token is the
+// neutral base pushed some distance toward that accent. The distance differs
+// per token, which is the part that matters: the backdrop moves furthest
+// (weight 1.4) because it is the largest surface and carries the room's
+// colour, the knob face barely moves (0.9) because it has to stay readable as
+// a control, and body text moves almost not at all (0.25) because tinted text
+// is just harder to read.
+//
+// Graphite declares tint 0 and therefore comes out as pure neutral greys - it
+// is the "no theme" theme, and it is the one case where sharing chrome is the
+// point.
+// ---------------------------------------------------------------------------
 namespace
 {
-    // Shared neutral chrome for every dark theme.
-    constexpr juce::uint32 kBgTop      = 0xff1b1b1d;
-    constexpr juce::uint32 kBgBottom   = 0xff0b0b0c;
-    constexpr juce::uint32 kMaterial   = 0x0dffffff;   // translucent card
-    constexpr juce::uint32 kMatStrong  = 0xf02c2c2e;   // solid control fill
-    constexpr juce::uint32 kSeparator  = 0x1fffffff;   // hairline
-    constexpr juce::uint32 kControl    = 0xff48484a;   // knob face (light grey)
-    constexpr juce::uint32 kTrack      = 0x1fffffff;   // inactive ring
-    constexpr juce::uint32 kText       = 0xfff2f2f7;
-    constexpr juce::uint32 kTextSec    = 0x8cf2f2f7;
-    constexpr juce::uint32 kShadow     = 0x80000000;
+    /** Blends `base` toward `accent` by `percent`, keeping base's ALPHA.
+
+        The alpha matters more than it looks: material and separator are
+        translucent by design (a card is vibrancy over the backdrop, a hairline
+        is white at 9%). Interpolating those as opaque colours would make every
+        card solid and every hairline a hard line, which is the whole Apple
+        material look gone in one function. */
+    juce::Colour tint (juce::Colour base, juce::Colour accent, float percent)
+    {
+        if (percent <= 0.0f) return base;
+        const float p = juce::jlimit (0.0f, 1.0f, percent * 0.01f);
+        return juce::Colour::fromFloatRGBA (
+            base.getFloatRed()   + (accent.getFloatRed()   - base.getFloatRed())   * p,
+            base.getFloatGreen() + (accent.getFloatGreen() - base.getFloatGreen()) * p,
+            base.getFloatBlue()  + (accent.getFloatBlue()  - base.getFloatBlue())  * p,
+            base.getFloatAlpha());
+    }
+
+    /** One theme, described the way a person would describe it. */
+    struct Spec
+    {
+        const char*   name;
+        bool          dark;
+        juce::uint32  accent;
+        juce::uint32  ink;      // text that sits ON the accent
+        float         strength; // 0 = neutral chrome, ~10 = strongly tinted
+    };
+
+    // --- neutral bases -----------------------------------------------------
+    // Dark. Slightly warm-neutral rather than pure grey, so the tint has
+    // something to bend rather than a flat 50% grey that reads as unconsidered.
+    struct Base
+    {
+        juce::uint32 bgTop, bgBottom, material, materialStrong, separator,
+                     control, controlBottom, controlTrack, tick,
+                     text, textSecondary, shadow;
+    };
+
+    constexpr Base kDark = {
+        0xff17161c, 0xff0d0d10,          // backdrop gradient
+        0x99282730, 0xf01c1b21,          // translucent card / solid control fill
+        0x17ffffff,                      // hairline
+        0xff2a2931, 0xff1a1920,          // knob face top / bottom
+        0x2fffffff,                      // inactive track
+        0x3affffff,                      // tick marks
+        0xfff2f0f5, 0xb6b6b2c0,          // primary / secondary text
+        0x73000000
+    };
+
+    // Light. Deliberately translucent so the tinted desk shows through the
+    // cards rather than sitting on top of it as flat white panels.
+    constexpr Base kLight = {
+        0xfff6f3ef, 0xffe7e2dc,
+        0x6bffffff, 0xf5ffffff,
+        0x1a000000,
+        0xffffffff, 0xf0f0ece6,
+        0x14000000,
+        0x33000000,
+        0xff1a1a1d, 0x9955515c,
+        0x21322814
+    };
+
+    // --- per-token tint weights -------------------------------------------
+    // A weight of 1.0 means "tinted by exactly the theme's strength".
+    constexpr float wBgTop     = 1.40f;   // largest surface, carries the room
+    constexpr float wBgBottom  = 1.00f;
+    constexpr float wMaterial  = 1.10f;
+    constexpr float wMatStrong = 1.10f;
+    constexpr float wSeparator = 1.20f;
+    constexpr float wControl   = 0.90f;   // must stay readable as a control
+    constexpr float wTrack     = 1.20f;
+    constexpr float wTick      = 1.40f;
+    constexpr float wText      = 0.25f;   // tinted body text is harder to read
+    constexpr float wTextSec   = 0.70f;
+
+    Theme build (const Spec& s)
+    {
+        const Base& b = s.dark ? kDark : kLight;
+        const juce::Colour acc (s.accent);
+        const float k = s.strength;
+
+        Theme t;
+        t.name = s.name;
+        t.dark = s.dark;
+
+        t.bgTop          = tint (juce::Colour (b.bgTop),          acc, k * wBgTop);
+        t.bgBottom       = tint (juce::Colour (b.bgBottom),       acc, k * wBgBottom);
+        t.material       = tint (juce::Colour (b.material),       acc, k * wMaterial);
+        t.materialStrong = tint (juce::Colour (b.materialStrong), acc, k * wMatStrong);
+        t.separator      = tint (juce::Colour (b.separator),      acc, k * wSeparator);
+        t.control        = tint (juce::Colour (b.control),        acc, k * wControl);
+        t.controlBottom  = tint (juce::Colour (b.controlBottom),  acc, k * wControl);
+        t.controlTrack   = tint (juce::Colour (b.controlTrack),   acc, k * wTrack);
+        t.tick           = tint (juce::Colour (b.tick),           acc, k * wTick);
+        t.text           = tint (juce::Colour (b.text),           acc, k * wText);
+        t.textSecondary  = tint (juce::Colour (b.textSecondary),  acc, k * wTextSec);
+        t.shadow         = juce::Colour (b.shadow);
+
+        t.accent    = acc;
+        t.accentInk = juce::Colour (s.ink);
+        t.accentSoft = acc.withAlpha (s.dark ? 0.20f : 0.16f);
+        // The waveform reads against the backdrop, not against a card, so it
+        // needs to sit clear of the accent rather than on it.
+        t.waveform = s.dark ? acc.brighter (0.45f) : acc.darker (0.25f);
+
+        t.cornerRadius = 12.0f;
+        t.glow = 0.0f;
+        return t;
+    }
+
+    // --- the fifteen ------------------------------------------------------
+    constexpr Spec kSpecs[] = {
+        { "Studio Violet", true,  0xffbf5af2, 0xff1c0d26,  7.0f },
+        { "Signal",        true,  0xffff3d7f, 0xff2c0616,  7.0f },
+        { "Acid",          true,  0xffc2f24a, 0xff141c07,  6.0f },
+        { "Mint",          true,  0xff2fd6a3, 0xff04231a,  7.0f },
+        { "Graphite",      true,  0xffb9b6c4, 0xff1a191f,  0.0f },
+        { "Cobalt",        true,  0xff3d8bff, 0xff04142e,  9.0f },
+        { "Indigo",        true,  0xff7b78f5, 0xff0c0a2e,  9.0f },
+        { "Aqua",          true,  0xff32ade6, 0xff031c27,  8.0f },
+        { "Ember",         true,  0xffff7a3d, 0xff2a0f05,  8.0f },
+        { "Sunset",        true,  0xffffb340, 0xff2a1a02,  8.0f },
+        { "Clay",          true,  0xffd98a6a, 0xff2a1611, 10.0f },
+        { "Paper",         false, 0xff5b3df2, 0xfff5f3ff,  5.0f },
+        { "Bone",          false, 0xffc8452b, 0xfffff4f1,  6.0f },
+        { "Sand",          false, 0xffa8752a, 0xfffff8ee,  7.0f },
+        { "Snow",          false, 0xff0a72e8, 0xfff2f8ff,  4.0f },
+    };
+
+    /** Neon Ocean is not derived and never was. It is the one deliberately
+        un-Apple skin - a lit scene rather than a neutral room - and running it
+        through the tint machine would turn it into another quiet theme, which
+        is precisely what it exists not to be. Kept hand-written, and kept. */
+    Theme neonOcean()
+    {
+        Theme t;
+        t.name = "Neon Ocean";
+        t.dark = true;
+        t.bgTop          = juce::Colour (0xff0b1030);
+        t.bgBottom       = juce::Colour (0xff050814);
+        t.material       = juce::Colour (0x1a3aa0ff);
+        t.materialStrong = juce::Colour (0xf0141c46);
+        t.separator      = juce::Colour (0x663aa0ff);
+        t.control        = juce::Colour (0xff0c1233);
+        t.controlBottom  = juce::Colour (0xff060a20);
+        t.controlTrack   = juce::Colour (0x26ffffff);
+        t.tick           = juce::Colour (0x593aa0ff);
+        t.accent         = juce::Colour (0xff00f5ff);
+        t.accentInk      = juce::Colour (0xff02121a);
+        t.accentSoft     = juce::Colour (0x5900f5ff);
+        t.waveform       = juce::Colour (0xffff2daa);
+        t.text           = juce::Colour (0xffeafcff);
+        t.textSecondary  = juce::Colour (0xb03aa0ff);
+        t.shadow         = juce::Colour (0xcc02040c);
+        t.cornerRadius   = 14.0f;
+        t.glow           = 1.0f;              // FULL glow
+        return t;
+    }
+
+    std::array<Theme, ThemeManager::kNumThemes> makeAll()
+    {
+        std::array<Theme, ThemeManager::kNumThemes> a;
+        const int n = (int) (sizeof (kSpecs) / sizeof (kSpecs[0]));
+        for (int i = 0; i < n; ++i)
+            a[(size_t) i] = build (kSpecs[i]);
+        a[(size_t) n] = neonOcean();
+        return a;
+    }
 }
 
-std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = {{
-    // ---- Studio Violet (default) -------------------------------------------
-    {
-        "Studio Violet", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xffbf5af2), juce::Colour (0x33bf5af2),   // systemPurple
-        juce::Colour (0xffd8a7ff),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f
-    },
-    { "Studio Ocean", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xff0a84ff), juce::Colour (0x330a84ff),   // systemBlue
-        juce::Colour (0xff9ecbff),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Ice", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xff64d2ff), juce::Colour (0x3364d2ff),   // systemTeal
-        juce::Colour (0xffb8e9ff),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Mint", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xff30d158), juce::Colour (0x3330d158),   // systemGreen
-        juce::Colour (0xff9ff0b4),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Amber", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xffff9f0a), juce::Colour (0x33ff9f0a),   // systemOrange
-        juce::Colour (0xffffd08a),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Rose", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xffff375f), juce::Colour (0x33ff375f),   // systemPink
-        juce::Colour (0xffff9fb2),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Gold", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xffffd60a), juce::Colour (0x33ffd60a),   // systemYellow
-        juce::Colour (0xffffe98a),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Mono", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xfff2f2f7), juce::Colour (0x26f2f2f7),   // monochrome
-        juce::Colour (0xffc7c7cc),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Red", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xffff453a), juce::Colour (0x33ff453a),   // systemRed
-        juce::Colour (0xffffa39d),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    { "Studio Indigo", true,
-        juce::Colour (kBgTop), juce::Colour (kBgBottom),
-        juce::Colour (kMaterial), juce::Colour (kMatStrong),
-        juce::Colour (kSeparator),
-        juce::Colour (kControl), juce::Colour (kTrack),
-        juce::Colour (0xff5e5ce6), juce::Colour (0x335e5ce6),   // systemIndigo
-        juce::Colour (0xffb0afff),
-        juce::Colour (kText), juce::Colour (kTextSec),
-        juce::Colour (kShadow),
-        12.0f, 0.0f },
-    // ---- Graphite: the same chrome one step lighter (a "desk lamp" room) ---
-    {
-        "Graphite", true,
-        juce::Colour (0xff242426), juce::Colour (0xff121213),
-        juce::Colour (0x12ffffff), juce::Colour (0xf0333336),
-        juce::Colour (0x26ffffff),
-        juce::Colour (0xff48484a), juce::Colour (0x26ffffff),
-        juce::Colour (0xff0a84ff), juce::Colour (0x330a84ff),
-        juce::Colour (0xffdcdce0),
-        juce::Colour (0xfff2f2f7), juce::Colour (0x99f2f2f7),
-        juce::Colour (kShadow),
-        12.0f, 0.0f
-    },
-    // ---- Midnight: near-black with the faintest blue cast -----------------
-    {
-        "Midnight", true,
-        juce::Colour (0xff14161c), juce::Colour (0xff08090d),
-        juce::Colour (0x0dffffff), juce::Colour (0xf0242832),
-        juce::Colour (0x1fffffff),
-        juce::Colour (0xff32363f), juce::Colour (0x1fffffff),
-        juce::Colour (0xff64d2ff), juce::Colour (0x3364d2ff),
-        juce::Colour (0xffb8e9ff),
-        juce::Colour (0xfff2f4f8), juce::Colour (0x8cf2f4f8),
-        juce::Colour (0x8c000000),
-        12.0f, 0.0f
-    },
-    // ---- Silver: light mode, Apple's grouped-background greys -------------
-    {
-        "Silver", false,
-        juce::Colour (0xfff7f7f9), juce::Colour (0xffe6e6eb),
-        juce::Colour (0xc6ffffff), juce::Colour (0xfaffffff),
-        juce::Colour (0x1c000000),
-        juce::Colour (0xffffffff), juce::Colour (0x14000000),
-        juce::Colour (0xff007aff), juce::Colour (0x26007aff),   // systemBlue
-        juce::Colour (0xff2c6bd8),
-        juce::Colour (0xff1c1c1e), juce::Colour (0x8c3a3a3c),
-        juce::Colour (0x1f000000),
-        12.0f, 0.0f
-    },
-    // ---- Snow: light mode, purple accent ---------------------------------
-    {
-        "Snow", false,
-        juce::Colour (0xfffafafc), juce::Colour (0xffeaeaef),
-        juce::Colour (0xc6ffffff), juce::Colour (0xfaffffff),
-        juce::Colour (0x1c000000),
-        juce::Colour (0xffffffff), juce::Colour (0x14000000),
-        juce::Colour (0xffaf52de), juce::Colour (0x26af52de),   // systemPurple
-        juce::Colour (0xff7b3fa0),
-        juce::Colour (0xff1c1c1e), juce::Colour (0x8c3a3a3c),
-        juce::Colour (0x1f000000),
-        12.0f, 0.0f
-    },
-    // ---- Neon Ocean: the one deliberately un-Apple skin (scene backdrop) --
-    {
-        "Neon Ocean", true,
-        juce::Colour (0xff0b1030), juce::Colour (0xff050814),
-        juce::Colour (0x1a3aa0ff), juce::Colour (0xf0141c46),
-        juce::Colour (0x663aa0ff),
-        juce::Colour (0xff0c1233), juce::Colour (0x26ffffff),
-        juce::Colour (0xff00f5ff), juce::Colour (0x5900f5ff),
-        juce::Colour (0xffff2daa),
-        juce::Colour (0xffeafcff), juce::Colour (0xb03aa0ff),
-        juce::Colour (0xcc02040c),
-        14.0f, 1.0f                                             // FULL glow
-    }
-}};
+std::array<Theme, ThemeManager::kNumThemes> ThemeManager::all = makeAll();

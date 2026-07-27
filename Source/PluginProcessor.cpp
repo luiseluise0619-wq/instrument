@@ -2262,6 +2262,11 @@ void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     // Like the instrument: the NAME is authoritative — the theme list grows
     // and indices drift across versions.
     root.setAttribute ("themeName",   ThemeManager::active().name);
+    // Which NAMING GENERATION that themeName belongs to. Needed because the
+    // rename was not injective: "Snow" existed in the old set (light purple)
+    // AND exists in the new one (light blue). Without this marker the alias
+    // map would rewrite every newly-saved Snow into Paper forever.
+    root.setAttribute ("themeSet",    2);
     root.setAttribute ("instrument",  currentInstrument);
     // The name is authoritative across plugin versions — the table grows and
     // indices drift, but "Syn Grand" is forever.
@@ -2300,13 +2305,32 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         auto savedTheme = xml->getStringAttribute ("themeName");
         // Retired themes map to their nearest surviving relative instead of
         // silently landing on whatever index now sits in their old slot.
+        // Generation 1 is anything saved before the palette became derived.
+        const bool legacyNames = xml->getIntAttribute ("themeSet", 1) < 2;
+
         if (savedTheme == "Neon Rider" || savedTheme == "Neo-Seoul")
             savedTheme = "Neon Ocean";
-        else if (savedTheme == "Sunset")        savedTheme = "Studio Amber";
-        else if (savedTheme == "Emerald")       savedTheme = "Studio Mint";
-        else if (savedTheme == "Royal Velvet")  savedTheme = "Studio Indigo";
-        else if (savedTheme == "Carbon")        savedTheme = "Studio Red";
+        else if (! legacyNames)                 { /* names are current */ }
+        else if (savedTheme == "Emerald")       savedTheme = "Mint";
+        else if (savedTheme == "Royal Velvet")  savedTheme = "Indigo";
+        else if (savedTheme == "Carbon")        savedTheme = "Ember";
         else if (savedTheme == "Space Gray")    savedTheme = "Graphite";
+        // The "Studio *" set was replaced when the palette became derived
+        // rather than hand-written. Each maps to the survivor closest in HUE,
+        // so a reopened session looks like the one that was saved even though
+        // no theme of that name exists any more.
+        else if (savedTheme == "Studio Ocean")  savedTheme = "Cobalt";
+        else if (savedTheme == "Studio Ice")    savedTheme = "Aqua";
+        else if (savedTheme == "Studio Mint")   savedTheme = "Mint";
+        else if (savedTheme == "Studio Amber")  savedTheme = "Sunset";
+        else if (savedTheme == "Studio Rose")   savedTheme = "Signal";
+        else if (savedTheme == "Studio Gold")   savedTheme = "Acid";
+        else if (savedTheme == "Studio Mono")   savedTheme = "Graphite";
+        else if (savedTheme == "Studio Red")    savedTheme = "Ember";
+        else if (savedTheme == "Studio Indigo") savedTheme = "Indigo";
+        else if (savedTheme == "Midnight")      savedTheme = "Aqua";
+        else if (savedTheme == "Silver")        savedTheme = "Snow";
+        else if (savedTheme == "Snow")          savedTheme = "Paper";
         if (savedTheme.isNotEmpty())
         {
             const auto& list = ThemeManager::themes();

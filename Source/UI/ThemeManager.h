@@ -21,10 +21,13 @@ struct Theme
     juce::Colour materialStrong;      // more opaque card fill
     juce::Colour separator;           // hairline dividers / borders
 
-    juce::Colour control;             // knob / pad base fill
+    juce::Colour control;             // knob / pad base fill (gradient top)
+    juce::Colour controlBottom;       // knob gradient bottom
     juce::Colour controlTrack;        // inactive ring / track
+    juce::Colour tick;                // knob tick-ring marks
 
     juce::Colour accent;              // the single system accent
+    juce::Colour accentInk;           // text/graphics sitting ON the accent
     juce::Colour accentSoft;          // accent at low alpha (fills, glows)
 
     juce::Colour waveform;
@@ -39,7 +42,7 @@ struct Theme
 class ThemeManager
 {
 public:
-    static constexpr int kNumThemes = 15;
+    static constexpr int kNumThemes = 16;   // 15 derived + Neon Ocean
 
     static const std::array<Theme, kNumThemes>& themes() { return all; }
     static int  current()          { return idx; }

@@ -15,8 +15,10 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
     const float angle  = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
-    // Disc slightly inset from the arc rings.
-    const float discRadius = radius * 0.82f;
+    // Disc inset far enough that the tick ring and the value arc both have
+    // room outside it. The spec's proportions: body to ~84% of the radius,
+    // arc just outside that, ticks in the outermost band.
+    const float discRadius = radius * 0.78f;
     auto discBounds = juce::Rectangle<float> (discRadius * 2.0f, discRadius * 2.0f).withCentre (centre);
 
     const bool  hover = slider.isMouseOverOrDragging();
@@ -56,14 +58,24 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     // (b) Base disc. Apple keeps chrome neutral: a light grey face, shaded
     // top-to-bottom, with the colour reserved for the value arc outside it.
     {
-        const auto base = theme.glow >= 0.9f
+        // The face is a two-stop gradient between two THEME tokens rather
+        // than one colour lightened and darkened. That is what lets each
+        // theme's knob feel like a different material instead of the same
+        // grey dial recoloured - the tokens are already accent-tinted.
+        const auto top = theme.glow >= 0.9f
                             ? theme.materialStrong.withAlpha (1.0f).brighter (0.25f)
                             : theme.control;
+        const auto bot = theme.glow >= 0.9f
+                            ? theme.materialStrong.withAlpha (1.0f)
+                            : theme.controlBottom;
 
-        juce::ColourGradient face (base.brighter (theme.dark ? 0.20f : 0.02f),
-                                   centre.x, discBounds.getY(),
-                                   base.darker (theme.dark ? 0.26f : 0.10f),
-                                   centre.x, discBounds.getBottom(), false);
+        // 160 degrees, so the light reads as coming from the upper left
+        // rather than straight down - a vertical gradient on a circle looks
+        // printed, an angled one looks turned.
+        const float a = juce::degreesToRadians (160.0f);
+        const float dx = std::sin (a) * discRadius, dy = -std::cos (a) * discRadius;
+        juce::ColourGradient face (top, centre.x - dx, centre.y - dy,
+                                   bot, centre.x + dx, centre.y + dy, false);
         g.setGradientFill (face);
         g.fillEllipse (discBounds);
 
@@ -105,9 +117,35 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     g.drawEllipse (discBounds, theme.glow >= 0.9f ? 1.2f : 1.0f);
 
     //--------------------------------------------------------------------------
-    // Ring geometry (sits just outside the disc).
-    const float ringRadius = radius - 2.0f;
-    const float ringThickness = juce::jmax (2.5f, radius * 0.10f);
+    // (b2) Tick ring - 24 marks across the 270 degree sweep, one every 11.25
+    // degrees. This is the element that makes a dial read as an instrument
+    // rather than as a progress ring, and it was the single biggest reason
+    // twenty-five of these in a window looked generic. Static on purpose: the
+    // arc shows the value, the ticks show the RANGE.
+    if (! mini)
+    {
+        constexpr int kTicks = 24;
+        const float tickOuter = radius * 1.00f;
+        const float tickInner = radius * 0.90f;
+        juce::Path ticks;
+        for (int i = 0; i <= kTicks; ++i)
+        {
+            const float t  = (float) i / (float) kTicks;
+            const float th = rotaryStartAngle + t * (rotaryEndAngle - rotaryStartAngle)
+                           - juce::MathConstants<float>::halfPi;
+            const float c = std::cos (th), sn = std::sin (th);
+            ticks.startNewSubPath (centre.x + tickInner * c, centre.y + tickInner * sn);
+            ticks.lineTo         (centre.x + tickOuter * c, centre.y + tickOuter * sn);
+        }
+        g.setColour (theme.glow >= 0.9f ? theme.accent.withAlpha (0.30f) : theme.tick);
+        g.strokePath (ticks, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::butt));
+    }
+
+    //--------------------------------------------------------------------------
+    // Ring geometry (between the disc and the tick ring).
+    const float ringRadius = mini ? radius - 2.0f : radius * 0.845f;
+    const float ringThickness = juce::jmax (2.5f, radius * (mini ? 0.10f : 0.085f));
 
     // (c) Thin inactive track ring.
     {
@@ -214,8 +252,16 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         juce::Path indicator;
         indicator.startNewSubPath (p1);
         indicator.lineTo (p2);
-        g.setColour (theme.dark ? juce::Colours::white.withAlpha (0.92f)
-                                : juce::Colour (0xff1c1c1e));
+        // Fades from nearly invisible at the centre to the accent at the rim,
+        // so the pointer reads as the same signal the arc is showing rather
+        // than as a separate white mark competing with it.
+        const auto tipCol = theme.glow >= 0.9f
+                              ? juce::Colours::white.interpolatedWith (theme.accent, 0.25f)
+                              : theme.accent;
+        juce::ColourGradient ind (tipCol.withAlpha (0.0f), p1,
+                                  tipCol,                  p2, false);
+        ind.addColour (0.35, tipCol.withAlpha (0.55f));
+        g.setGradientFill (ind);
         g.strokePath (indicator, juce::PathStrokeType (thickness,
                                                        juce::PathStrokeType::curved,
                                                        juce::PathStrokeType::rounded));

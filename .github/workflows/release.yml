@@ -90,8 +90,10 @@ jobs:
           case "${RUNNER_OS}" in
             Windows) cp packaging/install-windows.bat dist/"Install Slyce.bat" ;;
             macOS)   cp packaging/install-macos.command dist/"Install Slyce.command"
+                     cp packaging/slyce-install-common.sh dist/
                      chmod +x dist/"Install Slyce.command" ;;
             Linux)   cp packaging/install-linux.sh dist/install-slyce.sh
+                     cp packaging/slyce-install-common.sh dist/
                      chmod +x dist/install-slyce.sh ;;
           esac
           cat > dist/INSTALL.txt <<'EOF'
@@ -99,8 +101,12 @@ jobs:
           ======================
 
           EASIEST WAY - run the installer in this folder.
-          It deletes any previous version first, so upgrading never leaves
-          two copies of Slyce in your plugin list.
+          It installs the new version first, checks it, and only then moves
+          your previous version into a backup folder - so upgrading never
+          leaves two copies of Slyce in your plugin list, and a failed
+          install can never leave you with none. It identifies our own files
+          by their contents, not by their name, so a plugin from another
+          vendor is never touched.
 
             Windows   double-click "Install Slyce.bat"  (it will ask for
                       administrator access - that is only to write into
