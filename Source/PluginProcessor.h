@@ -59,6 +59,12 @@ public:
     bool loadSampleFromMemory (const void* data, int sizeBytes);
     bool loadDemoSample();   // embedded demo vocal, one-click start
 
+    /** Name of whatever is currently loaded — the built-in vocal's label, or
+        the file's name. Empty when nothing is loaded. The Demo button was
+        indistinguishable from a no-op without this: it swaps the sample, and
+        one waveform of a voice looks much like another. */
+    juce::String getLoadedSampleName() const { return loadedSampleName; }
+
     SliceEngine&    getSliceEngine()  { return sliceEngine; }
     VoicePool&      getVoicePool()    { return voicePool;   }
     GranularEngine& getGranular()     { return granularEngine; }
@@ -263,6 +269,8 @@ private:
     std::atomic<float>* macroDirtParam  = nullptr;
 
     std::atomic<float> outputLevel { 0.0f };
+    juce::String loadedSampleName;
+
     std::atomic<double> hostBpm { 0.0 };   // 0 = host published no tempo
     // Musical position at the top of the block, and whether the transport is
     // rolling. The arp and the pump PHASE-LOCK to this: without it they run

@@ -234,6 +234,71 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--decay <name>": how the tone changes WHILE it dies. A real plucked or
+    // struck instrument loses its highs faster than its level, because each
+    // reflection down the string is filtered. An amplitude envelope on a fixed
+    // waveform cannot do that - it fades without changing colour. So the ratio
+    // of brightness-loss to level-loss is a structural test, not a taste one.
+    if (argc > 2 && juce::String (argv[1]) == "--decay")
+    {
+        const auto nm = juce::String (argv[2]);
+        const int idx = names.indexOf (nm);
+        if (idx < 0) { printf ("no instrument '%s'\n", nm.toRawUTF8()); return 1; }
+        proc.applyInstrument (idx);
+
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 52, 1.0f), 0);   // low E
+        std::vector<float> mono;
+        for (int b = 0; b < 200; ++b)
+        {
+            buf.clear(); proc.processBlock (buf, midi); midi.clear();
+            for (int i = 0; i < 512; ++i)
+                mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+        }
+
+        const int win = (int) (44100 * 0.05);   // 50 ms
+        printf ("%s\n%6s %9s %9s\n", nm.toRawUTF8(), "ms", "level dB", "bright Hz");
+        double firstZc = 0, firstRms = 0;
+        for (int k = 0; k * win + win < (int) mono.size() && k < 20; ++k)
+        {
+            double sq = 0; int zc = 0;
+            for (int i = k * win; i < (k + 1) * win; ++i)
+            {
+                sq += mono[(size_t) i] * mono[(size_t) i];
+                if (i > 0 && (mono[(size_t) i - 1] <= 0) != (mono[(size_t) i] <= 0)) ++zc;
+            }
+            const double rms = std::sqrt (sq / win);
+            const double zcHz = zc * 0.5 * 44100.0 / win;
+            if (k == 2) { firstZc = zcHz; firstRms = rms; }
+            printf ("%6d %9.1f %9.0f\n", k * 50, 20.0 * std::log10 (rms + 1e-9), zcHz);
+        }
+        // Compare the tail against the body of the note.
+        double lastZc = 0, lastRms = 0; int lastK = 0;
+        for (int k = 3; k * win + win < (int) mono.size() && k < 20; ++k)
+        {
+            double sq = 0; int zc = 0;
+            for (int i = k * win; i < (k + 1) * win; ++i)
+            {
+                sq += mono[(size_t) i] * mono[(size_t) i];
+                if (i > 0 && (mono[(size_t) i - 1] <= 0) != (mono[(size_t) i] <= 0)) ++zc;
+            }
+            const double rms = std::sqrt (sq / win);
+            if (rms > 1e-5) { lastRms = rms; lastZc = zc * 0.5 * 44100.0 / win; lastK = k; }
+        }
+        if (firstRms > 0 && lastRms > 0)
+        {
+            const double dLevel = 20.0 * std::log10 (lastRms / firstRms);
+            const double dBright = lastZc / juce::jmax (1.0, firstZc);
+            printf ("\nover %d ms: level %+.1f dB, brightness x%.2f\n",
+                    (lastK - 2) * 50, dLevel, dBright);
+            printf ("%s\n", dBright < 0.75
+                    ? "-> highs die faster than level: filtered reflections, i.e. a string"
+                    : "-> colour holds while level falls: an envelope on a fixed waveform");
+        }
+        return 0;
+    }
+
     juce::StringArray want;
     for (int i = 1; i < argc; ++i) want.add (juce::String (argv[i]));
 

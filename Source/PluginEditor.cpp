@@ -509,6 +509,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // gradient + bloom that a plain Label cannot do.
     addChildComponent (titleLabel);
 
+    // Shows what is loaded rather than a fixed tagline once there IS something
+    // loaded: pressing Demo Vocal ten times looked identical without it.
     subtitleLabel.setText ("VOCAL CHOP INSTRUMENT", juce::dontSendNotification);
     subtitleLabel.setFont (juce::Font (juce::FontOptions (11.0f).withStyle ("Medium"))
                                .withExtraKerningFactor (0.18f));
@@ -617,7 +619,10 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addChildComponent (welcomePanel);
 
     // Hover help everywhere a first-timer might hesitate.
-    demoButton.setTooltip ("Loads a built-in vocal so you hear something instantly - press again for the next one");
+    // "Demo" read as "demo version" to the first person who saw it. It loads a
+    // built-in VOCAL, which is a different thing entirely, and it sits next to
+    // "Load Sample" - so the pair now reads "ours" and "yours".
+    demoButton.setTooltip ("Loads one of 10 built-in vocals to chop - press again for the next");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
     engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 376 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
@@ -1258,6 +1263,13 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
 
 void VocalChopAudioProcessorEditor::refreshChildren()
 {
+    {
+        const auto nm = processor.getLoadedSampleName();
+        subtitleLabel.setText (nm.isEmpty() ? juce::String ("VOCAL CHOP INSTRUMENT")
+                                            : nm.toUpperCase(),
+                               juce::dontSendNotification);
+    }
+
     resized();   // the artwork hero band depends on the active theme
     waveform.refresh();
     sliceGrid.refresh();
@@ -1711,7 +1723,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
     top.removeFromRight (kGap / 2);
     loadButton.setBounds (top.removeFromRight (130).withSizeKeepingCentre (130, 34));
     top.removeFromRight (kGap / 2);
-    demoButton.setBounds (top.removeFromRight (70).withSizeKeepingCentre (70, 34));
+    demoButton.setBounds (top.removeFromRight (108).withSizeKeepingCentre (108, 34));
     top.removeFromRight (kGap / 2);
     presetBox.setBounds (top.removeFromRight (160).withSizeKeepingCentre (160, 34));
     presetLabel.setBounds (top.removeFromRight (56).withSizeKeepingCentre (56, 34));

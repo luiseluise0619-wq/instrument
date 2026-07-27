@@ -1040,6 +1040,7 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
     loadedSampleFile = file;
+    loadedSampleName = file.getFileNameWithoutExtension();
     prevSampleBuffer.reset();   // edit-undo must not resurrect the OLD sample
     reassignSampleToEngines();
     rescanSlices();
@@ -1062,6 +1063,13 @@ bool VocalChopAudioProcessor::loadDemoSample()
     // times to find the one that chops well. The last is a human-beatbox loop:
     // sliced, it turns the keys into mouth drums.
     struct Embedded { const void* data; int size; };
+    struct Named { const void* data; int size; const char* label; };
+    static const Named demoNames[] = {
+        { nullptr, 0, "Vocal Chop" }, { nullptr, 0, "Chant" }, { nullptr, 0, "Hook" },
+        { nullptr, 0, "Stabs" },      { nullptr, 0, "Diva" },  { nullptr, 0, "Choir" },
+        { nullptr, 0, "Whisper" },    { nullptr, 0, "Air" },   { nullptr, 0, "Rage" },
+        { nullptr, 0, "Beatbox" },
+    };
     static const Embedded demos[] = {
         { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize },
         { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize },
@@ -1076,9 +1084,13 @@ bool VocalChopAudioProcessor::loadDemoSample()
     };
     constexpr int numDemos = (int) (sizeof (demos) / sizeof (demos[0]));
 
-    const auto& d = demos[demoCycle % numDemos];
+    const int which = demoCycle % numDemos;
+    const auto& d = demos[which];
     ++demoCycle;
-    return loadSampleFromMemory (d.data, d.size);
+    if (! loadSampleFromMemory (d.data, d.size))
+        return false;
+    loadedSampleName = demoNames[which].label;
+    return true;
 }
 
 bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBytes)
