@@ -5,7 +5,7 @@
 // sidechain pump, portamento and limiter the buyer gets. Nothing is sweetened
 // afterwards beyond one gain stage into the plugin's own limiter.
 //
-//   SlyceDemoRender <out.wav> [edm|hiphop|pop|funk|showcase] [soloInstrument]
+//   SlyceDemoRender <out.wav> [trap|pop2|house|edm|hiphop|pop|funk|showcase] [solo]
 #include "PluginProcessor.h"
 #include "DSP/Limiter.h"
 #include <cstdio>
@@ -595,6 +595,344 @@ std::vector<Part> buildFunk()
 }
 
 //==============================================================================
+//  RELEASE SET  -  three finished tracks, roughly a minute each
+//==============================================================================
+// Written to genre grammar, not to any particular record. A style - half-time
+// trap, tropical pop, melodic house - is a set of conventions and is not
+// anyone's property; a melody and an arrangement are. So these follow the
+// working methods exactly and the tunes are new.
+
+//--------------------------------------------------------------------------
+//  1. DARK MELODIC TRAP  -  140 BPM half-time, C# minor
+//--------------------------------------------------------------------------
+// The bass is THREE layers, which is the whole trick and the thing most
+// bedroom trap gets wrong: a sine sub carries the weight, a slid 808 carries
+// the character, and a saturated layer an octave up carries it on a phone
+// speaker that cannot reproduce either of the other two.
+const int kTrapRoot[4]     = { 37, 44, 42, 39 };            // C#  A  G  F  (oct 2)
+const int kTrapChord[4][4] = { { 61, 64, 68, 71 },          // C#m7
+                               { 57, 61, 64, 68 },          // Amaj7
+                               { 55, 59, 62, 66 },          // Gmaj7 -> the lift
+                               { 53, 56, 60, 63 } };        // Fm7
+
+const std::vector<Phrase> kTrapBell[4] = {
+    { {0.00,80,0.45},{0.75,76,0.45},{1.50,80,0.45},{2.00,83,0.90},{3.25,80,0.65} },
+    { {0.00,76,0.70},{1.00,80,0.45},{2.00,85,0.90},{3.50,83,0.45} },
+    { {0.00,78,0.45},{0.75,74,0.45},{1.50,78,0.45},{2.00,81,1.40} },
+    { {0.00,80,0.90},{1.50,76,0.45},{2.00,73,0.45},{2.75,68,1.10} },
+};
+
+std::vector<Part> buildTrap()
+{
+    gBpm = 140.0; gBars = 36;
+    const Range intro { 0, 4 }, verse { 4, 12 }, hookA { 12, 20 },
+                brk { 20, 24 }, hookB { 24, 34 }, outro { 34, 36 };
+
+    Part kick   { "Trap Knock",     1.00f, {}, {} };
+    Part snare  { "Snare Tight",    0.52f, { { "reverb", 0.16f } }, {} };
+    Part clap   { "Clap",           0.34f, { { "reverb", 0.20f } }, {} };
+    Part hat    { "Hat Tight",      0.26f, {}, {} };
+    Part ohat   { "Hat Trap Open",  0.20f, {}, {} };
+    Part perc   { "Rim Snap",       0.16f, {}, {} };
+
+    // --- the three bass layers ------------------------------------------
+    Part sub    { "Sub 808",        0.90f, { { "synthGlide", 120.0f } }, {} };
+    Part eight  { "Memphis 808",    0.62f, { { "synthGlide", 120.0f }, { "drive", 0.30f } }, {} };
+    Part grit   { "Rage 808",       0.26f, { { "drive", 0.55f }, { "synthGlide", 120.0f } }, {} };
+
+    Part bell   { "Cloud Bell",     0.42f, { { "reverb", 0.52f }, { "delay", 0.30f },
+                                             { "delaySync", 3.0f }, { "width", 1.0f } }, {} };
+    Part pluck  { "Drill Bell Lead",0.24f, { { "reverb", 0.40f }, { "delay", 0.22f },
+                                             { "delaySync", 5.0f } }, {} };
+    Part pad    { "Drill Dark Pad", 0.30f, { { "reverb", 0.55f }, { "width", 1.0f },
+                                             { "attack", 400.0f } }, {} };
+    Part vox    { "Vox Chant Low",  0.22f, { { "reverb", 0.45f }, { "delay", 0.24f },
+                                             { "delaySync", 3.0f } }, {} };
+    Part sweep  { "Riser Sweep",    0.34f, { { "reverb", 0.40f } }, {} };
+
+    for (int bar = 0; bar < gBars; ++bar)
+    {
+        const double b0 = bar * 4.0;
+        const int ch = bar % 4;
+        const bool beat = ! inAny (bar, { intro, brk });
+        const bool full = inAny (bar, { hookA, hookB });
+
+        if (beat)
+        {
+            // Half-time: the snare lands on 3 and only on 3. Everything about
+            // this tempo depends on that one hit being lonely.
+            add (snare.notes, b0 + 2.0, 40, 0.95f, 0.4);
+            add (clap.notes,  b0 + 2.0, 38, 0.7f, 0.3);
+
+            add (kick.notes, b0 + 0.00, 36, 1.0f, 0.4);
+            add (kick.notes, b0 + 0.75, 36, 0.82f, 0.4);
+            add (kick.notes, b0 + 2.50, 36, 0.9f, 0.4);
+            if (bar % 4 == 3) add (kick.notes, b0 + 3.25, 36, 0.75f, 0.4);
+
+            for (int e = 0; e < 8; ++e)
+                add (hat.notes, b0 + e * 0.5, 42, e % 2 ? 0.5f : 0.85f, 0.12);
+            for (double d : { 1.25, 1.75, 3.25 })
+                add (hat.notes, b0 + d, 42, 0.55f, 0.09);
+            // The triplet roll — the signature of the style.
+            if (bar % 4 == 3)
+                for (int k = 0; k < 6; ++k)
+                    add (hat.notes, b0 + 3.0 + k / 6.0, 42, 0.45f + 0.07f * (float) k, 0.07);
+            if (bar % 2 == 1) add (ohat.notes, b0 + 1.5, 46, 0.6f, 0.35);
+            if (full) { add (perc.notes, b0 + 1.25, 40, 0.5f, 0.1);
+                        add (perc.notes, b0 + 3.75, 40, 0.5f, 0.1); }
+        }
+
+        // Three layers on the same notes: weight, character, and audibility.
+        if (beat)
+        {
+            const int r = kTrapRoot[ch];
+            const double hits[][2] = { {0.00, 1.80}, {2.00, 0.90}, {3.00, 0.90} };
+            for (auto& h : hits)
+            {
+                add (sub.notes,   b0 + h[0], r,      1.0f,  h[1]);
+                add (eight.notes, b0 + h[0], r,      0.9f,  h[1]);
+                add (grit.notes,  b0 + h[0], r + 12, 0.75f, h[1] * 0.6);
+            }
+            if (bar % 4 == 3)   // the walk-up into the turnaround
+            {
+                const int n = kTrapRoot[(ch + 1) % 4];
+                add (sub.notes,   b0 + 3.75, n, 0.9f, 0.25);
+                add (eight.notes, b0 + 3.75, n, 0.85f, 0.25);
+            }
+        }
+
+        for (int n : kTrapChord[ch])
+            add (pad.notes, b0, n - 12, inAny (bar, { intro, brk }) ? 0.55f : 0.40f, 3.9);
+
+        if (full || inAny (bar, { brk }))
+            for (const auto& h : kTrapBell[ch])
+            {
+                add (bell.notes, b0 + h.beat, h.note, inAny (bar, { brk }) ? 0.55f : 0.9f, h.len);
+                if (inAny (bar, { hookB }))
+                    add (pluck.notes, b0 + h.beat, h.note - 12, 0.6f, h.len);
+            }
+
+        if (inAny (bar, { verse }) || inAny (bar, { hookB }))
+            for (double t : { 1.0, 3.0 })
+                add (vox.notes, b0 + t, kTrapChord[ch][0] - 12, 0.6f, 0.5);
+
+        if (bar == 11 || bar == 23) add (sweep.notes, b0, 60, 0.85f, 4.0);
+    }
+
+    return { kick, snare, clap, hat, ohat, perc, sub, eight, grit,
+             bell, pluck, pad, vox, sweep };
+}
+
+//--------------------------------------------------------------------------
+//  2. TROPICAL POP  -  96 BPM, C# minor
+//--------------------------------------------------------------------------
+// In this style the INSTRUMENTAL hook is the song: a short plucked marimba
+// figure that never stops, with everything else arranged around the holes in
+// it. The drums stay out of the way - kick, a snap on the backbeat, a shaker.
+const int kPopBass2[4]     = { 37, 44, 42, 39 };
+const int kPopChord2[4][3] = { { 61, 64, 68 }, { 57, 61, 64 },
+                               { 54, 57, 61 }, { 56, 59, 63 } };
+
+// The hook. Sixteenths with rests, the same shape every bar so it lodges.
+const std::vector<Phrase> kPopHook[4] = {
+    { {0.00,73,0.22},{0.25,76,0.22},{0.75,80,0.40},{1.50,76,0.22},
+      {1.75,73,0.40},{2.50,76,0.22},{2.75,80,0.60},{3.50,83,0.40} },
+    { {0.00,69,0.22},{0.25,73,0.22},{0.75,76,0.40},{1.50,73,0.22},
+      {1.75,69,0.40},{2.50,73,0.22},{2.75,76,0.60},{3.50,80,0.40} },
+    { {0.00,66,0.22},{0.25,69,0.22},{0.75,73,0.40},{1.50,69,0.22},
+      {1.75,66,0.40},{2.50,69,0.22},{2.75,73,0.60},{3.50,76,0.40} },
+    { {0.00,68,0.22},{0.25,71,0.22},{0.75,75,0.40},{1.50,71,0.22},
+      {1.75,68,0.40},{2.50,71,0.22},{2.75,75,0.60},{3.50,71,0.40} },
+};
+
+std::vector<Part> buildPop2()
+{
+    gBpm = 96.0; gBars = 26;
+    const Range hookOnly { 0, 2 }, verse { 2, 10 }, pre { 10, 14 },
+                chorus { 14, 22 }, outro { 22, 26 };
+
+    Part marimba { "Hook Marimba",  0.62f, { { "reverb", 0.26f }, { "delay", 0.16f },
+                                             { "delaySync", 5.0f }, { "width", 0.85f } }, {} };
+    Part gtr     { "Tropic Pluck",  0.30f, { { "reverb", 0.30f }, { "width", 0.9f } }, {} };
+    Part kick    { "Kick Punch",    0.80f, {}, {} };
+    Part snap    { "Finger Snap",   0.50f, { { "reverb", 0.20f } }, {} };
+    Part clap    { "Clap",          0.30f, { { "reverb", 0.22f } }, {} };
+    Part shaker  { "Shaker",        0.22f, {}, {} };
+    Part perc    { "Reggaeton Perc",0.20f, {}, {} };
+    Part bass    { "Deep House",    0.62f, { { "drive", 0.14f } }, {} };
+    Part vox     { "Vox Stab",      0.34f, { { "reverb", 0.34f }, { "delay", 0.22f },
+                                             { "delaySync", 5.0f } }, {} };
+    Part choir   { "Vox Ahh",       0.24f, { { "reverb", 0.50f }, { "width", 1.0f } }, {} };
+
+    for (int bar = 0; bar < gBars; ++bar)
+    {
+        const double b0 = bar * 4.0;
+        const int ch = bar % 4;
+        const bool beat = ! inAny (bar, { hookOnly });
+        const bool big  = inAny (bar, { chorus });
+
+        // The hook runs almost the whole song - that is the point of it.
+        if (! inAny (bar, { outro }) || bar < 24)
+            for (const auto& h : kPopHook[ch])
+                add (marimba.notes, b0 + h.beat, h.note,
+                     big ? 0.95f : 0.75f, h.len);
+
+        // The verse has to be SMALLER than the chorus or the chorus never
+        // arrives - the first render of this measured -14 dB from end to end
+        // and read as one long loop.
+        if (beat)
+        {
+            const float lv = big ? 1.0f : 0.72f;
+            add (kick.notes, b0 + 0.0, 36, 0.95f * lv, 0.4);
+            if (big || inAny (bar, { pre }))
+                add (kick.notes, b0 + 2.5, 36, 0.8f * lv, 0.4);
+            add (snap.notes, b0 + 1.0, 40, 0.9f * lv, 0.3);
+            add (snap.notes, b0 + 3.0, 40, 0.9f * lv, 0.3);
+            if (big) { add (clap.notes, b0 + 1.0, 38, 0.6f, 0.3);
+                       add (clap.notes, b0 + 3.0, 38, 0.6f, 0.3); }
+            if (big || inAny (bar, { pre }))
+                for (int e = 0; e < 8; ++e)
+                    add (shaker.notes, b0 + e * 0.5, 44, e % 2 ? 0.7f : 0.4f, 0.12);
+            if (big && bar % 2 == 1) add (perc.notes, b0 + 3.5, 45, 0.55f, 0.25);
+
+            add (bass.notes, b0 + 0.0, kPopBass2[ch], 0.9f * lv, 1.4);
+            if (big)
+                add (bass.notes, b0 + 1.75, kPopBass2[ch], 0.75f, 0.6);
+            add (bass.notes, b0 + 2.5, kPopBass2[ch], 0.85f * lv, 1.4);
+        }
+
+        if (inAny (bar, { pre, chorus }))
+            for (int n : kPopChord2[ch])
+                add (gtr.notes, b0 + 0.5, n, 0.55f, 0.4),
+                add (gtr.notes, b0 + 2.5, n, 0.5f, 0.4);
+
+        // The vocal answer sits in the hook's rest, never on top of it.
+        if (big)
+            for (double t : { 1.25, 3.25 })
+                add (vox.notes, b0 + t, kPopChord2[ch][0] + 12, 0.7f, 0.35);
+        if (big)
+            for (int n : kPopChord2[ch])
+                add (choir.notes, b0, n, 0.5f, 3.8);
+    }
+
+    return { marimba, gtr, kick, snap, clap, shaker, perc, bass, vox, choir };
+}
+
+//--------------------------------------------------------------------------
+//  3. MELODIC HOUSE  -  126 BPM, F# minor
+//--------------------------------------------------------------------------
+// The drop is a MELODY, not a bass. Everything is arranged to hand the tune
+// to a plucked lead and then get out of its way: the piano states it, the
+// build strips back to it, and the drop is the same line with the kit under it.
+const int kMhBass[4]     = { 42, 37, 39, 44 };              // F# C# D# A#
+const int kMhChord[4][3] = { { 66, 69, 73 }, { 61, 64, 68 },
+                             { 63, 66, 70 }, { 68, 71, 75 } };
+
+const std::vector<Phrase> kMhLead[8] = {
+    { {0.00,78,0.45},{0.50,81,0.45},{1.00,85,0.70},{2.00,83,0.45},{2.50,81,0.90} },
+    { {0.00,78,0.45},{0.75,76,0.45},{1.50,73,0.90},{3.00,76,0.90} },
+    { {0.00,80,0.45},{0.50,83,0.45},{1.00,87,0.70},{2.00,85,0.45},{2.50,83,0.90} },
+    { {0.00,80,0.70},{1.00,76,0.45},{2.00,80,1.40} },
+    { {0.00,78,0.45},{0.50,81,0.45},{1.00,85,0.70},{2.00,88,0.90},{3.25,85,0.65} },
+    { {0.00,83,0.45},{0.75,81,0.45},{1.50,78,0.90},{3.00,76,0.90} },
+    { {0.00,73,0.45},{0.50,76,0.45},{1.00,80,0.70},{2.00,83,0.90},{3.00,85,0.90} },
+    { {0.00,88,0.90},{1.50,85,0.45},{2.00,81,0.45},{2.75,78,1.10} },
+};
+
+std::vector<Part> buildMelodicHouse()
+{
+    gBpm = 126.0; gBars = 34;
+    const Range piano { 0, 4 }, build { 4, 12 }, drop { 12, 26 },
+                brk { 26, 30 }, outro { 30, 34 };
+
+    Part keys   { "Wave Keys",     0.46f, { { "reverb", 0.38f }, { "width", 0.9f } }, {} };
+    Part lead   { "Trance Pluck",  0.56f, { { "reverb", 0.32f }, { "delay", 0.26f },
+                                            { "delaySync", 5.0f }, { "width", 0.9f },
+                                            { "pumpAmt", 0.55f }, { "pumpRate", 2.0f } }, {} };
+    Part stack  { "Saw Stack",     0.24f, { { "pumpAmt", 0.75f }, { "pumpRate", 2.0f },
+                                            { "reverb", 0.24f }, { "width", 1.0f } }, {} };
+    Part kickLo { "Kick 808",      0.92f, {}, {} };
+    Part kickHi { "Kick Punch",    0.62f, {}, {} };
+    Part clap   { "Clap",          0.55f, { { "reverb", 0.22f } }, {} };
+    Part hat    { "Hat Closed",    0.30f, {}, {} };
+    Part ohat   { "Hat Open",      0.24f, {}, {} };
+    Part bass   { "Deep House",    0.70f, { { "pumpAmt", 0.70f }, { "pumpRate", 2.0f } }, {} };
+    Part pad    { "Aurora Pad",    0.30f, { { "reverb", 0.55f }, { "width", 1.0f },
+                                            { "attack", 500.0f } }, {} };
+    Part snare  { "Snare Tight",   0.34f, {}, {} };
+    Part crash  { "Crash Splash",  0.40f, {}, {} };
+    Part sweep  { "Riser Sweep",   0.44f, { { "reverb", 0.35f } }, {} };
+
+    for (int bar = 0; bar < gBars; ++bar)
+    {
+        const double b0 = bar * 4.0;
+        const int ch = bar % 4, ph = bar % 8;
+        const bool full = inAny (bar, { drop });
+        const bool half = inAny (bar, { build }) && bar >= 8;
+
+        // The build runs a kick and nothing else. Giving it the clap and the
+        // offbeat bass too made it measure within a decibel of the drop, and a
+        // drop that does not arrive is the one mistake this style cannot
+        // survive.
+        if (full || half)
+            for (int b = 0; b < 4; ++b)
+            {
+                add (kickLo.notes, b0 + b, 36, full ? 1.0f : 0.72f, 0.5);
+                add (kickHi.notes, b0 + b, 36, full ? 0.85f : 0.55f, 0.3);
+            }
+        if (full)
+        {
+            add (clap.notes, b0 + 1.0, 38, 0.9f, 0.4);
+            add (clap.notes, b0 + 3.0, 38, 0.9f, 0.4);
+        }
+        if (! inAny (bar, { piano, brk }))
+            for (int e = 0; e < 8; ++e)
+                if (e % 2 == 1) add (hat.notes, b0 + e * 0.5, 42, 0.85f, 0.18);
+                else if (full)  add (hat.notes, b0 + e * 0.5, 42, 0.45f, 0.14);
+        if (full && bar % 2 == 1) add (ohat.notes, b0 + 3.5, 46, 0.65f, 0.45);
+
+        if (full)
+        {
+            add (bass.notes, b0, kMhBass[ch], 1.0f, 0.45);
+            for (int k = 0; k < 4; ++k)
+                add (bass.notes, b0 + k + 0.5, kMhBass[ch], 0.9f, 0.4);
+        }
+        else if (half)                       // a root per bar, no engine yet
+            add (bass.notes, b0, kMhBass[ch], 0.65f, 3.6);
+
+        // The piano states the tune; the drop hands it to the pluck.
+        if (inAny (bar, { piano, build, brk, outro }))
+            for (int n : kMhChord[ch])
+                add (keys.notes, b0, n, inAny (bar, { piano }) ? 0.85f : 0.6f, 3.7);
+        if (! inAny (bar, { piano }))
+            for (int n : kMhChord[ch])
+                add (pad.notes, b0, n - 12, 0.55f, 3.9);
+
+        if (inAny (bar, { piano }))
+            for (const auto& h : kMhLead[ph])
+                add (keys.notes, b0 + h.beat, h.note, 0.8f, h.len);
+
+        if (full || inAny (bar, { brk }))
+            for (const auto& h : kMhLead[ph])
+            {
+                add (lead.notes, b0 + h.beat, h.note, inAny (bar, { brk }) ? 0.55f : 0.95f, h.len);
+                if (full && bar >= 19)
+                    add (stack.notes, b0 + h.beat, h.note - 12, 0.6f, h.len);
+            }
+
+        if (bar == 10 || bar == 11)
+            for (int k = 0; k < (bar == 11 ? 8 : 4); ++k)
+                add (snare.notes, b0 + k * (bar == 11 ? 0.5 : 1.0), 40,
+                     0.5f + 0.05f * (float) k, 0.18);
+        if (bar == 11 || bar == 29) add (sweep.notes, b0, 60, 0.9f, 4.0);
+        if (bar == 12 || bar == 26 || bar == 19) add (crash.notes, b0, 60, 0.9f, 2.0);
+    }
+
+    return { keys, lead, stack, kickLo, kickHi, clap, hat, ohat, bass, pad,
+             snare, crash, sweep };
+}
+
+//==============================================================================
 //  SHOWCASE  -  the physically modelled voices, one after another
 //==============================================================================
 // Not a track. Judging whether the string model and the body resonators were
@@ -753,6 +1091,9 @@ int main (int argc, char** argv)
     else if (song == "pop")    { parts = buildPop();    push = 4.0f; }
     else if (song == "funk")   { parts = buildFunk();   push = 6.0f; }
     else if (song == "showcase") { parts = buildShowcase(); push = 2.0f; }
+    else if (song == "trap")     { parts = buildTrap();     push = 5.5f; }
+    else if (song == "pop2")     { parts = buildPop2();     push = 4.5f; }
+    else if (song == "house")    { parts = buildMelodicHouse(); push = 6.5f; }
     else                       { parts = buildEdm();    push = 7.0f; }
 
     printf ("song %s  %.0f BPM  %d bars\n", song.toRawUTF8(), gBpm, gBars);
