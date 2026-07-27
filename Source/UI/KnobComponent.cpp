@@ -126,7 +126,7 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     {
         constexpr int kTicks = 24;
         const float tickOuter = radius * 1.00f;
-        const float tickInner = radius * 0.90f;
+        const float tickInner = radius * 0.93f;
         juce::Path ticks;
         for (int i = 0; i <= kTicks; ++i)
         {
@@ -240,9 +240,12 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     // (e) Small crisp indicator: a short rounded line from mid-disc to the rim.
     {
         // Short tick near the rim only - the value readout lives mid-disc now.
-        const float indicatorOuter = discRadius - 3.0f;
-        const float indicatorInner = discRadius * 0.68f;
-        const float thickness = juce::jmax (2.0f, radius * 0.06f);
+        // Runs from near the centre out to the rim, per the spec's 14% inset.
+        // The short version sat entirely in the outer third of the face and
+        // read as a speck rather than as a pointer.
+        const float indicatorOuter = discRadius - 2.0f;
+        const float indicatorInner = discRadius * 0.16f;
+        const float thickness = juce::jmax (2.0f, radius * 0.055f);
 
         juce::Point<float> p1 (centre.x + indicatorInner * std::cos (angle - juce::MathConstants<float>::halfPi),
                                centre.y + indicatorInner * std::sin (angle - juce::MathConstants<float>::halfPi));
@@ -260,7 +263,8 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
                               : theme.accent;
         juce::ColourGradient ind (tipCol.withAlpha (0.0f), p1,
                                   tipCol,                  p2, false);
-        ind.addColour (0.35, tipCol.withAlpha (0.55f));
+        ind.addColour (0.45, tipCol.withAlpha (0.30f));
+        ind.addColour (0.80, tipCol.withAlpha (0.92f));
         g.setGradientFill (ind);
         g.strokePath (indicator, juce::PathStrokeType (thickness,
                                                        juce::PathStrokeType::curved,
