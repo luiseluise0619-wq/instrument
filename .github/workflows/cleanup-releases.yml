@@ -1,0 +1,43 @@
+name: Cleanup releases
+
+# Deletes named releases AND their tags. Used to collapse a run of
+# incremental version bumps back into a single published version - the store
+# page advertises one number, and a shelf of near-identical releases next to
+# it just looks like churn.
+#
+# Manual only, and it takes an explicit list: nothing here should ever run on
+# its own.
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Space-separated tags to delete (e.g. v3.0.1 v3.0.2)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Delete releases and tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ github.event.inputs.tags }}
+        run: |
+          set -u
+          for t in $TAGS; do
+            echo "::group::$t"
+            # --cleanup-tag removes the git tag too, so a later release can
+            # reuse the name from a fresh commit.
+            gh release delete "$t" --yes --cleanup-tag \
+              || echo "no release named $t"
+            git push --delete origin "refs/tags/$t" 2>/dev/null \
+              || echo "no tag named $t"
+            echo "::endgroup::"
+          done
+          echo "Remaining releases:"
+          gh release list --limit 50 || true

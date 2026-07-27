@@ -81,6 +81,60 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--state": save the session, scramble every parameter, restore, and
+    // diff. A parameter that silently fails to round-trip means a reopened
+    // project comes back wrong, which is the worst class of bug to ship.
+    if (argc > 1 && juce::String (argv[1]) == "--state")
+    {
+        auto& apvts = proc.getAPVTS();
+        auto& params = proc.getParameters();
+
+        proc.applyPreset (8);                       // a sound preset, not Init
+        juce::Random rng (12345);
+        for (auto* p : params)
+            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+                rp->setValueNotifyingHost (rng.nextFloat());
+
+        // Compare the LOGICAL value, not the raw normalised float: JUCE's bool
+        // parameters keep whatever float you hand them but report true/false
+        // from it, so 0.694 legitimately comes back as 1.0 meaning the same
+        // thing. Text is the value the user and the host actually see.
+        juce::StringArray before;
+        for (auto* p : params) before.add (p->getCurrentValueAsText());
+        const int instBefore = proc.getCurrentInstrument();
+
+        juce::MemoryBlock blob;
+        proc.getStateInformation (blob);
+
+        for (auto* p : params)
+            if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+                rp->setValueNotifyingHost (rng.nextFloat());
+        proc.applyInstrument (0);
+
+        proc.setStateInformation (blob.getData(), (int) blob.getSize());
+
+        int bad = 0;
+        for (int i = 0; i < params.size(); ++i)
+        {
+            const auto now = params[i]->getCurrentValueAsText();
+            if (now != before[i])
+            {
+                printf ("  MISMATCH %-16s '%s' -> '%s'\n",
+                        params[i]->getName (16).toRawUTF8(),
+                        before[i].toRawUTF8(), now.toRawUTF8());
+                ++bad;
+            }
+        }
+        const int instAfter = proc.getCurrentInstrument();
+        if (instAfter != instBefore)
+        { printf ("  MISMATCH instrument %d -> %d\n", instBefore, instAfter); ++bad; }
+
+        printf ("state round-trip: %d parameters, %d mismatches -> %s\n",
+                params.size(), bad, bad == 0 ? "PASS" : "FAIL");
+        juce::ignoreUnused (apvts);
+        return bad == 0 ? 0 : 1;
+    }
+
     juce::StringArray want;
     for (int i = 1; i < argc; ++i) want.add (juce::String (argv[i]));
 
