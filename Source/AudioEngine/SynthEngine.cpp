@@ -223,7 +223,13 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     // hammer, the mallet. It is over in a few milliseconds and it is most of
     // what tells the ear this is an instrument and not an oscillator.
     {
-        v.atkAmt = juce::jlimit (0.0f, 1.0f, patchSettings.attackNoise.load());
+        // Velocity drives the strike. On a real instrument the hammer noise is
+        // the FIRST thing to disappear when you play softly - the string still
+        // sounds, the knock does not. A fixed burst is a large part of why a
+        // quiet piano note used to sound like a loud one turned down.
+        const float vel = juce::jlimit (0.0f, 1.0f, velocity);
+        v.atkAmt = juce::jlimit (0.0f, 1.0f, patchSettings.attackNoise.load())
+                 * (0.25f + 0.75f * vel * vel);
         if (v.atkAmt > 0.001f)
         {
             const float ms = juce::jmax (2.0f, patchSettings.attackMs.load());
@@ -236,14 +242,15 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
             const float centre = juce::jlimit (200.0f, 0.42f * (float) sampleRate,
                                                (float) hz * juce::jmax (1.0f, patchSettings.attackTone.load()));
             const float w  = juce::MathConstants<float>::twoPi * centre / (float) sampleRate;
-            const float Q  = 1.6f;
+            const float Q  = 3.2f;          // tight enough to read as a pitch
             const float al = std::sin (w) / (2.0f * Q);
             const float c  = std::cos (w), a0 = 1.0f + al;
-            v.atkB1 = 0.0f;                 // band-pass: b0 = al/a0, b1 = 0, b2 = -b0
-            v.atkB2 = al / a0;
+            // Constant-peak band-pass: b0 = al/a0, b1 = 0, b2 = -al/a0.
+            v.atkB0 = al / a0;
+            v.atkB2 = -v.atkB0;
             v.atkA1 = (-2.0f * c) / a0;
             v.atkA2 = (1.0f - al) / a0;
-            v.atkZ1 = v.atkZ2 = 0.0f;
+            v.atkX1 = v.atkX2 = v.atkZ1 = v.atkZ2 = 0.0f;
         }
         else v.atkLevel = 0.0f;
     }
@@ -254,10 +261,19 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     // and bells sound glassy; a stretched partial fixes it for almost nothing.
     {
         const float inh = juce::jlimit (0.0f, 1.0f, patchSettings.inharmonic.load());
-        v.inhLevel = inh * 0.34f;
+        // A real stiff string's 2nd partial sits around -12 to -18 dB, not the
+        // -9 dB this used to run. Louder than that and the ear hears an octave
+        // doubling rather than a timbre - which is exactly why the pianos read
+        // as "synth with an octave layer" instead of as pianos.
+        v.inhLevel = inh * 0.17f;
         // 2nd partial, stretched sharp by up to ~35 cents at full amount
         v.inhInc = (hz * 2.0 * std::pow (2.0, inh * 0.35 / 12.0)) / sampleRate;
         v.inhPhase = (double) noiseRng.nextFloat();
+        // Overtones die first. Higher notes shed them faster, same as a real
+        // string, so the decay time scales down with pitch.
+        const float inhMs = juce::jlimit (120.0f, 1400.0f,
+                                          22000.0f / juce::jmax (40.0f, (float) hz));
+        v.inhCoeff = std::exp (-1.0f / (inhMs * 0.001f * (float) sampleRate));
     }
 
     // --- STAGE 3: the string --------------------------------------------------
@@ -778,12 +794,13 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             }
 
             // --- Stretched partial ------------------------------------------
-            if (v.inhLevel > 0.0f)
+            if (v.inhLevel > 0.0001f)
             {
                 const float ih = std::sin (twoPi * (float) v.inhPhase) * v.inhLevel;
                 advance (v.inhPhase, v.inhInc * (double) pitchRatio);
                 oscL += ih;
                 oscR += ih;
+                v.inhLevel *= v.inhCoeff;
             }
 
             // --- STAGE 3: string ---------------------------------------------
@@ -799,10 +816,10 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
 
                 // one-pole damping: the string loses its highs on every lap
                 v.ksLast += (rd - v.ksLast) * v.ksDamp;
-                const float out = v.ksLast * v.ksFb;
+                const float lap = v.ksLast * v.ksFb;   // `out` shadows render()'s buffer
 
                 const int wp = ((int) v.ksPos) % cap;
-                v.ksBuf[(size_t) wp] = out;
+                v.ksBuf[(size_t) wp] = lap;
                 v.ksPos += 1.0f;
                 if (v.ksPos >= (float) cap) v.ksPos -= (float) cap;
 
@@ -815,7 +832,7 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
                 // the plugin. The makeup is a fixed factor because the loss is
                 // a property of the model, not of the patch.
                 const float sm = v.ksMix, om = 1.0f - v.ksMix;
-                const float ks = out * v.ksMakeup;
+                const float ks = lap * v.ksMakeup;
                 oscL = oscL * om + ks * sm;
                 oscR = oscR * om + ks * sm;
             }
@@ -826,11 +843,17 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             if (v.atkLevel > 0.0001f)
             {
                 const float x = (noiseRng.nextFloat() * 2.0f - 1.0f) * v.atkLevel;
-                const float y = v.atkB2 * x - v.atkB2 * v.atkZ2
+                // Direct Form I. The input history is separate from the output
+                // history on purpose: sharing them drops the b2 zero, and what
+                // is left is a broad two-pole that passes the raw noise through
+                // instead of a knock at the resonator's pitch.
+                const float y = v.atkB0 * x + v.atkB2 * v.atkX2
                               - v.atkA1 * v.atkZ1 - v.atkA2 * v.atkZ2;
-                v.atkZ2 = v.atkZ1;
-                v.atkZ1 = y;
-                const float burst = y * v.atkAmt * 2.6f;
+                v.atkX2 = v.atkX1; v.atkX1 = x;
+                v.atkZ2 = v.atkZ1; v.atkZ1 = y;
+                // A constant-peak band-pass at Q 3.2 has ~3.2x the peak gain of
+                // the broken version, so the makeup comes down to match.
+                const float burst = y * v.atkAmt * 1.15f;
                 oscL += burst;
                 oscR += burst;
                 v.atkLevel *= v.atkCoeff;

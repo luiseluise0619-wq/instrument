@@ -299,6 +299,69 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--noise": find voices whose STRIKE is broadband hiss rather than a
+    // pitched knock. A real hammer, pick or mallet rings the body at a definite
+    // frequency, so the attack's zero-crossing rate sits within a few multiples
+    // of the note. White noise sits near half the sample rate no matter what
+    // note you play, and that difference is audible as "why is there noise on
+    // this". Written because a broken biquad in the transient generator shipped
+    // a hiss on every struck voice and nobody could name which control caused
+    // it - a per-instrument number would have found it the first day.
+    if (argc > 1 && juce::String (argv[1]) == "--noise")
+    {
+        printf ("%-22s %9s %9s %7s  %s\n",
+                "instrument", "atkZcHz", "bodyZcHz", "ratio", "flag");
+        int bad = 0;
+        for (int idx = 0; idx < names.size(); ++idx)
+        {
+            proc.applyInstrument (idx);
+            juce::AudioBuffer<float> buf (2, 64);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 1.0f), 0);
+            std::vector<float> mono;
+            for (int b = 0; b < 400; ++b)
+            {
+                buf.clear(); proc.processBlock (buf, midi); midi.clear();
+                for (int i = 0; i < 64; ++i)
+                    mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+            }
+            auto zcOf = [&mono] (int from, int to)
+            {
+                int zc = 0, n = 0;
+                for (int i = juce::jmax (1, from); i < to && i < (int) mono.size(); ++i, ++n)
+                    if ((mono[(size_t) i - 1] <= 0) != (mono[(size_t) i] <= 0)) ++zc;
+                return n > 0 ? zc * 0.5 * 44100.0 / n : 0.0;
+            };
+            // First 15 ms is the strike; 150-400 ms is the body it decays into.
+            const double a = zcOf (0, (int) (44100 * 0.015));
+            const double b = zcOf ((int) (44100 * 0.15), (int) (44100 * 0.40));
+
+            // Hats, shakers and cymbals ARE broadband noise - that is the
+            // instrument, not a defect. Flagging them taught me nothing except
+            // that the check needed to know the difference.
+            const auto& nm = names[idx];
+            const bool meantToBeNoise =
+                   nm.startsWith ("Hat ") || nm.contains ("Shaker")
+                || nm.contains ("Crash") || nm.contains ("Ride")
+                || nm.contains ("Tambo") || nm.contains ("Snap")
+                || nm.contains ("Clap")  || nm.contains ("Noise")
+                || nm.contains ("Riser") || nm.contains ("Sweep")
+                || nm.contains ("Wind")  || nm.contains ("Vinyl");
+
+            juce::String flag;
+            if (meantToBeNoise)                {}
+            else if (a > 9000.0)               flag = "HISS";
+            else if (b > 1.0 && a / b > 12.0)  flag = "BRIGHT-BURST";
+            if (flag.isNotEmpty()) ++bad;
+            if (flag.isNotEmpty() || (argc > 2 && juce::String (argv[2]) == "-v"))
+                printf ("%-22s %9.0f %9.0f %7.1f  %s\n",
+                        names[idx].toRawUTF8(), a, b,
+                        b > 1.0 ? a / b : 0.0, flag.toRawUTF8());
+        }
+        printf ("\n%d instruments — %d flagged\n", names.size(), bad);
+        return bad == 0 ? 0 : 1;
+    }
+
     // "--sweep": play every instrument and flag anything pathological. Adding a
     // transient, a string, a body and a morph across 300+ voices at once is
     // exactly the kind of change that improves ten sounds and quietly ruins

@@ -159,14 +159,19 @@ private:
 
         // Attack transient: a band-passed noise burst that decays in a few
         // milliseconds, plus the state of the resonator that colours it.
+        // x1/x2 are the INPUT history and z1/z2 the OUTPUT history - a biquad
+        // needs both, and conflating them turns the band-pass into a broadband
+        // two-pole that leaks raw noise into every note.
         float atkLevel = 0.0f, atkCoeff = 0.0f, atkAmt = 0.0f;
-        float atkB1 = 0.0f, atkB2 = 0.0f, atkA1 = 0.0f, atkA2 = 0.0f;
-        float atkZ1 = 0.0f, atkZ2 = 0.0f;
+        float atkB0 = 0.0f, atkB2 = 0.0f, atkA1 = 0.0f, atkA2 = 0.0f;
+        float atkX1 = 0.0f, atkX2 = 0.0f, atkZ1 = 0.0f, atkZ2 = 0.0f;
 
         // Inharmonic partial: a second bank running sharp of the fundamental,
-        // which is what a struck string or a metal bar actually does.
+        // which is what a struck string or a metal bar actually does. It gets
+        // its OWN decay because a stiff string's overtones die before its
+        // fundamental does - held flat, it just reads as an octave layer.
         double inhPhase = 0.0, inhInc = 0.0;
-        float  inhLevel = 0.0f;
+        float  inhLevel = 0.0f, inhCoeff = 1.0f;
 
         // Karplus-Strong string: a circular buffer one period long, read with
         // fractional interpolation so the pitch is exact rather than quantised

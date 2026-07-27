@@ -249,7 +249,20 @@ void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float 
     {
         const float cut = smoothedCutoff.getNextValue();
 
-        if (cut != lastCutoff || q != lastQ || type != lastType)
+        // Exact float comparison on purpose: this is a cache check, not a
+        // measurement. smoothedCutoff returns bit-identical values once it has
+        // settled, and that is precisely when the coefficients must NOT be
+        // recomputed. An epsilon here would rebuild the filter forever.
+       #if defined (__GNUC__) || defined (__clang__)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wfloat-equal"
+       #endif
+        const bool dirty = (cut != lastCutoff) || (q != lastQ) || (type != lastType);
+       #if defined (__GNUC__) || defined (__clang__)
+        #pragma GCC diagnostic pop
+       #endif
+
+        if (dirty)
         {
             updateCoefficients (cut, q, type);
             lastCutoff = cut;

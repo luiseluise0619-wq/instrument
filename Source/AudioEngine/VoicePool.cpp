@@ -178,8 +178,11 @@ void Voice::release()
     if (stage != Stage::release && stage != Stage::finished)
     {
         // Capture the current level so the release ramps from where we are.
+        // release and finished are excluded by the `if` above, so the switch
+        // genuinely cannot see them; `default` covers idle.
         switch (stage)
         {
+            case Stage::release: case Stage::finished:
             case Stage::attack:  releaseFrom = (float) stagePos / (float) attackSamples; break;
             case Stage::decay:   releaseFrom = 1.0f + ((float) stagePos / (float) decaySamples) * (sustainLevel - 1.0f); break;
             case Stage::sustain: releaseFrom = sustainLevel; break;

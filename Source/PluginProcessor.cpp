@@ -2020,16 +2020,27 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     // everything struck gets a hammer, everything plucked gets a pick.
     float atkAmt = 0.0f, atkTone = 3.0f, atkMs = 14.0f, inharm = 0.0f;
 
-    if (cat == "PIANO")        { atkAmt = 0.55f; atkTone = 5.5f; atkMs = 9.0f;  inharm = 0.62f; }
-    else if (cat == "GUITAR")  { atkAmt = 0.62f; atkTone = 7.0f; atkMs = 7.0f;  inharm = 0.30f; }
-    else if (cat == "PLUCK")   { atkAmt = 0.48f; atkTone = 6.5f; atkMs = 6.0f;  inharm = 0.34f; }
+    // A real grand's 2nd partial is sharp by single-digit CENTS (the stiffness
+    // coefficient is ~0.0004), not by the quarter-tone 0.62 was asking for. At
+    // that width it stops being a piano's warmth and becomes a detuned bell -
+    // which is what it sounded like. Bells keep the wide setting because bells
+    // genuinely are that inharmonic.
+    if (cat == "PIANO")        { atkAmt = 0.55f; atkTone = 5.5f; atkMs = 9.0f;  inharm = 0.11f; }
+    // Same correction down the string families - a wound guitar string is
+    // stiffer than a piano string but nowhere near a bell.
+    else if (cat == "GUITAR")  { atkAmt = 0.62f; atkTone = 7.0f; atkMs = 7.0f;  inharm = 0.15f; }
+    else if (cat == "PLUCK")   { atkAmt = 0.48f; atkTone = 6.5f; atkMs = 6.0f;  inharm = 0.18f; }
     else if (cat == "BELL")    { atkAmt = 0.50f; atkTone = 9.0f; atkMs = 5.0f;  inharm = 0.85f; }
-    else if (cat == "KEYS")    { atkAmt = 0.40f; atkTone = 5.0f; atkMs = 10.0f; inharm = 0.40f; }
+    else if (cat == "KEYS")    { atkAmt = 0.40f; atkTone = 5.0f; atkMs = 10.0f; inharm = 0.26f; }
     else if (cat == "DRUMS")   { atkAmt = 0.45f; atkTone = 4.0f; atkMs = 5.0f;  inharm = 0.0f;  }
-    else if (cat == "BASS")    { atkAmt = 0.22f; atkTone = 4.5f; atkMs = 8.0f;  inharm = 0.18f; }
+    else if (cat == "BASS")    { atkAmt = 0.22f; atkTone = 4.5f; atkMs = 8.0f;  inharm = 0.09f; }
     else if (cat == "VOCAL")   { atkAmt = 0.16f; atkTone = 2.2f; atkMs = 22.0f; inharm = 0.0f;  }
     else if (cat == "LEAD")    { atkAmt = 0.14f; atkTone = 3.5f; atkMs = 9.0f;  inharm = 0.0f;  }
-    else if (cat == "HITS")    { atkAmt = 0.28f; atkTone = 5.0f; atkMs = 8.0f;  inharm = 0.22f; }
+    // HITS is a SHELF, not a mechanism. It holds 808s, pads, brass, flutes and
+    // electric pianos side by side, so a blanket hammer transient put a knock
+    // on forty voices that have no hammer. It starts clean and the name-based
+    // pass below arms the ones that are actually struck or plucked.
+    else if (cat == "HITS")    { atkAmt = 0.0f;  atkTone = 5.0f; atkMs = 8.0f;  inharm = 0.0f;  }
     else if (cat == "PAD")     { atkAmt = 0.05f; atkTone = 2.0f; atkMs = 40.0f; inharm = 0.0f;  }
     // SYNTH and MISC stay clean on purpose: an oscillator is what they ARE.
 
@@ -2041,16 +2052,17 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (name.contains ("Harp") || name.contains ("Koto")
         || name.contains ("Sitar") || name.contains ("Banjo")
         || name.contains ("Dulcimer") || name.contains ("Pizz"))
-        { atkAmt = 0.66f; atkTone = 8.5f; atkMs = 6.0f; inharm = 0.45f; }
+        { atkAmt = 0.66f; atkTone = 8.5f; atkMs = 6.0f; inharm = 0.22f; }
     // Long, soft, bowed or breathed: a burst would be wrong.
     if (cat == "PAD" || name.contains ("Choir") || name.contains ("Strings")
         || name.contains ("Drone") || name.contains ("Swell"))
         { atkAmt = juce::jmin (atkAmt, 0.06f); atkMs = 45.0f; }
 
-    p.attackNoise = atkAmt;
-    p.attackTone  = atkTone;
-    p.attackMs    = atkMs;
-    p.inharmonic  = inharm;
+    // NOTE: atkAmt/atkTone/atkMs/inharm are published at the END of this
+    // function, after the mechanism pass below has had its say. They used to be
+    // written here, which meant every name-based refinement ("Pluck Bass" is a
+    // plucked string, "Hook Marimba" is a struck bar) was computed and then
+    // thrown away.
 
     // --- STAGES 2-5, by family ------------------------------------------------
     // The string model, the morph and the body all get assigned from the same
@@ -2118,14 +2130,14 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
         strDecay = low ? 0.42f : 0.38f;
         if (body < 0) { body = low ? 1 : 5; bodyAmt = low ? 0.20f : 0.26f; }
         if (atkAmt < 0.35f) { atkAmt = 0.46f; atkTone = low ? 5.0f : 6.5f; atkMs = 7.0f; }
-        if (inharm < 0.1f) inharm = low ? 0.16f : 0.30f;
+        if (inharm < 0.05f) inharm = low ? 0.09f : 0.16f;
     }
     else if (strMix < 0.01f && struckName)
     {
         strMix = 0.34f; strDamp = 0.60f; strDecay = 0.30f;
         if (body < 0) { body = 2; bodyAmt = 0.22f; }
         if (atkAmt < 0.35f) { atkAmt = 0.52f; atkTone = 7.5f; atkMs = 5.0f; }
-        if (inharm < 0.1f) inharm = 0.45f;
+        if (inharm < 0.05f) inharm = 0.45f;   // struck BARS really are inharmonic
     }
 
     // Named voices whose mechanism is unmistakable.
@@ -2141,6 +2153,25 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
         { strMix = 0.80f; strDamp = 0.38f; strDecay = 0.50f; body = 1; bodyAmt = 0.22f; }
     if (name.contains ("Steel Pan"))
         { strMix = 0.34f; strDamp = 0.22f; strDecay = 0.75f; body = 3; bodyAmt = 0.26f; }
+
+    // --- Mechanisms that have no strike at all --------------------------------
+    // Applied last so nothing above can re-arm them. A hammer on a 40 Hz sine
+    // is not a hammer, it is a click of noise sitting on top of the note; and
+    // a flute has no strike anywhere in how it makes sound.
+    if (d.sub >= 0.6f || name.contains ("808") || name.contains ("Sub")
+        || name.contains ("Rumble") || name.contains ("Boom"))
+        { atkAmt = juce::jmin (atkAmt, 0.10f); inharm = 0.0f; }
+    if (name.contains ("Flute") || name.contains ("Brass") || name.contains ("Sax")
+        || name.contains ("Whistle") || name.contains ("Breath")
+        || name.contains ("Air")   || name.contains ("Pad"))
+        { atkAmt = juce::jmin (atkAmt, 0.06f); inharm = 0.0f; }
+
+    // Publish the strike LAST, so the mechanism pass above is the one that
+    // decides it (see the note where these used to be written).
+    p.attackNoise = atkAmt;
+    p.attackTone  = atkTone;
+    p.attackMs    = atkMs;
+    p.inharmonic  = inharm;
 
     p.stringMix   = strMix;
     p.stringDamp  = strDamp;
