@@ -522,9 +522,17 @@ void LooperPanel::resized()
 {
     auto area = getLocalBounds().reduced (20);
 
-    // Current-sound pickers along the top of the panel.
-    auto pickers = area.removeFromTop (38);
-    auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (460, pickers.getWidth()), 34);
+    // Current-sound pickers along the top of the panel. Captioned like the
+    // main strip: two bare combos side by side told nobody which one picked
+    // the sound.
+    auto pickers = area.removeFromTop (52);
+    auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (460, pickers.getWidth()), 48);
+    pickCaptions.clear();
+    auto capRow = pickStrip.removeFromTop (13);
+    pickCaptions.push_back ({ "ENGINE",     capRow.removeFromLeft (110) });
+    capRow.removeFromLeft (12);
+    pickCaptions.push_back ({ "INSTRUMENT", capRow });
+    pickStrip.removeFromTop (1);
     engineBox.setBounds (pickStrip.removeFromLeft (110));
     pickStrip.removeFromLeft (12);
     instrumentBox.setBounds (pickStrip);
@@ -615,6 +623,12 @@ void LooperPanel::paint (juce::Graphics& g)
     g.setColour (theme.accent.withAlpha (theme.glow >= 0.9f ? 0.35f : 0.15f));
     g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.2f);
 
+    g.setColour (theme.textSecondary.withAlpha (0.75f));
+    g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold"))
+                   .withExtraKerningFactor (0.14f));
+    for (const auto& c : pickCaptions)
+        g.drawText (c.first, c.second, juce::Justification::centred, false);
+
     auto& looper = proc.getLooper();
 
     for (int i = 0; i < visibleTracks; ++i)
@@ -634,6 +648,7 @@ void LooperPanel::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Semibold")));
         g.drawText ("TRACK " + juce::String (i + 1),
                     ringRect.removeFromTop (16), juce::Justification::centred);
+        // (the sound picker for this track sits directly above)
 
         const auto  ra    = ringRect.toFloat();
         const float ringR = juce::jmin (ra.getWidth(), ra.getHeight()) * 0.5f - 10.0f;

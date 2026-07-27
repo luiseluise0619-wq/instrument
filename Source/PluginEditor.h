@@ -167,6 +167,11 @@ private:
     std::set<juce::String> stripDimmed;   // captions whose control is inert
     void drawStripCaptions (juce::Graphics&) const;
 
+    /** Adds a micro-caption above `control`, shrinking it to fit. Every combo
+        in this plugin now carries one: a bare "1/16" next to a bare "1/4"
+        told nobody which was the arp and which was the pump. */
+    juce::Rectangle<int> captioned (juce::Rectangle<int> cell, const juce::String&);
+
     /** Greys out the strip controls the current engine does not use. */
     void syncEngineEnablement();
 
@@ -191,7 +196,7 @@ private:
 
     // Fixed-size design canvas, scaled as one unit so the window can shrink
     // to 60% without per-widget cramming. All children live inside it.
-    static constexpr int kBaseW = 1080, kBaseH = 1140;
+    static constexpr int kBaseW = 1080, kBaseH = 1220;
     struct ContentComp : juce::Component
     {
         explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}

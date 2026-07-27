@@ -5,6 +5,7 @@
 #include "../AudioEngine/LoopStation.h"
 #include <functional>
 #include <memory>
+#include <vector>
 
 class VocalChopAudioProcessor;
 
@@ -100,6 +101,9 @@ private:
     int    tapCount = 0;
 
     // Pick the CURRENT sound without leaving the looper.
+    // Captions painted above the two top pickers.
+    std::vector<std::pair<juce::String, juce::Rectangle<int>>> pickCaptions;
+
     juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox instrumentBox;  // Featured + category submenus
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;

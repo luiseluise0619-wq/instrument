@@ -1463,6 +1463,15 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
                 bounds.getWidth() - radius * 2.0f, 1.0f);
 }
 
+juce::Rectangle<int> VocalChopAudioProcessorEditor::captioned (juce::Rectangle<int> cell,
+                                                               const juce::String& caption)
+{
+    auto cap = cell.removeFromTop (12);
+    if (caption.isNotEmpty())
+        stripCaptions.push_back ({ caption, cap });
+    return cell;
+}
+
 void VocalChopAudioProcessorEditor::drawStripCaptions (juce::Graphics& g) const
 {
     const auto& theme = ThemeManager::active();
@@ -1757,7 +1766,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // 38% and split the remainder between the two simple rows.
     const int rowGap = kGap;
     const int freeH  = controls.getHeight() - rowGap * 2;
-    const int rowH   = freeH * 31 / 100;
+    const int rowH   = freeH * 29 / 100;
     auto topCards   = controls.removeFromTop (rowH);
     controls.removeFromTop (rowGap);
     auto synthCard  = controls.removeFromTop (rowH);
@@ -1771,7 +1780,13 @@ void VocalChopAudioProcessorEditor::layoutContent()
         inner.removeFromTop (kCaptionH);        // room for the caption
         if (knobs.empty())
             return inner;
+
+        // Size the dial band from the CELL WIDTH and centre it. A dial is
+        // limited by whichever is smaller, so letting a narrow cell fill a
+        // tall card just strands its label at the bottom with a hole above it.
         const int w = inner.getWidth() / (int) knobs.size();
+        const int band = juce::jlimit (56, inner.getHeight(), w - 12 + 30);
+        inner = inner.withSizeKeepingCentre (inner.getWidth(), band);
         for (auto* k : knobs)
             if (k != nullptr)
                 k->setBounds (inner.removeFromLeft (w).reduced (6, 0));
@@ -1819,16 +1834,19 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto inner = arpCard.reduced (kPadding - 4, kPadding - 4);
             inner.removeFromTop (kCaptionH);
 
-            const int comboH = juce::jlimit (22, 30, inner.getHeight() / 5);
-            auto grid = inner.removeFromTop (comboH * 2 + 4);
+            const int comboH = juce::jlimit (22, 28, inner.getHeight() / 6);
+            const int cellH   = comboH + 12;
+            auto grid = inner.removeFromTop (cellH * 2 + 2);
 
-            auto row1 = grid.removeFromTop (comboH);
-            arpModeBox.setBounds (row1.removeFromLeft (row1.getWidth() / 2).reduced (2, 0));
-            arpRateBox.setBounds (row1.reduced (2, 0));
+            auto row1 = grid.removeFromTop (cellH);
+            arpModeBox.setBounds (captioned (row1.removeFromLeft (row1.getWidth() / 2)
+                                                 .reduced (2, 0), "ARP"));
+            arpRateBox.setBounds (captioned (row1.reduced (2, 0), "ARP RATE"));
 
-            auto row2 = grid.removeFromBottom (comboH);
-            arpOctBox.setBounds   (row2.removeFromLeft (row2.getWidth() / 2).reduced (2, 0));
-            pumpRateBox.setBounds (row2.reduced (2, 0));
+            auto row2 = grid.removeFromBottom (cellH);
+            arpOctBox.setBounds   (captioned (row2.removeFromLeft (row2.getWidth() / 2)
+                                                  .reduced (2, 0), "OCTAVES"));
+            pumpRateBox.setBounds (captioned (row2.reduced (2, 0), "PUMP RATE"));
 
             inner.removeFromTop (2);
             KnobComponent* ak[] = { arpGateKnob.get(), pumpKnob.get() };
@@ -1850,9 +1868,10 @@ void VocalChopAudioProcessorEditor::layoutContent()
         {
             auto inner = filterCard.reduced (kPadding, kPadding - 4);
             inner.removeFromTop (kCaptionH);
-            auto comboRow = inner.removeFromBottom (36);
-            filterTypeBox.setBounds (comboRow.withSizeKeepingCentre (
-                juce::jmin (220, comboRow.getWidth()), 34));
+            auto comboRow = inner.removeFromBottom (46);
+            filterTypeBox.setBounds (captioned (comboRow, "TYPE")
+                                         .withSizeKeepingCentre (
+                                             juce::jmin (220, comboRow.getWidth()), 32));
             inner.removeFromBottom (kGap / 2);
 
             KnobComponent* fk[] = { filterCutoffKnob.get(), filterResoKnob.get() };
@@ -1868,6 +1887,11 @@ void VocalChopAudioProcessorEditor::layoutContent()
             inner.removeFromTop (kCaptionH);
 
             auto knobCol = inner.removeFromRight (juce::jmin (192, inner.getWidth() / 2));
+            {
+                const int band = juce::jlimit (56, knobCol.getHeight(),
+                                               knobCol.getWidth() / 2 - 12 + 30);
+                knobCol = knobCol.withSizeKeepingCentre (knobCol.getWidth(), band);
+            }
             const int kw = knobCol.getWidth() / 2;
             if (grainMixKnob != nullptr)
                 grainMixKnob->setBounds (knobCol.removeFromLeft (kw).reduced (6, 0));
@@ -1880,16 +1904,18 @@ void VocalChopAudioProcessorEditor::layoutContent()
             // fixed 30px rows overflowed and stacked on top of each other.
             // Four rows now (the delay-sync division joined the card), so the
             // row height follows the card instead of a fixed guess.
-            const int rowH = juce::jlimit (18, 30, controlsCol.getHeight() / 4 - 2);
+                const int rowH = juce::jlimit (18, 26, (controlsCol.getHeight() - 24) / 4 - 2);
             reverseButton.setBounds  (controlsCol.removeFromTop (rowH));
             controlsCol.removeFromTop (2);
             pingpongButton.setBounds (controlsCol.removeFromTop (rowH));
-            controlsCol.removeFromTop (2);
-            playModeBox.setBounds    (controlsCol.removeFromTop (rowH)
+            controlsCol.removeFromTop (3);
+            playModeBox.setBounds    (captioned (controlsCol.removeFromTop (rowH + 12),
+                                                 "KEYS")
                                           .withSizeKeepingCentre (
                                               juce::jmin (200, controlsCol.getWidth()), rowH));
-            controlsCol.removeFromTop (2);
-            delaySyncBox.setBounds   (controlsCol.removeFromTop (rowH)
+            controlsCol.removeFromTop (3);
+            delaySyncBox.setBounds   (captioned (controlsCol.removeFromTop (rowH + 12),
+                                                 "DELAY SYNC")
                                           .withSizeKeepingCentre (
                                               juce::jmin (200, controlsCol.getWidth()), rowH));
         }

@@ -112,8 +112,8 @@ public:
               "Hit DEMO in the toolbar, then play your computer keys\n"
               "Z S X D C V G B H N J M  (or any MIDI keyboard)." },
             { "2", "Sounds",
-              "Open the Instrument menu for 376 sounds - drums, 808s,\n"
-              "vocals, pianos. Start with the FEATURED shelf." },
+              "Preset > Sounds loads a complete patch in one click.\n"
+              "Or open INSTRUMENT for all 376 voices, by category." },
             { "3", "Loop",
               "Open LOOPER (top right). Pick a sound per track,\n"
               "hit REC and stack a whole beat from one laptop." },
