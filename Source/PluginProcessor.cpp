@@ -2064,30 +2064,30 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     if (cat == "GUITAR")
     {
         strMix = 0.72f; strDamp = 0.42f; strDecay = 0.55f;      // plucked steel
-        body = 1; bodyAmt = 0.30f;
+        body = 1; bodyAmt = 0.20f;
     }
     else if (cat == "PLUCK")
     {
         strMix = 0.58f; strDamp = 0.55f; strDecay = 0.35f;
-        body = 5; bodyAmt = 0.26f;                              // small wooden box
+        body = 5; bodyAmt = 0.18f;                              // small wooden box
     }
     else if (cat == "PIANO")
     {
         strMix = 0.38f; strDamp = 0.30f; strDecay = 0.85f;      // struck, long
-        body = 0; bodyAmt = 0.32f;                              // soundboard
+        body = 0; bodyAmt = 0.14f;                              // soundboard
     }
     else if (cat == "BELL")
     {
         strMix = 0.30f; strDamp = 0.18f; strDecay = 1.0f;
-        body = 3; bodyAmt = 0.34f;                              // metal shell
+        body = 3; bodyAmt = 0.22f;                              // metal shell
     }
     else if (cat == "KEYS")
     {
         strMix = 0.22f; strDamp = 0.45f; strDecay = 0.6f;
-        body = 0; bodyAmt = 0.18f;
+        body = 0; bodyAmt = 0.09f;
         mrphAmt = 0.35f; mrphTo = 2; mrphMs = 320.0f;           // tine -> sine
     }
-    else if (cat == "DRUMS") { body = 4; bodyAmt = 0.22f; }     // shell
+    else if (cat == "DRUMS") { body = 4; bodyAmt = 0.13f; }     // shell
     // Morph only where it is clearly audible. It doubles the oscillator work,
     // and at 0.14-0.22 on leads and basses it was inaudible while costing the
     // same as the pad's 0.55, which does change the sound.
@@ -2123,7 +2123,7 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     else if (strMix < 0.01f && struckName)
     {
         strMix = 0.34f; strDamp = 0.60f; strDecay = 0.30f;
-        if (body < 0) { body = 2; bodyAmt = 0.32f; }
+        if (body < 0) { body = 2; bodyAmt = 0.22f; }
         if (atkAmt < 0.35f) { atkAmt = 0.52f; atkTone = 7.5f; atkMs = 5.0f; }
         if (inharm < 0.1f) inharm = 0.45f;
     }
@@ -2131,16 +2131,16 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     // Named voices whose mechanism is unmistakable.
     if (name.contains ("Kalimba") || name.contains ("Music Box")
         || name.contains ("Toy"))
-        { strMix = 0.66f; strDamp = 0.60f; strDecay = 0.30f; body = 5; bodyAmt = 0.38f; }
+        { strMix = 0.66f; strDamp = 0.60f; strDecay = 0.30f; body = 5; bodyAmt = 0.24f; }
     if (name.contains ("Marimba") || name.contains ("Gamelan")
         || name.contains ("Mallet") || name.contains ("Woodblock"))
-        { strMix = 0.30f; strDamp = 0.70f; strDecay = 0.25f; body = 2; bodyAmt = 0.42f; }
+        { strMix = 0.30f; strDamp = 0.70f; strDecay = 0.25f; body = 2; bodyAmt = 0.26f; }
     if (name.contains ("Harp") || name.contains ("Koto")
         || name.contains ("Sitar") || name.contains ("Banjo")
         || name.contains ("Dulcimer") || name.contains ("Pizz"))
-        { strMix = 0.80f; strDamp = 0.38f; strDecay = 0.50f; body = 1; bodyAmt = 0.34f; }
+        { strMix = 0.80f; strDamp = 0.38f; strDecay = 0.50f; body = 1; bodyAmt = 0.22f; }
     if (name.contains ("Steel Pan"))
-        { strMix = 0.34f; strDamp = 0.22f; strDecay = 0.75f; body = 3; bodyAmt = 0.40f; }
+        { strMix = 0.34f; strDamp = 0.22f; strDecay = 0.75f; body = 3; bodyAmt = 0.26f; }
 
     p.stringMix   = strMix;
     p.stringDamp  = strDamp;

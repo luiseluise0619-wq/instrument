@@ -173,7 +173,7 @@ private:
         // to whole samples.
         std::vector<float> ksBuf;
         float  ksPos = 0.0f, ksDelay = 0.0f, ksFb = 0.995f;
-        float  ksLast = 0.0f, ksDamp = 0.5f, ksMix = 0.0f;
+        float  ksLast = 0.0f, ksDamp = 0.5f, ksMix = 0.0f, ksMakeup = 1.0f;
         int    ksExcite = 0;
 
         // Wavetable morph: the shape the note is heading toward, and where it
