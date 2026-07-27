@@ -1295,6 +1295,12 @@ void VocalChopAudioProcessorEditor::stepInstrument (int delta)
     // 1000+, so select by id rather than hunting for the matching text.
     instrumentBox.setSelectedId (next + 1, juce::dontSendNotification);
 
+    // dontSendNotification is right - onChange would re-apply the instrument
+    // we have just applied - but it also means nothing tells the hero to
+    // update, so the name sat on the previous voice while the sound changed
+    // underneath it. Refresh it here, explicitly.
+    refreshInstrumentHero();
+
     grabKeysSoon();
 }
 
