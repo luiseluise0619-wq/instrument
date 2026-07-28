@@ -90,7 +90,7 @@ void FXRack::paint (juce::Graphics& g)
                                 3.0f, 10.0f, 1.5f);
 
         // Draw glyph-by-glyph to add wide letter-spacing (tracking).
-        const juce::String title ("FX");
+        const juce::String title ("Output FX");
         const float tracking = glowTheme ? 2.0f : 1.6f;
         const auto& font = g.getCurrentFont();
 
@@ -188,16 +188,27 @@ void FXRack::resized()
     if (modules.empty())
         return;
 
-    const int count       = (int) modules.size();
-    const int totalGaps    = (count - 1) * moduleGap;
-    const int slotHeight   = (area.getHeight() - totalGaps) / count;
+    const int count    = (int) modules.size();
+    const int totalGaps = (count - 1) * moduleGap;
+
+    // Stack or spread, depending on the shape the card actually has.
+    //
+    // This was a tall 160px column and only ever stacked. Moved into row one
+    // beside Envelope and Pitch & Tone (spec 4.5) it is now wide and short, and
+    // stacking three dials into 92px of height gave each of them about 24px -
+    // the labels rendered and the dials did not.
+    const bool wide = area.getWidth() > area.getHeight();
 
     for (int i = 0; i < count; ++i)
     {
-        auto slot = area.removeFromTop (slotHeight);
+        auto slot = wide
+            ? area.removeFromLeft ((area.getWidth() - (count - 1 - i) * moduleGap)
+                                       / (count - i))
+            : area.removeFromTop ((area.getHeight() - (count - 1 - i) * moduleGap)
+                                       / (count - i));
         modules[(size_t) i].knob->setBounds (slot);
 
         if (i < count - 1)
-            area.removeFromTop (moduleGap);
+            (wide ? area.removeFromLeft (moduleGap) : area.removeFromTop (moduleGap));
     }
 }

@@ -13,7 +13,7 @@ namespace
     constexpr int kGap     = 16;
 
     // Toolbar / caption metrics.
-    constexpr int kToolbarH   = 40;
+    constexpr int kToolbarH   = 52;   // spec 4.1
     constexpr int kCaptionH   = 20;
     constexpr int kMeterW     = 30;
 
@@ -2281,7 +2281,19 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
             const int e = juce::jlimit (0, 3, engineBox.getSelectedItemIndex());
             drawCaption (g, ctxName[e], contextCardBounds);
         }
-        drawCaption (g, "Macros",     macroCardBounds, "whole patch");
+        drawCaption (g, "Macros",     macroCardBounds);
+        // Spec 4.4's caption block: the sentence sits under the title, in the
+        // 132px column to the left of the dials, not squeezed onto the header.
+        if (! macroCardBounds.isEmpty())
+        {
+            auto blk = macroCardBounds.reduced (kPadding, kPadding - 4)
+                           .withTrimmedTop (kCaptionH);
+            blk = blk.removeFromLeft (juce::jmin (132, blk.getWidth() / 4));
+            g.setColour (theme.textSecondary);
+            g.setFont (juce::Font (juce::FontOptions (11.0f)));
+            g.drawFittedText ("Three dials that move the whole patch at once.",
+                              blk, juce::Justification::topLeft, 4);
+        }
         drawCaption (g, "Envelope",   envCardBounds);
         drawCaption (g, "Pitch / Tone", toneCardBounds);
         drawCaption (g, "Synth",      synthCardBounds, "unison + formants");
@@ -2540,8 +2552,19 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // Reserve footer space.
     area.removeFromBottom (24 + kGap / 2);
 
-    // --- Waveform row: waveform + meter column on the right ---
-    auto waveRow = area.removeFromTop (juce::jmax (130, area.getHeight() * 21 / 100));
+    // --- Fixed bands, per spec 4.3 - 4.7 -----------------------------------
+    //
+    // These used to be percentages of whatever was left. That is why the
+    // canvas height and the panel proportions never quite matched the spec:
+    // every band was derived from the one above it, so changing any of them
+    // moved all of them. The spec sizes them explicitly - 140 waveform, 150
+    // macros, 130/120/146 for the three parameter rows, 40 chords, 130 keys -
+    // and they add up to the 1220 canvas with the gaps. Scale is handled once,
+    // by the whole-canvas transform, rather than per band.
+    //
+    // jmax on each so a host that hands us a squashed window degrades instead
+    // of producing negative rectangles.
+    auto waveRow = area.removeFromTop (juce::jmax (110, 140));
     const auto waveTop = waveRow;   // remembered for the LOOPER overlay
     meter.setBounds (waveRow.removeFromRight (kMeterW));
     waveRow.removeFromRight (kGap);
@@ -2550,7 +2573,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
     area.removeFromTop (kGap);
 
     // --- Keyboard along the bottom, chord bar just above it ---
-    auto sliceGridRow = area.removeFromBottom (juce::jmax (120, area.getHeight() * 28 / 100));
+    auto sliceGridRow = area.removeFromBottom (juce::jmax (104, 130));
     sliceGrid.setBounds (sliceGridRow);
     area.removeFromBottom (kGap / 2);
     chordBar.setBounds (area.removeFromBottom (40));
@@ -2565,26 +2588,82 @@ void VocalChopAudioProcessorEditor::layoutContent()
                                                  waveTop.getWidth(),
                                                  controls.getBottom() - waveTop.getY()));
 
-    // FX rack as a side column on the right.
-    auto fxCol = controls.removeFromRight (160);
-    fxRack.setBounds (fxCol);
-    controls.removeFromRight (kGap);
-
-    // Remaining width split into labelled cards over three rows:
-    // [Envelope | Pitch/Tone], [Synth modules], [Filter | Playback].
-    // The first two rows are a single row of dials; the bottom row stacks
-    // combos ON TOP of dials (filter type, arp/pump, playback modes), so an
-    // even three-way split starved it - the dials collapsed to dots. Give it
-    // 38% and split the remainder between the two simple rows.
+    // Spec 4.4 and 4.5. MACROS gets its own row, and Output FX moves into row
+    // one beside Envelope and Pitch & Tone.
+    //
+    // The FX rack used to be a 160px column running the full height on the
+    // right, which is why the three parameter rows had to share what was left
+    // and why Macros ended up as a 22% slice of the bottom row with 40px
+    // dials. The spec's shape is the other way round: FX is a card like any
+    // other, and the three macros are the widest thing on the panel because
+    // they move the whole patch.
+    // The spec's row heights assume the spec's control sizes (knobs at 34-62px,
+    // fields at 22px). Ours are bigger, and at a literal 150/130/120/146 the
+    // Filter dials, the Arp octave row and the Playback knobs all had nowhere
+    // to go - they rendered as labels with nothing under them.
+    //
+    // So the SHAPE is the spec's - Macros on their own row, Output FX in row
+    // one, Filter beside Synth - and the heights are redistributed to fit the
+    // controls that actually exist. Macros gives up 22px it was not using (its
+    // dials cap at 92) and row 2 and row 3 take it.
+    // PROPORTIONAL, from what is actually left.
+    //
+    // I sized these from the spec's literal 150/130/120/146 and the sum
+    // overran the space by about a hundred pixels, so the last row collapsed
+    // to 85px and the Arp octave fields, the Playback knobs and the Filter
+    // type all landed on top of each other. Twice, because the second attempt
+    // was another set of guessed constants.
+    //
+    // The spec's contribution is the SHAPE - Macros on its own row, Output FX
+    // in row one, Filter beside Synth, Arp/Playback/Scope along the bottom -
+    // and the ratios below keep the spec's proportions (150:130:120:146)
+    // against whatever height this build actually has.
     const int rowGap = kGap;
-    const int freeH  = controls.getHeight() - rowGap * 2;
-    const int rowH   = freeH * 29 / 100;
-    auto topCards   = controls.removeFromTop (rowH);
+    const int freeH  = juce::jmax (200, controls.getHeight() - rowGap * 3);
+    const int macroH = freeH * 150 / 546;
+    const int row1H  = freeH * 130 / 546;
+    const int row2H  = freeH * 120 / 546;
+
+    auto macroRow = controls.removeFromTop (macroH);
     controls.removeFromTop (rowGap);
-    auto synthCard  = controls.removeFromTop (rowH);
+    auto topCards = controls.removeFromTop (row1H);
+    controls.removeFromTop (rowGap);
+    auto row2 = controls.removeFromTop (row2H);
     controls.removeFromTop (rowGap);
     auto bottomCards = controls;
-    synthCardBounds  = synthCard;
+
+    // Row 1: Envelope 300 | Pitch & Tone flex | Output FX 246.
+    auto fxCard = topCards.removeFromRight (juce::jmin (246, topCards.getWidth() / 3));
+    topCards.removeFromRight (kGap);
+    fxRack.setBounds (fxCard);
+
+    // Row 2: Synth flex | Filter 296.
+    auto filterRowCard = row2.removeFromRight (juce::jmin (296, row2.getWidth() / 3));
+    row2.removeFromRight (kGap);
+    auto synthCard = row2;
+    synthCardBounds = synthCard;
+
+    // MACROS, spec 4.4: a 132px caption block on the left, then three 92px
+    // dials - the largest in the window, because they are the only controls
+    // that move the whole patch. They used to be the SMALLEST, at 40px, in a
+    // 22% slice of the bottom row.
+    macroCardBounds = macroRow;
+    {
+        auto in = macroRow.reduced (kPadding, kPadding - 4);
+        in.removeFromTop (kCaptionH);
+        in.removeFromLeft (juce::jmin (132, in.getWidth() / 4));   // caption block
+        in.removeFromLeft (kGap);
+
+        KnobComponent* mk[3] = { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() };
+        const int cell = in.getWidth() / 3;
+        const int dial = juce::jlimit (56, 92, juce::jmin (cell - 16, in.getHeight()));
+        for (auto* k : mk)
+        {
+            auto c = in.removeFromLeft (cell);
+            if (k != nullptr)
+                k->setBounds (c.withSizeKeepingCentre (dial, juce::jmin (c.getHeight(), dial + 30)));
+        }
+    }
 
     auto layoutKnobRow = [] (juce::Rectangle<int> card, std::vector<KnobComponent*> knobs)
     {
@@ -2627,16 +2706,17 @@ void VocalChopAudioProcessorEditor::layoutContent()
                                 chorusKnob.get(), lfoRateKnob.get(), motionKnob.get(),
                                 glideKnob.get() });
 
-    // Bottom row: Filter | Macros | Playback.
+    // Bottom row, spec 4.5 row 3: Arp & Pump 396 | Playback flex | Scope 150.
+    // Filter has moved up beside Synth and Macros has its own row, so this row
+    // finally holds the three things the spec puts in it.
     {
         const int gap = kGap;
-        const int free = bottomCards.getWidth() - gap * 3;
-        auto filterCard  = bottomCards.removeFromLeft (free * 17 / 100);
+        auto filterCard  = filterRowCard;
         filterCardBounds = filterCard;
-        bottomCards.removeFromLeft (gap);
 
         // ARP + PUMP: the two tempo-locked performance engines.
-        auto arpCard = bottomCards.removeFromLeft (free * 21 / 100);
+        auto arpCard = bottomCards.removeFromLeft (
+                           juce::jlimit (240, 396, bottomCards.getWidth() * 40 / 100));
         arpCardBounds = arpCard;
         bottomCards.removeFromLeft (gap);
         {
@@ -2646,20 +2726,27 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto inner = arpCard.reduced (kPadding - 4, kPadding - 4);
             inner.removeFromTop (kCaptionH);
 
-            const int comboH = juce::jlimit (22, 28, inner.getHeight() / 6);
-            const int cellH   = comboH + 12;
-            auto grid = inner.removeFromTop (cellH * 2 + 2);
+            // Take the grid's share FIRST, then derive the cell height from
+            // it. It used to be the other way round - a cell height picked
+            // from a constant, two of them removed from a grid that turned out
+            // smaller - so on a short card removeFromTop and removeFromBottom
+            // overlapped and the octave field was drawn half inside the row
+            // above it. A row can only be as tall as the space it was given.
+            auto grid = inner.removeFromTop (inner.getHeight() * 55 / 100);
+            const int cellH  = grid.getHeight() / 2;
+            const int comboH = juce::jlimit (16, 28, cellH - 11);
 
             auto row1 = grid.removeFromTop (cellH);
             arpModeBox.setBounds (captioned (row1.removeFromLeft (row1.getWidth() / 2)
                                                  .reduced (2, 0), "Arp"));
             arpRateBox.setBounds (captioned (row1.reduced (2, 0), "Arp rate"));
 
-            auto row2 = grid.removeFromBottom (cellH);
+            auto row2 = grid;                       // exactly what is left
             arpOctBox.setBounds (captioned (row2.removeFromLeft (row2.getWidth() / 2)
                                                   .reduced (2, 0), "Octaves"));
             pumpRateBox.setBounds (captioned (row2.reduced (2, 0), "Pump rate"));
 
+            juce::ignoreUnused (comboH);
             inner.removeFromTop (2);
             KnobComponent* ak[] = { arpGateKnob.get(), pumpKnob.get() };
             const int aw = inner.getWidth() / 2;
@@ -2672,28 +2759,10 @@ void VocalChopAudioProcessorEditor::layoutContent()
         // for someone who does not want to learn synthesis. They were the
         // SMALLEST dials on the panel, which is exactly backwards - so they
         // get their own wider card and the largest dials in the window.
-        auto macroCard  = bottomCards.removeFromLeft (free * 22 / 100);
-        macroCardBounds = macroCard;
-        bottomCards.removeFromLeft (gap);
-        {
-            auto in = macroCard.reduced (kPadding, kPadding - 4);
-            in.removeFromTop (kCaptionH);
-            const int w = in.getWidth() / 3;
-            KnobComponent* mk[3] = { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() };
-            for (auto* k : mk)
-                if (k != nullptr)
-                    k->setBounds (in.removeFromLeft (w).reduced (4, 0));
-        }
 
-        // Scope, spec 4.5 row 3. Carved off the right end rather than given
-        // its own row: moving Macros out to a row of their own the way the
-        // spec lays it out is a full regrid of this panel, and this gets the
-        // readout on screen without disturbing four working cards.
-        // 12%, and the four cards to its left each gave up a slice to pay
-        // for it. Taking it purely out of Playback's share left that card at
-        // 15% of the row, where "Reverse", "Ping-Pong", "Keys" and "Delay
-        // sync" all clipped - the row has to be rebalanced, not just divided.
-        auto scopeCard  = bottomCards.removeFromRight (free * 12 / 100);
+        // Scope, 150 per spec.
+        auto scopeCard  = bottomCards.removeFromRight (
+                              juce::jlimit (110, 150, bottomCards.getWidth() / 4));
         scopeCardBounds = scopeCard;
         bottomCards.removeFromRight (gap);
         {
@@ -2709,10 +2778,18 @@ void VocalChopAudioProcessorEditor::layoutContent()
         {
             auto inner = filterCard.reduced (kPadding, kPadding - 4);
             inner.removeFromTop (kCaptionH);
-            auto comboRow = inner.removeFromBottom (46);
+            // Proportional, not a fixed 46. Filter moved from the tall bottom
+            // row into the row beside Synth (spec 4.5 row 2), and a fixed
+            // reservation left 31px for two dials - they rendered as nothing
+            // under their labels.
+            auto comboRow = inner.removeFromBottom (
+                                juce::jlimit (30, 46, inner.getHeight() * 2 / 5));
+            // The field can only be as tall as what is left after its caption.
+            // A fixed 32 overflowed upward into the caption on a short card.
             filterTypeBox.setBounds (captioned (comboRow, "Type")
                                          .withSizeKeepingCentre (
-                                             juce::jmin (220, comboRow.getWidth()), 32));
+                                             juce::jmin (220, comboRow.getWidth()),
+                                             juce::jmax (18, comboRow.getHeight() - kCaptionH)));
             inner.removeFromBottom (kGap / 2);
 
             KnobComponent* fk[] = { filterCutoffKnob.get(), filterResoKnob.get() };
@@ -2741,7 +2818,8 @@ void VocalChopAudioProcessorEditor::layoutContent()
 
             auto knobCol = inner.removeFromRight (juce::jmin (192, inner.getWidth() / 2));
             {
-                const int band = juce::jlimit (56, knobCol.getHeight(),
+                const int band = juce::jlimit (juce::jmin (48, knobCol.getHeight()),
+                                               juce::jmax (1, knobCol.getHeight()),
                                                knobCol.getWidth() / 2 - 12 + 30);
                 knobCol = knobCol.withSizeKeepingCentre (knobCol.getWidth(), band);
             }
@@ -2753,13 +2831,19 @@ void VocalChopAudioProcessorEditor::layoutContent()
             inner.removeFromRight (kGap);
 
             auto controlsCol = inner;
-            playModeBox.setBounds (captioned (controlsCol.removeFromTop (btnH + 12), "Keys")
+            // Split what is LEFT between the two fields rather than asking for
+            // btnH + 12 twice. On a short card those two requests overran the
+            // column and the second field was drawn over the first one's
+            // caption - "Keys" sitting on top of the Gate box.
+            const int fieldCell = juce::jmax (24, (controlsCol.getHeight() - 3) / 2);
+            const int fieldH    = juce::jmax (16, fieldCell - kCaptionH);
+            playModeBox.setBounds (captioned (controlsCol.removeFromTop (fieldCell), "Keys")
                                        .withSizeKeepingCentre (
-                                           juce::jmin (200, controlsCol.getWidth()), btnH));
+                                           juce::jmin (200, controlsCol.getWidth()), fieldH));
             controlsCol.removeFromTop (3);
-            delaySyncBox.setBounds (captioned (controlsCol.removeFromTop (btnH + 12), "Delay sync")
+            delaySyncBox.setBounds (captioned (controlsCol.removeFromTop (fieldCell), "Delay sync")
                                         .withSizeKeepingCentre (
-                                            juce::jmin (200, controlsCol.getWidth()), btnH));
+                                            juce::jmin (200, controlsCol.getWidth()), fieldH));
         }
     }
 
