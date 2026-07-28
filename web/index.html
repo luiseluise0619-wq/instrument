@@ -477,6 +477,22 @@ th { font-family: var(--mono); font-weight: 400; font-size: .66rem; letter-spaci
 }
 .price-row { display: flex; align-items: baseline; gap: .9rem; flex-wrap: wrap; }
 .price-now { font-size: clamp(2.6rem, 6vw, 3.6rem); font-weight: 800; letter-spacing: -.05em; line-height: 1; }
+/* The list price, struck through. Kept next to the sale price rather than
+   replaced by it: a discount you cannot see the original of is just a price. */
+/* "Hear it" — the demo player under the hero CTA. */
+.hear { margin-top: 1.15rem; padding: .85rem 1rem 1rem; border-radius: var(--r-md);
+        background: color-mix(in srgb, var(--card) 70%, transparent);
+        border: 1px solid var(--line); max-width: 34rem; }
+.hear-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap;
+             margin-bottom: .6rem; font-size: .92rem; }
+.hear-dot { width: .5rem; height: .5rem; border-radius: 999px; background: var(--accent);
+            align-self: center; flex: none;
+            box-shadow: 0 0 0 calc(var(--pulse, 0) * 4px) color-mix(in srgb, var(--accent) 28%, transparent); }
+.hear-sub { color: var(--muted); font-size: .84rem; }
+.hear-audio { width: 100%; height: 36px; }
+
+.price-was { font-size: clamp(1.2rem, 2.4vw, 1.6rem); font-weight: 600; color: var(--muted);
+             text-decoration: line-through; text-decoration-thickness: 2px; opacity: .75; }
 .pill {
   font-family: var(--mono); font-size: .63rem; letter-spacing: .14em; text-transform: uppercase;
   padding: .38em .85em; border-radius: var(--r-pill);
@@ -665,8 +681,22 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
       </ul>
 
       <div class="hero-cta">
-        <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce — $30</a>
+        <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce — $14.90</a>
         <a class="btn magnet" href="https://luiseluise.gumroad.com/l/slyce-demo">Try the free demo</a>
+      </div>
+
+      <!-- The strongest thing this page can offer is the sound. Everything
+           else on it is a claim; this is the instrument doing the thing.
+           preload="none" so a 1.9 MB file costs nothing until it is asked for. -->
+      <div class="hear">
+        <div class="hear-head">
+          <span class="hear-dot" aria-hidden="true"></span>
+          <b>Hear it</b>
+          <span class="hear-sub">one vocal, cut into 154 slices, played back as a pattern</span>
+        </div>
+        <audio class="hear-audio" controls preload="none"
+               src="audio/slyce-chop-demo.wav"
+               aria-label="A vocal hook chopped into slices and played as a pattern by Slyce"></audio>
       </div>
 
       <p class="clock">
@@ -925,8 +955,8 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
         </tbody></table></div>
       </div>
       <div class="price rise" style="--d:130ms">
-        <div class="price-row"><span class="price-now">$30</span>
-          <span class="pill">launch — 50% off with LAUNCH</span></div>
+        <div class="price-row"><span class="price-was">$29.90</span><span class="price-now">$14.90</span>
+          <span class="pill">launch price — 50% off</span></div>
         <ul class="incl">
           <li>Windows, macOS and Linux — one purchase covers all three</li>
           <li>Lifetime free updates, delivered to your library</li>
@@ -2165,7 +2195,7 @@ const PG = (() => {
   const dmLayer = document.getElementById("danmaku");
   const LINES = ["wait this is one plugin?","the 808 slide 🔥","arp locks to the grid perfectly",
     "chopped my vocal in 10 seconds","403 sounds is insane","loop station is the whole point",
-    "drag straight into the DAW??","sidechain with no routing","$30 is a steal","the pump is so clean",
+    "drag straight into the DAW??","sidechain with no routing","$14.90 is a steal","the pump is so clean",
     "made a whole beat on my laptop","formant knob is nasty","runs on my old machine fine"];
   const HUES = ["#bf5af2","#ff9f0a","#5ac8fa","#f2f2f7","#ff6482","#64d2a0"];
   let dmIdx = 0;
@@ -2353,8 +2383,8 @@ const PG = (() => {
     },
     cap: { en: "of every sale, per sale", ko: "판매 건당, 매 건마다" },
     math: {
-      en: "Slyce is <b>$30</b>. Each copy sold through your link pays you <b>$15</b>, settled by Gumroad directly to your account — the money never passes through me, so there is nothing to chase.",
-      ko: "Slyce는 <b>$30</b>입니다. 내 링크로 팔린 한 카피당 <b>$15</b>가 들어오고, 정산은 Gumroad가 계정으로 직접 처리합니다. 판매자를 거치지 않으니 따로 받아낼 일이 없습니다."
+      en: "Slyce is <b>$14.90</b> at the launch price. Each copy sold through your link pays you <b>$7.45</b>, settled by Gumroad directly to your account — the money never passes through me, so there is nothing to chase.",
+      ko: "Slyce는 런치 가격 <b>$14.90</b>입니다. 내 링크로 팔린 한 카피당 <b>$7.45</b>가 들어오고, 정산은 Gumroad가 계정으로 직접 처리합니다. 판매자를 거치지 않으니 따로 받아낼 일이 없습니다."
     },
     cta: { en: "Apply to be an affiliate", ko: "제휴 신청하기" },
 

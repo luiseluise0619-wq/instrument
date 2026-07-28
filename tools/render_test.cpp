@@ -303,6 +303,90 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--chopdemo <in.wav> <out.wav>": load a vocal, slice it, and play a
+    // chopped PERFORMANCE of it.
+    //
+    // The output is a rearrangement, not a copy - which is both the point of
+    // the demo and the only version of it that is safe to publish. Commercial
+    // vocal packs let you USE a sample in a production; they do not let you
+    // rehost the file. So this renders what the instrument does to it.
+    if (argc > 3 && juce::String (argv[1]) == "--chopdemo")
+    {
+        // Braces, not parens: `File in (String (argv[2]));` is parsed as a
+        // function declaration taking a String* - the most vexing parse.
+        const juce::File in  { juce::String (argv[2]) };
+        const juce::File out { juce::String (argv[3]) };
+        if (! proc.loadSampleFromFile (in))
+        { printf ("could not load %s\n", argv[2]); return 1; }
+
+        const int n = proc.getSliceEngine().getNumSlices();
+        printf ("loaded %s: %d slices\n", in.getFileName().toRawUTF8(), n);
+        if (n <= 0) return 1;
+
+        auto set = [&] (const char* id, float v)
+        { if (auto* p = proc.getAPVTS().getParameter (id))
+              p->setValueNotifyingHost (p->convertTo0to1 (v)); };
+        set ("engine", 0.0f);                    // Chop
+        set ("reverb", 0.34f); set ("delay", 0.26f); set ("delaySync", 1.0f);
+        set ("width", 1.35f);  set ("drive", 0.10f);
+        set ("attack", 1.0f);  set ("release", 90.0f);
+
+        // 100 BPM, sixteenths. A pattern rather than a scale run - the demo has
+        // to sound like someone chopping, not like a unit test.
+        const double bpm = 100.0, sr = 44100.0;
+        const int stepSamples = (int) (sr * 60.0 / bpm / 4.0);
+        const int kPattern[] = { 0, 0, 2, 4, 0, 5, 2, 7,  1, 1, 3, 6, 0, 4, 2, 9,
+                                 0, 3, 0, 5, 2, 7, 4, 9,  1, 6, 3, 8, 0, 2, 5, 11 };
+        const int steps = (int) (sizeof (kPattern) / sizeof (kPattern[0])) * 2;   // 2 passes
+
+        const int block = 512;
+        juce::AudioBuffer<float> buf (2, block);
+        juce::MidiBuffer midi;
+        std::vector<float> L, R;
+        int stepAcc = 0, step = 0;
+
+        const int totalBlocks = (steps * stepSamples) / block + 90;   // + tail
+        for (int b = 0; b < totalBlocks; ++b)
+        {
+            if (step < steps && stepAcc <= 0)
+            {
+                const int k = kPattern[step % (int) (sizeof (kPattern) / sizeof (kPattern[0]))];
+                proc.triggerSlicePad (k % juce::jmax (1, n), step % 4 == 0 ? 1.0f : 0.78f);
+                stepAcc = stepSamples;
+                ++step;
+            }
+            buf.clear();
+            proc.processBlock (buf, midi);
+            for (int i = 0; i < block; ++i)
+            { L.push_back (buf.getSample (0, i)); R.push_back (buf.getSample (1, i)); }
+            stepAcc -= block;
+        }
+
+        // Normalise to -1 dBFS so it sits at a sane level on a web page.
+        float pk = 0.0f;
+        for (size_t i = 0; i < L.size(); ++i)
+            pk = juce::jmax (pk, juce::jmax (std::abs (L[i]), std::abs (R[i])));
+        const float g = pk > 1.0e-6f ? 0.891f / pk : 1.0f;
+
+        juce::AudioBuffer<float> outBuf (2, (int) L.size());
+        for (size_t i = 0; i < L.size(); ++i)
+        { outBuf.setSample (0, (int) i, L[i] * g); outBuf.setSample (1, (int) i, R[i] * g); }
+
+        out.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> fos (out.createOutputStream());
+        if (fos == nullptr) { printf ("cannot write %s\n", argv[3]); return 1; }
+        std::unique_ptr<juce::AudioFormatWriter> w (
+            wav.createWriterFor (fos.release(), sr, 2, 16, {}, 0));
+        if (w == nullptr) { printf ("no writer\n"); return 1; }
+        w->writeFromAudioSampleBuffer (outBuf, 0, outBuf.getNumSamples());
+        w.reset();
+
+        printf ("wrote %s  %.2f s  peak %.3f -> %.3f\n", argv[3],
+                (double) L.size() / sr, pk, pk * g);
+        return 0;
+    }
+
     // "--genres": do the genre banks hold up?
     //
     // The banks are 400 hand-written name strings pointing into a catalogue
