@@ -242,13 +242,30 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
     //--------------------------------------------------------------------------
     // Value readout inside the disc, only while the user is looking at it —
     // a permanent "0.000" under every knob was pure noise.
-    if (hover || trail > 0.03f)
+    //
+    // The macros opt out of that (setAlwaysShowValue): they are the three dials
+    // whose position is the headline, and they show a whole-number percentage
+    // rather than the raw parameter text, because "0.470" is not a thing anyone
+    // says about a macro.
+    const bool always = (bool) slider.getProperties()
+                                     .getWithDefault ("alwaysShowValue", false);
+
+    if (always || hover || trail > 0.03f)
     {
-        g.setColour (theme.text.withAlpha (juce::jmin (1.0f, 0.55f + trail)));
+        const float alpha = always ? juce::jmin (1.0f, 0.80f + trail)
+                                   : juce::jmin (1.0f, 0.55f + trail);
+        g.setColour (theme.text.withAlpha (alpha));
         g.setFont (juce::Font (juce::FontOptions (
             juce::jlimit (9.0f, 13.0f, discRadius * 0.55f)).withStyle ("Medium")));
-        g.drawText (slider.getTextFromValue (slider.getValue()),
-                    discBounds, juce::Justification::centred);
+
+        const auto readout = always
+            ? juce::String (juce::roundToInt (
+                  juce::jlimit (0.0, 1.0,
+                                slider.valueToProportionOfLength (slider.getValue()))
+                  * 100.0)) + "%"
+            : slider.getTextFromValue (slider.getValue());
+
+        g.drawText (readout, discBounds, juce::Justification::centred);
     }
 
     //--------------------------------------------------------------------------
@@ -288,9 +305,19 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
 }
 
 //==============================================================================
-KnobComponent::KnobComponent (const juce::String& caption)
+KnobComponent::KnobComponent (const juce::String& captionText)
+    : caption (captionText)
 {
-    slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    // Vertical drag only (spec section 3). The combined horizontal+vertical
+    // style adds the two axes together, so a drag that wanders sideways while
+    // going up moves the value further than the pointer did - which is exactly
+    // the "the knob ran away from me" complaint. One axis, one meaning.
+    slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
+
+    // 180px of travel = full range, and an up/down cursor to say so before the
+    // user commits to a drag. (JUCE's default is 250px.)
+    slider.setMouseDragSensitivity (180);
+    slider.setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
 
     // ~270 degree sweep in the Apple style.
     slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.25f,
@@ -317,6 +344,38 @@ KnobComponent::KnobComponent (const juce::String& caption)
 
     slider.addListener (this);
     slider.addMouseListener (&hoverWatcher, true);
+
+    // "Label - NN%". Written now so a knob is self-describing even before an
+    // attachment moves it; owners that want to say more overwrite it (see
+    // updateTooltip) and keep it.
+    updateTooltip();
+}
+
+//==============================================================================
+void KnobComponent::updateTooltip()
+{
+    // The rule is "never clobber a tooltip the owner set", and the only way to
+    // know is to remember what we wrote last. Anything else in there came from
+    // outside - arpGateKnob and pumpKnob both carry a sentence of their own -
+    // so back off permanently and let it stand.
+    const auto existing = slider.getTooltip();
+    if (existing.isNotEmpty() && existing != ownTooltip)
+        return;
+
+    const int pct = juce::roundToInt (
+        juce::jlimit (0.0, 1.0, slider.valueToProportionOfLength (slider.getValue()))
+            * 100.0);
+
+    // U+2014 EM DASH, spelled out so this file stays pure ASCII on disk.
+    ownTooltip = caption + juce::String (juce::CharPointer_UTF8 (" \xe2\x80\x94 "))
+                         + juce::String (pct) + "%";
+    slider.setTooltip (ownTooltip);
+}
+
+void KnobComponent::setAlwaysShowValue (bool shouldAlwaysShow)
+{
+    slider.getProperties().set ("alwaysShowValue", shouldAlwaysShow);
+    slider.repaint();
 }
 
 void KnobComponent::setLearnGlow (bool on)
@@ -340,6 +399,7 @@ void KnobComponent::sliderValueChanged (juce::Slider*)
     slider.getProperties().set ("dragGlow", dragGlow);
     if (! isTimerRunning())
         startTimerHz (30);
+    updateTooltip();
     slider.repaint();
 }
 

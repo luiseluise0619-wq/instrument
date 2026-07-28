@@ -704,6 +704,9 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     instNameLabel.setFont (juce::Font (juce::FontOptions (27.0f).withStyle ("Bold")));
     addAndMakeVisible (instNameLabel);
 
+    // The primary action in this panel, and the control the first tester could
+    // not find. Accent, per spec - this is an active affordance, not chrome.
+    instBrowseButton.getProperties().set ("primaryAction", true);
     instBrowseButton.setTooltip ("Browse 403 instruments - by genre (EDM / Hip-hop / Pop) or by category");
     instBrowseButton.onClick = [this]
     {
@@ -738,6 +741,10 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
             auto& c = categoryChip[i];
             const juce::String cat (chips[i]);
             c.setButtonText (cat.substring (0, 1) + cat.substring (1).toLowerCase());
+            // Toggle state is the SELECTED look, driven from the current
+            // voice's own category in refreshInstrumentHero - not from the
+            // click, so it still reads correctly when the voice is changed by
+            // the steppers, a preset, or a restored session.
             c.setClickingTogglesState (false);
             c.setTooltip ("Jump to the " + c.getButtonText() + " voices");
             c.onClick = [this, cat] { jumpToCategory (cat); };
@@ -1008,6 +1015,12 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
                 if (k != nullptr) k->setLearnGlow (on);
         };
     };
+    // Spec 4.4: the macros show their live percentage at rest. These three are
+    // the only knobs whose value is not obvious from the dial - they move four
+    // other controls each, so the number IS the readout.
+    for (auto* m : { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() })
+        if (m != nullptr) m->setAlwaysShowValue (true);
+
     hypeKnob ->onHoverChanged = learn ({ unisonKnob.get(), spreadKnob.get(),
                                          fxRack.driveKnob(), outputGainKnob.get() });
     spaceKnob->onHoverChanged = learn ({ fxRack.reverbKnob(), fxRack.delayKnob(),
@@ -1300,7 +1313,18 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
     instCategoryLabel.setColour (juce::Label::textColourId,
                                  live ? th.accent : th.text.withAlpha (0.60f));
 
-    for (auto& c : categoryChip) c.setEnabled (live);
+    {
+        static const char* chipCats[kNumChips] =
+            { "BASS", "DRUMS", "LEAD", "PAD", "KEYS", "PLUCK", "VOCAL", "BELL" };
+        const juce::String here = juce::isPositiveAndBelow (idx, cats.size()) ? cats[idx]
+                                                                             : juce::String();
+        for (int c = 0; c < kNumChips; ++c)
+        {
+            categoryChip[c].setEnabled (live);
+            categoryChip[c].setToggleState (live && here == chipCats[c],
+                                            juce::dontSendNotification);
+        }
+    }
     instBrowseButton.setEnabled (live);
     instPrevButton.setEnabled (live);
     instNextButton.setEnabled (live);
@@ -1503,9 +1527,9 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     dim (instNextButton,  voice);
 
     stripDimmed.clear();
-    if (! slicing)             stripDimmed.insert ("SLICE BY");
-    if (! (slicing && byBeats)) stripDimmed.insert ("GRID");
-    if (! voice)             { stripDimmed.insert ("WAVE"); stripDimmed.insert ("INSTRUMENT"); }
+    if (! slicing)             stripDimmed.insert ("Slice by");
+    if (! (slicing && byBeats)) stripDimmed.insert ("Grid");
+    if (! voice)             { stripDimmed.insert ("Wave"); stripDimmed.insert ("Instrument"); }
 
     content.repaint (sliceCardBounds);
 }
@@ -1584,7 +1608,7 @@ void VocalChopAudioProcessorEditor::refreshChildren()
         // word SAMPLE costs six characters and answers it.
         const auto nm = processor.getLoadedSampleName();
         subtitleLabel.setText (nm.isEmpty() ? juce::String ("VOCAL CHOP INSTRUMENT")
-                                            : "SAMPLE  ·  " + nm.toUpperCase(),
+                                            : "Sample  -  " + nm.toUpperCase(),
                                juce::dontSendNotification);
         subtitleLabel.setTooltip (nm.isEmpty()
                                   ? juce::String()
@@ -1944,17 +1968,49 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
                            .removeFromTop (kCaptionH + 6)
                            .withTrimmedTop (6);
 
-    // Small accent tick before the caption: ties every section to the
-    // theme colour and gives the eye an anchor per card.
-    g.setColour (theme.accent.withAlpha (0.85f));
+    // NEUTRAL tick, not accent. Ten cards each wearing an accent mark is the
+    // accent used as decoration, and once it decorates everything it can no
+    // longer mean "this is the active one" - which is the job the spec
+    // reserves it for. Accent stays on the instrument hero, the loop station,
+    // selected states and knob arcs.
+    g.setColour (theme.textSecondary.withAlpha (0.55f));
     g.fillRoundedRectangle ((float) strip.getX(),
-                            (float) strip.getCentreY() - 5.0f, 3.0f, 10.0f, 1.5f);
+                            (float) strip.getCentreY() - 5.5f, 3.0f, 11.0f, 1.5f);
 
+    // Sentence case. These were force-uppercased, which reads as a system
+    // label rather than as a name for a section of an instrument.
     g.setColour (theme.textSecondary);
-    g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Semibold"))
-                   .withExtraKerningFactor (0.08f));
-    g.drawText (text.toUpperCase(), strip.withTrimmedLeft (9),
-                juce::Justification::centredLeft);
+    g.setFont (juce::Font (juce::FontOptions (12.5f).withStyle ("Semibold"))
+                   .withExtraKerningFactor (-0.01f));
+    g.drawText (text, strip.withTrimmedLeft (9), juce::Justification::centredLeft);
+}
+
+void VocalChopAudioProcessorEditor::paintOverContent (juce::Graphics& g)
+{
+    if (showLooper || ambientPanel.isVisible() || welcomePanel.isVisible())
+        return;
+
+    const auto& theme = ThemeManager::active();
+
+    // What each engine PLAYS, beside its name. Four one-word tabs told you
+    // there were four modes and nothing about what any of them did - and the
+    // answer was already written down: kEngineSub was declared and never
+    // drawn. It has to be painted OVER the buttons, because children paint
+    // after their parent and a tab would otherwise cover it.
+    //
+    // Right-aligned on the same line rather than under the name: a tab is 31px
+    // tall, which is one line of type, not two.
+    const int sel = engineBox.getSelectedItemIndex();
+    g.setFont (juce::Font (juce::FontOptions (9.5f).withStyle ("Medium")));
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto b = engineTabBounds[i];
+        if (b.isEmpty()) continue;
+        g.setColour (i == sel ? theme.accentInk.withAlpha (0.75f)
+                              : theme.textSecondary.withAlpha (0.85f));
+        g.drawText (kEngineSub[i], b.reduced (11, 0),
+                    juce::Justification::centredRight, false);
+    }
 }
 
 void VocalChopAudioProcessorEditor::paint (juce::Graphics& g)
@@ -2081,6 +2137,7 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
         drawCaption (g, "Filter",     filterCardBounds);
         drawCaption (g, "Playback",   playbackCardBounds);
         drawCaption (g, "Arp / Pump", arpCardBounds);
+
     }
 
     // Footer hint.
@@ -2188,8 +2245,11 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto in = engineCard.reduced (10, 9);
             in.removeFromTop (16);                     // room for the header
             const int th = in.getHeight() / 4;
-            for (auto& t : engineTab)
-                t.setBounds (in.removeFromTop (th).reduced (0, 1));
+            for (int i = 0; i < 4; ++i)
+            {
+                engineTab[i].setBounds (in.removeFromTop (th).reduced (0, 1));
+                engineTabBounds[i] = engineTab[i].getBounds();
+            }
         }
 
         // ---- Instrument hero ---------------------------------------------
@@ -2260,10 +2320,10 @@ void VocalChopAudioProcessorEditor::layoutContent()
 
             if (chop)
             {
-                auto a = slot (capH + rowH, "SLICE BY");
+                auto a = slot (capH + rowH, "Slice by");
                 sliceModeBox.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
                 in.removeFromTop (4);
-                auto b = slot (capH + rowH + 12, "GRID");
+                auto b = slot (capH + rowH + 12, "Grid");
                 auto sens = b.removeFromRight (66);
                 b.removeFromRight (8);
                 gridBox.setBounds (b.withSizeKeepingCentre (b.getWidth(), rowH));
@@ -2273,11 +2333,11 @@ void VocalChopAudioProcessorEditor::layoutContent()
             {
                 if (synth)
                 {
-                    auto a = slot (capH + rowH, "WAVE");
+                    auto a = slot (capH + rowH, "Wave");
                     synthWaveBox.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
                     in.removeFromTop (4);
                 }
-                auto o = slot (capH + rowH, "OCTAVE");
+                auto o = slot (capH + rowH, "Octave");
                 auto oo = o.withSizeKeepingCentre (juce::jmin (150, o.getWidth()), rowH);
                 octDownButton.setBounds (oo.removeFromLeft (36));
                 octUpButton.setBounds   (oo.removeFromRight (36));
@@ -2403,13 +2463,13 @@ void VocalChopAudioProcessorEditor::layoutContent()
 
             auto row1 = grid.removeFromTop (cellH);
             arpModeBox.setBounds (captioned (row1.removeFromLeft (row1.getWidth() / 2)
-                                                 .reduced (2, 0), "ARP"));
-            arpRateBox.setBounds (captioned (row1.reduced (2, 0), "ARP RATE"));
+                                                 .reduced (2, 0), "Arp"));
+            arpRateBox.setBounds (captioned (row1.reduced (2, 0), "Arp rate"));
 
             auto row2 = grid.removeFromBottom (cellH);
             arpOctBox.setBounds   (captioned (row2.removeFromLeft (row2.getWidth() / 2)
-                                                  .reduced (2, 0), "OCTAVES"));
-            pumpRateBox.setBounds (captioned (row2.reduced (2, 0), "PUMP RATE"));
+                                                  .reduced (2, 0), "Octaves"));
+            pumpRateBox.setBounds (captioned (row2.reduced (2, 0), "Pump rate"));
 
             inner.removeFromTop (2);
             KnobComponent* ak[] = { arpGateKnob.get(), pumpKnob.get() };
@@ -2444,7 +2504,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto inner = filterCard.reduced (kPadding, kPadding - 4);
             inner.removeFromTop (kCaptionH);
             auto comboRow = inner.removeFromBottom (46);
-            filterTypeBox.setBounds (captioned (comboRow, "TYPE")
+            filterTypeBox.setBounds (captioned (comboRow, "Type")
                                          .withSizeKeepingCentre (
                                              juce::jmin (220, comboRow.getWidth()), 32));
             inner.removeFromBottom (kGap / 2);
@@ -2461,6 +2521,18 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto inner = playbackCard.reduced (kPadding, kPadding - 4);
             inner.removeFromTop (kCaptionH);
 
+            // The two switches take the FULL card width, before the knob
+            // column is carved off. They used to share a narrow left column
+            // with the combos, which was fine for a 25px tick box - but a
+            // macOS switch is 38px wide, and the labels no longer fitted:
+            // they rendered as "Revers" and "Ping-P". A clipped word reads as
+            // a broken build.
+            const int btnH = juce::jlimit (18, 26, (inner.getHeight() - 24) / 4 - 2);
+            reverseButton.setBounds  (inner.removeFromTop (btnH));
+            inner.removeFromTop (2);
+            pingpongButton.setBounds (inner.removeFromTop (btnH));
+            inner.removeFromTop (3);
+
             auto knobCol = inner.removeFromRight (juce::jmin (192, inner.getWidth() / 2));
             {
                 const int band = juce::jlimit (56, knobCol.getHeight(),
@@ -2475,22 +2547,13 @@ void VocalChopAudioProcessorEditor::layoutContent()
             inner.removeFromRight (kGap);
 
             auto controlsCol = inner;
-            // Fit three rows into whatever height the card actually has -
-            // fixed 30px rows overflowed and stacked on top of each other.
-            // Four rows now (the delay-sync division joined the card), so the
-            // row height follows the card instead of a fixed guess.
-            const int btnH = juce::jlimit (18, 26, (controlsCol.getHeight() - 24) / 4 - 2);
-            reverseButton.setBounds  (controlsCol.removeFromTop (btnH));
-            controlsCol.removeFromTop (2);
-            pingpongButton.setBounds (controlsCol.removeFromTop (btnH));
-            controlsCol.removeFromTop (3);
             playModeBox.setBounds    (captioned (controlsCol.removeFromTop (btnH + 12),
-                                                 "KEYS")
+                                                 "Keys")
                                           .withSizeKeepingCentre (
                                               juce::jmin (200, controlsCol.getWidth()), btnH));
             controlsCol.removeFromTop (3);
             delaySyncBox.setBounds   (captioned (controlsCol.removeFromTop (btnH + 12),
-                                                 "DELAY SYNC")
+                                                 "Delay sync")
                                           .withSizeKeepingCentre (
                                               juce::jmin (200, controlsCol.getWidth()), btnH));
         }

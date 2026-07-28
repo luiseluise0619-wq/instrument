@@ -7,16 +7,19 @@
 class VocalChopAudioProcessor;
 
 /**
-    Draws the loaded sample as a smooth filled waveform inside a rounded
-    "material" card in the Apple / macOS-iOS visual style.
+    Draws the loaded sample as 74 mirrored bars inside a rounded "material"
+    card in the Apple / macOS-iOS visual style (design spec 4.3).
 
     Visual treatment:
-      - vertical gradient fill that blooms at the peaks and fades toward the
-        centre line, with a crisp 1px top-contour stroke
-      - optional neon glow around the contour (driven by Theme::glow)
-      - a glassy low-alpha reflection of the min-envelope below the centre
+      - 74 rounded, centre-mirrored bars with a small gap, filled with a
+        vertical gradient: accent on the centre line, a computed darker accent
+        (accent 76% + black) at the tips
+      - optional soft glow behind the bars (driven by Theme::glow)
       - whisper-faint horizontal guide lines for a precision-instrument look
-      - slice-boundary markers with rounded nubs (soft glow dot when glowing)
+      - an engine-gated accent badge, engine-gated hint line, and file-name /
+        "Normalised" chips along the bottom
+      - slice-boundary markers with rounded nubs and numbered lane tabs -
+        CHOP MODE ONLY, at most twelve lanes
       - live playheads (accent line + triangle) read from the voice pool
 
     Shows an empty-state prompt with an SF-symbol style glyph and accepts

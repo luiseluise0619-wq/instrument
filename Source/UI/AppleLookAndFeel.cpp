@@ -3,9 +3,58 @@
 
 #include <cmath>
 
+namespace
+{
+    /** cubic-bezier(.32,.72,0,1) - the curve macOS uses for its switches.
+        It leaves fast and settles slowly, which is what makes the thumb feel
+        thrown rather than dragged.
+
+        There is no closed form for y(x) on a cubic bezier, so solve x for t by
+        bisection. Sixteen halvings put t within 1/65536, far below the ~16px
+        of travel this drives, and it is a handful of multiplies once per frame
+        for at most a couple of switches. */
+    float switchEase (float x) noexcept
+    {
+        constexpr float x1 = 0.32f, y1 = 0.72f;
+        constexpr float x2 = 0.0f,  y2 = 1.0f;
+
+        auto bezier = [] (float a, float b, float t)
+        {
+            const float u = 1.0f - t;
+            return 3.0f * u * u * t * a + 3.0f * u * t * t * b + t * t * t;
+        };
+
+        x = juce::jlimit (0.0f, 1.0f, x);
+
+        float lo = 0.0f, hi = 1.0f, t = x;
+        for (int i = 0; i < 16; ++i)
+        {
+            t = 0.5f * (lo + hi);
+            if (bezier (x1, x2, t) < x) lo = t;
+            else                        hi = t;
+        }
+
+        return bezier (y1, y2, t);
+    }
+}
+
 AppleLookAndFeel::AppleLookAndFeel()
 {
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
+}
+
+float AppleLookAndFeel::radiusFor (juce::Component& c, juce::Rectangle<float> bounds,
+                                   float defaultRadius)
+{
+    const auto& props = c.getProperties();
+
+    float r = defaultRadius;
+    if      ((bool) props.getWithDefault ("pill",         false)) r = AppleRadius::pill;
+    else if ((bool) props.getWithDefault ("chip",         false)) r = AppleRadius::chip;
+    else if ((bool) props.getWithDefault ("largeControl", false)) r = AppleRadius::large;
+    else if ((bool) props.getWithDefault ("panel",        false)) r = AppleRadius::panel;
+
+    return juce::jmin (r, bounds.getHeight() * 0.5f);
 }
 
 //==============================================================================
@@ -26,7 +75,9 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     if (glowTheme)
         bounds = bounds.reduced (2.5f);   // margin inside the clip for the under-glow
 
-    const float radius = juce::jmin (theme.cornerRadius, bounds.getHeight() * 0.5f);
+    // Buttons sit at 10 on the radius scale; a button flagged "pill" (or
+    // "chip") picks up its own curve from the same scale.
+    const float radius = radiusFor (button, bounds, AppleRadius::button);
 
     // A button marked "primaryAction" is filled with the accent, the way the
     // confirming button in a macOS sheet is.
@@ -94,8 +145,10 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     if (! down)
     {
         g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.07f : 0.55f));
+        // jmax: a pill's radius is half its height, which on a tall narrow
+        // button is wider than the button - a negative width here draws junk.
         g.fillRect (bounds.getX() + radius, bounds.getY() + 1.0f,
-                    bounds.getWidth() - radius * 2.0f, 1.0f);
+                    juce::jmax (0.0f, bounds.getWidth() - radius * 2.0f), 1.0f);
     }
 
     // The click flash also brightens the face with an accent wash.
@@ -154,50 +207,130 @@ void AppleLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& 
     const auto& theme = ThemeManager::active();
     const bool  on    = button.getToggleState();
 
+    //--------------------------------------------------------------------------
+    // A macOS switch, not a tick box (spec section 4.5). The difference is not
+    // decoration: a tick box says "is this option selected", a switch says
+    // "is this thing running right now", and Reverse / Ping-Pong are the
+    // second kind. The travelling thumb is the whole point - it is what makes
+    // the state readable from the corner of your eye while you are playing.
+    //
+    // Animation state has to live somewhere, and LookAndFeel is shared by every
+    // button, so it goes in the BUTTON's own property set. Each paint reads the
+    // clock, advances the phase and asks for another repaint until it lands -
+    // no timer to own, nothing to unregister, and a switch that is never on
+    // screen costs nothing.
+    auto& props = button.getProperties();
+
+    const double target = on ? 1.0 : 0.0;
+    const double now    = juce::Time::getMillisecondCounterHiRes();
+
+    double phase = (double) props.getWithDefault ("switchPhase", target);
+    double from  = (double) props.getWithDefault ("switchFrom",  target);
+    double t0    = (double) props.getWithDefault ("switchT0",    now);
+
+    // First paint has no stored target, and must SNAP: a switch that animates
+    // itself on every theme change or window open reads as a glitch.
+    const bool known  = props.contains ("switchTarget");
+    const bool lastOn = ((double) props.getWithDefault ("switchTarget", target)) > 0.5;
+
+    if (! known || lastOn != on)
+    {
+        from = known ? phase : target;
+        t0   = now;
+        props.set ("switchFrom",   from);
+        props.set ("switchT0",     t0);
+        props.set ("switchTarget", target);
+    }
+
+    constexpr double kDurationMs = 180.0;
+    const double u = juce::jlimit (0.0, 1.0, (now - t0) / kDurationMs);
+
+    phase = juce::jlimit (0.0, 1.0, from + (target - from) * (double) switchEase ((float) u));
+    props.set ("switchPhase", phase);
+
+    const float p = (float) phase;
+
+    //--------------------------------------------------------------------------
+    // Geometry: 38 x 22 track, radius 11, a 16px thumb inset 3px, so the thumb
+    // travels 3 -> 19. Scaled down proportionally when the row is shorter than
+    // 22px (the playback card sizes its rows from the card height).
     auto bounds = button.getLocalBounds().toFloat();
-    const float boxSide = juce::jlimit (13.0f, 18.0f, bounds.getHeight() - 6.0f);
-    auto box = juce::Rectangle<float> (boxSide, boxSide)
-                   .withCentre ({ bounds.getX() + boxSide * 0.5f + 1.0f,
-                                  bounds.getCentreY() });
-    const float r = boxSide * 0.30f;
 
-    // Filled accent box when on, hairline well when off - the stock JUCE tick
-    // box was invisible on the light themes and drab on the dark ones.
-    if (on)
-    {
-        if (theme.glow >= 0.5f)
-        {
-            g.setColour (theme.accent.withAlpha (0.30f * theme.glow));
-            g.fillRoundedRectangle (box.expanded (3.0f), r + 3.0f);
-        }
-        g.setColour (theme.accent.brighter (highlighted ? 0.15f : 0.0f));
-        g.fillRoundedRectangle (box, r);
+    const float scale = juce::jlimit (0.45f, 1.0f,
+                                      juce::jmin (bounds.getHeight() / 22.0f,
+                                                  bounds.getWidth()  / 38.0f));
+    const float trackW = 38.0f * scale;
+    const float trackH = 22.0f * scale;
+    const float trackR = 11.0f * scale;
+    const float thumbD = 16.0f * scale;
+    const float inset  =  3.0f * scale;
+    const float travel = trackW - thumbD - inset * 2.0f;   // 16 * scale
 
-        // Tick.
-        juce::Path tick;
-        tick.startNewSubPath (box.getX() + boxSide * 0.24f, box.getY() + boxSide * 0.52f);
-        tick.lineTo          (box.getX() + boxSide * 0.43f, box.getY() + boxSide * 0.71f);
-        tick.lineTo          (box.getX() + boxSide * 0.77f, box.getY() + boxSide * 0.30f);
-        g.setColour (theme.dark ? juce::Colours::white
-                                : juce::Colours::white.withAlpha (0.97f));
-        g.strokePath (tick, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
-                                                  juce::PathStrokeType::rounded));
-    }
-    else
+    auto track = juce::Rectangle<float> (trackW, trackH)
+                     .withCentre ({ bounds.getX() + trackW * 0.5f + 1.0f,
+                                    bounds.getCentreY() });
+
+    auto thumb = juce::Rectangle<float> (thumbD, thumbD)
+                     .withCentre ({ track.getX() + inset + thumbD * 0.5f + travel * p,
+                                    track.getCentreY() });
+
+    //--------------------------------------------------------------------------
+    // Under-glow on the neon themes, so a live switch reads as lit.
+    if (theme.glow >= 0.5f && p > 0.01f)
     {
-        g.setColour (theme.control.withAlpha (theme.dark ? 1.0f : 0.85f));
-        g.fillRoundedRectangle (box, r);
-        g.setColour (highlighted ? theme.accent.withAlpha (0.75f)
-                                 : theme.textSecondary.withAlpha (0.55f));
-        g.drawRoundedRectangle (box.reduced (0.5f), r, 1.2f);
+        g.setColour (theme.accent.withAlpha (juce::jlimit (0.0f, 1.0f,
+                                                           0.28f * p * theme.glow)));
+        g.fillRoundedRectangle (track.expanded (3.0f * scale), trackR + 3.0f * scale);
     }
 
-    // Label: full-strength text, never the washed-out default.
+    // Track: fills from the inactive-track token to the accent as it turns on.
+    // controlTrack is a translucent overlay token (18% white on dark, 8% black
+    // on light) - at face value it leaves a white thumb sitting on almost
+    // nothing, so lift the alpha before blending.
+    {
+        const auto off = theme.controlTrack.withMultipliedAlpha (theme.dark ? 1.5f : 2.6f);
+        auto fill = off.interpolatedWith (theme.accent, p);
+        if (highlighted)
+            fill = fill.brighter (0.10f);
+
+        g.setColour (fill);
+        g.fillRoundedRectangle (track, trackR);
+
+        // Hairline while off (the light themes need the edge), gone once the
+        // accent is carrying the shape itself.
+        g.setColour (theme.separator.withMultipliedAlpha (1.0f - p));
+        g.drawRoundedRectangle (track.reduced (0.5f), trackR - 0.5f, 1.0f);
+    }
+
+    // Soft shadow under the thumb. Two offset fills rather than a gaussian:
+    // this runs every frame of the animation.
+    {
+        g.setColour (theme.shadow.withMultipliedAlpha (0.55f));
+        g.fillEllipse (thumb.translated (0.0f, 1.6f * scale).expanded (0.5f * scale));
+        g.setColour (theme.shadow.withMultipliedAlpha (0.35f));
+        g.fillEllipse (thumb.translated (0.0f, 0.7f * scale));
+    }
+
+    // The thumb is the one thing the spec fixes as pure white, on every theme.
+    g.setColour (juce::Colours::white);
+    g.fillEllipse (thumb);
+    g.setColour (theme.shadow.withMultipliedAlpha (0.22f));
+    g.drawEllipse (thumb.reduced (0.5f), 1.0f);
+
+    //--------------------------------------------------------------------------
+    // Label to the right of the switch, in primary text.
     g.setColour (theme.text.withAlpha (button.isEnabled() ? (down ? 0.75f : 1.0f) : 0.4f));
-    g.setFont (juce::Font (juce::FontOptions (13.0f).withStyle ("Medium")));
+    g.setFont (juce::Font (juce::FontOptions (juce::jlimit (10.5f, 13.0f, 13.0f * scale))
+                               .withStyle ("Medium")));
     g.drawText (button.getButtonText(),
-                bounds.withTrimmedLeft (boxSide + 9.0f),
+                bounds.withTrimmedLeft (track.getRight() - bounds.getX() + 9.0f * scale),
                 juce::Justification::centredLeft, false);
+
+    // Keep the animation running until it arrives, then stop asking. The
+    // second test matters on the first paint and on a theme change, where
+    // there is nothing to travel and a repaint loop would just burn frames.
+    if (u < 1.0 && std::abs (target - from) > 1.0e-4)
+        button.repaint();
 }
 
 void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
@@ -205,7 +338,9 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
 {
     const auto& theme = ThemeManager::active();
     auto bounds = juce::Rectangle<int> (0, 0, width, height).toFloat().reduced (0.5f);
-    const float radius = juce::jmin (theme.cornerRadius, bounds.getHeight() * 0.5f);
+    // Fields share the buttons' 10 on the radius scale - they are the same
+    // size of object and belong to the same row of the toolbar.
+    const float radius = radiusFor (box, bounds, AppleRadius::button);
 
     const bool glowTheme = theme.glow >= 0.9f;
     const bool focused   = box.hasKeyboardFocus (false);
@@ -229,7 +364,7 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
 
         g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.45f));
         g.fillRect (bounds.getX() + radius, bounds.getBottom() - 1.5f,
-                    bounds.getWidth() - radius * 2.0f, 1.0f);
+                    juce::jmax (0.0f, bounds.getWidth() - radius * 2.0f), 1.0f);
     }
 
     // Combos always show an accent rim on glow themes so they can't sink
@@ -244,7 +379,7 @@ void AppleLookAndFeel::drawComboBox (juce::Graphics& g, int width, int height,
     if ((focused || hovered) && glowTheme)
     {
         g.setColour (theme.accent.withAlpha (0.18f));
-        g.drawRoundedRectangle (bounds.reduced (1.5f), radius - 1.5f, 2.0f);
+        g.drawRoundedRectangle (bounds.reduced (1.5f), juce::jmax (0.0f, radius - 1.5f), 2.0f);
         g.setColour (theme.accent.withAlpha (0.10f));
         g.drawRoundedRectangle (bounds.expanded (1.0f), radius + 1.0f, 1.5f);
     }
@@ -275,7 +410,9 @@ void AppleLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, in
     const auto& theme = ThemeManager::active();
     auto bounds = juce::Rectangle<float> (0, 0, (float) width, (float) height).reduced (1.0f);
 
-    const float radius = 12.0f;
+    // Floating menus are large controls on the radius scale (spec: the theme
+    // menu is 14), not buttons.
+    const float radius = AppleRadius::large;
 
     // Soft stacked shadow so the menu floats over the panel.
     for (int i = 3; i >= 1; --i)
@@ -407,12 +544,14 @@ void AppleLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectang
     if (isHighlighted && isActive)
     {
         const auto rf = r.toFloat();
+        // A highlighted row is a chip on the radius scale.
+        const float rowR = juce::jmin (AppleRadius::chip, rf.getHeight() * 0.5f);
 
         if (glowTheme)
         {
             // Neon treatment: translucent accent wash + thin glowing left bar.
             g.setColour (theme.accentSoft);
-            g.fillRoundedRectangle (rf, 7.0f);
+            g.fillRoundedRectangle (rf, rowR);
 
             const juce::Rectangle<float> bar (rf.getX() + 1.5f, rf.getY() + 3.0f,
                                               2.5f, rf.getHeight() - 6.0f);
@@ -424,7 +563,7 @@ void AppleLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectang
         else
         {
             g.setColour (theme.accent);
-            g.fillRoundedRectangle (rf, 7.0f);
+            g.fillRoundedRectangle (rf, rowR);
         }
     }
 

@@ -3,6 +3,25 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
+    The radius scale (design spec section 1):
+    16 panels / 14 large controls / 10 buttons and fields / 8-9 chips / 999 pills.
+
+    One radius for every element was the giveaway that the corners were never
+    designed - a 32px toolbar button and a 150px panel cannot share a curve and
+    read as the same family. ThemeManager still carries a single `cornerRadius`
+    token (other components rely on it), so these live here instead: derived
+    locally, no theme change needed.
+*/
+namespace AppleRadius
+{
+    inline constexpr float panel  =  16.0f;
+    inline constexpr float large  =  14.0f;   // large controls / floating menus
+    inline constexpr float button =  10.0f;   // buttons and combo fields
+    inline constexpr float chip   =   9.0f;
+    inline constexpr float pill   = 999.0f;   // clamped to half the height
+}
+
+/**
     Shared look-and-feel that gives buttons, combo boxes and menus a macOS / iOS
     feel: rounded "material" fills, hairline borders, a single accent colour,
     and clean SF-style typography. All colours are pulled live from the active
@@ -12,6 +31,13 @@ class AppleLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
     AppleLookAndFeel();
+
+    /** Radius for one control, honouring per-component overrides: set the
+        boolean property "pill", "chip" or "largeControl" on a component to
+        move it off `defaultRadius`. Always clamped to half the height, so a
+        pill comes out as a true stadium at any size. */
+    static float radiusFor (juce::Component&, juce::Rectangle<float> bounds,
+                            float defaultRadius);
 
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
     void drawButtonBackground (juce::Graphics&, juce::Button&,

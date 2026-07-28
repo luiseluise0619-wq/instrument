@@ -1,5 +1,6 @@
 #include "SliceGrid.h"
 #include "ThemeManager.h"
+#include "TypingKeymap.h"
 #include "../PluginProcessor.h"
 
 #include <algorithm>
@@ -7,7 +8,25 @@
 
 namespace
 {
-    constexpr float kFeltHeight = 5.0f;   // classic felt strip above the keys
+    constexpr float kFeltHeight  = 5.0f;   // classic felt strip above the keys
+    constexpr float kLetterBand  = 14.0f;  // bottom strip reserved for the typing letter
+
+    /** The computer-keyboard character that plays this semitone, or an empty
+        string when nothing on the QWERTY keyboard reaches it.
+
+        The table is NOT restated here: it lives in TypingKeymap.h, and the
+        mapping depends on the engine (Chop restarts the upper row at the first
+        slice instead of an octave up), so this inverts the real function rather
+        than a copy of it. That is the whole point - a letter printed on a key
+        that does not play it is worse than no letter at all. */
+    juce::String typingLetterFor (int semitone, bool chopMode)
+    {
+        for (int i = 0; i < slyce::keymap::numKeys; ++i)
+            if (slyce::keymap::semitoneFor (i, chopMode) == semitone)
+                return juce::String::charToString (slyce::keymap::keys[i]).toUpperCase();
+
+        return {};
+    }
 }
 
 SliceGrid::SliceGrid (VocalChopAudioProcessor& processor)
@@ -149,7 +168,13 @@ void SliceGrid::paint (juce::Graphics& g)
         }
         else
         {
-            g.setColour (theme.waveform.darker (0.25f).withAlpha (0.90f));
+            // Neutral felt. It used to be theme.waveform, an accent-derived
+            // colour spent on pure decoration; accent means "currently active"
+            // (spec S1), so it now belongs to the pressed key and the selected
+            // slice number only. Material darkened by two hairlines reads as
+            // felt against the card in both light and dark themes.
+            g.setColour (theme.materialStrong.overlaidWith (theme.separator)
+                                             .overlaidWith (theme.separator));
             g.fillRoundedRectangle (felt, 2.0f);
             // Thin highlight so the felt reads as fabric, not a flat bar.
             g.setColour (juce::Colours::white.withAlpha (0.10f));
@@ -247,7 +272,33 @@ void SliceGrid::paint (juce::Graphics& g)
                         juce::Justification::centred);
         }
 
-        // Octave labels on the Cs.
+        // The computer-keyboard letter that plays this key (spec S4.7). Bottom
+        // of the key, so it never meets the slice number sitting at the top.
+        // Keys past the end of the QWERTY map get nothing rather than a letter
+        // that lies.
+        if (enabled)
+        {
+            const auto letter = typingLetterFor (s, chopMode);
+
+            if (letter.isNotEmpty())
+            {
+                // Legible on ivory in EVERY theme: textSecondary is light in a
+                // dark theme and would vanish here, so its luminosity is nudged
+                // against the key it sits on rather than an invented alpha.
+                // Derived from the KEY, not from the theme: these keys are
+                // ivory and graphite in every theme, so theme.textSecondary
+                // (a tinted lavender) is invisible on one and garish on the
+                // other. The two-argument contrasting() also drags the hue -
+                // it turned these letters green. The single-argument form just
+                // moves lightness, which is what a pencil mark on a key does.
+                g.setColour (ivoryBot.contrasting (0.72f));
+                g.setFont (juce::Font (juce::FontOptions (9.5f).withStyle ("Semibold")));
+                g.drawText (letter, r.reduced (1.0f).removeFromBottom (kLetterBand),
+                            juce::Justification::centred);
+            }
+        }
+
+        // Octave labels on the Cs, stacked just above the letter.
         if (s % 12 == 0 && enabled)
         {
             g.setColour (juce::Colour (0xff3b415a)
@@ -255,7 +306,8 @@ void SliceGrid::paint (juce::Graphics& g)
                              .withAlpha (0.85f));
             g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold")));
             g.drawText ("C" + juce::String (3 + s / 12),
-                        r.reduced (2.0f).removeFromBottom (16.0f),
+                        r.reduced (2.0f).withTrimmedBottom (kLetterBand)
+                                        .removeFromBottom (14.0f),
                         juce::Justification::centred);
         }
     };
@@ -332,6 +384,21 @@ void SliceGrid::paint (juce::Graphics& g)
             g.setColour (juce::Colour (0xff353a5c).withAlpha (enabled ? 1.0f : 0.35f)
                              .interpolatedWith (theme.accent, flash * 0.6f));
             g.fillRoundedRectangle (lip, 3.0f);
+        }
+
+        // Sharps carry a typing letter too (S D G H J on the lower row); it
+        // goes just above the front lip, matching the whites' bottom placement.
+        if (enabled)
+        {
+            const auto letter = typingLetterFor (s, chopMode);
+
+            if (letter.isNotEmpty())
+            {
+                g.setColour (bot.withAlpha (1.0f).contrasting (0.62f));
+                g.setFont (juce::Font (juce::FontOptions (9.0f).withStyle ("Semibold")));
+                g.drawText (letter, r.withTrimmedBottom (8.0f).removeFromBottom (12.0f),
+                            juce::Justification::centred);
+            }
         }
     };
 

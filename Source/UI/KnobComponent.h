@@ -36,6 +36,16 @@ public:
         shortcut whose whole problem is that you cannot see what it does. */
     void setLearnGlow (bool on);
 
+    /** Keeps the percentage readout in the middle of the dial at rest, instead
+        of only while the mouse is on it.
+
+        Off by default, and it should stay off for most dials: twenty-five
+        permanent numbers in one window is noise, which is why the readout is
+        hover-only. The macros are the exception - they are the three dials a
+        player actually reports ("dirt at 60") and the only ones whose position
+        has to be readable from across a room. */
+    void setAlwaysShowValue (bool shouldAlwaysShow);
+
     /** Fires on mouse enter/exit so an owner can light other dials. */
     std::function<void (bool)> onHoverChanged;
     void paint (juce::Graphics&) override;
@@ -55,6 +65,10 @@ private:
     void sliderValueChanged (juce::Slider*) override;
     void timerCallback() override;
 
+    /** Refreshes the "Label - NN%" tooltip, unless the owner has set one of
+        its own (see the implementation for how that is detected). */
+    void updateTooltip();
+
     struct HoverWatcher : juce::MouseListener
     {
         explicit HoverWatcher (KnobComponent& o) : owner (o) {}
@@ -71,6 +85,9 @@ private:
     KnobLookAndFeel lookAndFeel;
     float dragGlow = 0.0f;
     bool  learnGlow = false;
+
+    juce::String caption;        // what the tooltip and the label are named after
+    juce::String ownTooltip;     // the last tooltip THIS component wrote
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KnobComponent)
 };

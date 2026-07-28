@@ -63,6 +63,7 @@ private:
         canvas scales uniformly with the window (see content below). */
     void layoutContent();
     void paintContent (juce::Graphics&);
+    void paintOverContent (juce::Graphics&);   // drawn on top of the controls
 
     // Draws a rounded "material" card with hairline border and soft shadow.
     void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;
@@ -82,9 +83,9 @@ private:
     juce::Label      presetLabel;
     juce::ComboBox   presetBox;
     juce::ComboBox   themeBox;
-    juce::TextButton loadButton   { "Load Sample" };
-    juce::TextButton demoButton   { "Demo Vocal" };
-    juce::TextButton looperTabButton { "LOOPER" };
+    juce::TextButton loadButton   { "Load sample" };
+    juce::TextButton demoButton   { "Demo vocal" };
+    juce::TextButton looperTabButton { "Looper" };
     bool             showLooper = false;
 
     // --- Engine / Instrument / Context strip (the top three panels) --------
@@ -92,8 +93,12 @@ private:
     // tabs drive it. Replacing it outright would have thrown away the host
     // automation binding and every saved session's engine setting.
     juce::TextButton engineTab[4];
+    // What each engine actually plays. This was declared and never drawn, so
+    // the tabs read "Chop / Synth / Sampled / Melody" and someone reasonably
+    // asked what the four of them were - the answer was sitting right here.
     static constexpr const char* kEngineSub[4] =
-        { "Slices", "403 voices", "SFZ", "Chromatic" };
+        { "Slices", "403 voices", "Banks", "Pitched" };
+    juce::Rectangle<int> engineTabBounds[4];
 
     // Instrument hero: the voice name is the largest type in the window,
     // because it is the control people are actually looking for.
@@ -162,12 +167,12 @@ private:
     LooperPanel    looperPanel { processor };
     UnlockPanel    unlockPanel { [this] (juce::String e, juce::String k)
                                  { return processor.finalizeActivation (e, k); } };
-    juce::TextButton unlockButton { "UNLOCK" };
+    juce::TextButton unlockButton { "Unlock" };
 
     // Ambient mode: a full-panel visualiser for leaving the plugin running on
     // a spare screen. Covers everything; the timer only turns while visible.
     AmbientPanel     ambientPanel;
-    juce::TextButton ambientButton { "AMBIENT" };
+    juce::TextButton ambientButton { "Ambient" };
     void setAmbient (bool on);
 
     // First-run quick start (re-openable from the toolbar "?").
@@ -244,6 +249,9 @@ private:
     {
         explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}
         void paint (juce::Graphics& g) override { owner.paintContent (g); }
+        // Children paint AFTER paint(), so anything drawn on top of a control
+        // has to go here. The engine tabs' sub-labels sit on the tab buttons.
+        void paintOverChildren (juce::Graphics& g) override { owner.paintOverContent (g); }
         VocalChopAudioProcessorEditor& owner;
     };
     ContentComp content { *this };

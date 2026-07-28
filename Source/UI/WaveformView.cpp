@@ -9,6 +9,71 @@ namespace
 {
     // Inner padding between the card edge and the waveform drawing.
     constexpr float kCardPadding = 12.0f;
+
+    // Spec 4.3: the waveform reads as 74 mirrored bars, never a continuous
+    // envelope, and at most twelve slice lanes are ever drawn.
+    constexpr int   kNumBars  = 74;
+    constexpr int   kMaxLanes = 12;
+
+    // Height of the chips / hint strip along the bottom of the card.
+    constexpr float kFooterH = 16.0f;
+
+    /** Spec 2: derived accent tokens are computed, never hand-picked.
+        --acc2 = color-mix(in srgb, var(--acc) 76%, #000) -> 24% toward black. */
+    juce::Colour accentDeep (const Theme& t)
+    {
+        return t.accent.interpolatedWith (juce::Colours::black, 0.24f);
+    }
+
+    float textWidth (const juce::Font& f, const juce::String& s)
+    {
+        // getStringWidth on Font is deprecated in JUCE 8; GlyphArrangement is
+        // the supported way to measure a run of text.
+        return juce::GlyphArrangement::getStringWidth (f, s);
+    }
+
+    /** Small rounded pill: material fill, hairline border, secondary text.
+        Returns the width it used, so chips can be packed left to right. */
+    float drawChip (juce::Graphics& g, const Theme& t, float x, float y, float h,
+                    const juce::String& text)
+    {
+        const juce::Font font (juce::FontOptions (9.5f).withStyle ("Medium"));
+        const float w = textWidth (font, text) + 14.0f;
+        const juce::Rectangle<float> r (x, y, w, h);
+
+        g.setColour (t.material);
+        g.fillRoundedRectangle (r, h * 0.5f);
+        g.setColour (t.separator);
+        g.drawRoundedRectangle (r.reduced (0.5f), h * 0.5f, 1.0f);
+        g.setColour (t.textSecondary);
+        g.setFont (font);
+        g.drawText (text, r, juce::Justification::centred, false);
+        return w;
+    }
+
+    juce::Font badgeFont()
+    {
+        return juce::Font (juce::FontOptions (9.5f).withStyle ("Semibold"));
+    }
+
+    /** Spec 4.3: the engine badge - a small accent pill, right-aligned to
+        `rightX`. Measured separately so the lane numerals can dodge it. */
+    juce::Rectangle<float> badgeBounds (float rightX, float y, const juce::String& text)
+    {
+        const float h = 15.0f;
+        const float w = textWidth (badgeFont(), text) + 16.0f;
+        return { rightX - w, y, w, h };
+    }
+
+    void drawBadge (juce::Graphics& g, const Theme& t,
+                    juce::Rectangle<float> r, const juce::String& text)
+    {
+        g.setColour (t.accent);
+        g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
+        g.setColour (t.accentInk);
+        g.setFont (badgeFont());
+        g.drawText (text, r, juce::Justification::centred, false);
+    }
 }
 
 WaveformView::WaveformView (VocalChopAudioProcessor& processor)
@@ -58,6 +123,11 @@ float WaveformView::xOfFrac (float frac) const
 
 int WaveformView::markerNear (float x) const
 {
+    // Spec 7: Chop is the only engine that shows slice markers - so it is the
+    // only engine where one can be grabbed. Nothing invisible is draggable.
+    if (! proc.isChopMode())
+        return -1;
+
     auto sample = proc.getLoadedSample();
     if (sample == nullptr || sample->getNumSamples() <= 0)
         return -1;
@@ -341,6 +411,37 @@ void WaveformView::paint (juce::Graphics& g)
     // Reserve room for the drop shadow so the card doesn't touch the edges.
     auto card = full.reduced (4.0f);
 
+    // --- Engine-gated copy (spec 4.3) ----------------------------------------
+    // isSynthMode() is true for every non-Chop engine, so Melody and Sampled
+    // have to be asked about first.
+    const bool chopMode    = proc.isChopMode();
+    const bool melodyMode  = proc.isMelodyMode();
+    const bool sampledMode = proc.isSamplerMode();
+
+    juce::String badgeText, hintText;
+    if (chopMode)
+    {
+        auto& engine = proc.getSliceEngine();
+        badgeText = juce::String (engine.getNumSlices()) + " slices  -  "
+                  + (engine.getMode() == SliceEngine::Grid ? "beats" : "transient");
+        hintText  = "Drag a marker to move the cut  -  drop audio anywhere";
+    }
+    else if (melodyMode)
+    {
+        badgeText = "Root C3  -  loop region";
+        hintText  = "Drag the region edges to set the loop";
+    }
+    else if (sampledMode)
+    {
+        badgeText = "SFZ zone";
+        hintText  = "Drag the region edges to set the loop";
+    }
+    else
+    {
+        badgeText = "Oscillator preview";
+        hintText  = "Live output  -  drop audio to switch to Chop";
+    }
+
     // --- Soft drop shadow behind the card ------------------------------------
     // Two offset fills: this view repaints 24x a second, and a gaussian blur
     // that often is exactly what made the UI feel heavy.
@@ -392,7 +493,19 @@ void WaveformView::paint (juce::Graphics& g)
     // instruments this card shows what you actually hear, in real time.
     if ((proc.isSynthMode() || proc.isSamplerMode()) && ! proc.isMelodyMode())
     {
-        const auto area = card.reduced (kCardPadding);
+        auto area = card.reduced (kCardPadding);
+
+        // Bottom strip: the engine hint (spec 4.3). No file chips here - the
+        // scope shows live output, not the loaded file.
+        {
+            auto footer = area.removeFromBottom (kFooterH);
+            area.removeFromBottom (3.0f);
+
+            g.setColour (theme.textSecondary);
+            g.setFont (juce::Font (juce::FontOptions (10.0f)));
+            g.drawText (hintText, footer, juce::Justification::centredLeft, false);
+        }
+
         const auto& ring = proc.getScopeRing();
         const int   ringSize = (int) ring.size();
         const int   writePos = proc.getScopeWritePos();
@@ -436,11 +549,10 @@ void WaveformView::paint (juce::Graphics& g)
         g.setColour (theme.waveform);
         g.strokePath (trace, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved));
 
-        g.setColour (theme.textSecondary.withAlpha (0.8f));
-        g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold"))
-                       .withExtraKerningFactor (0.12f));
-        g.drawText ("LIVE OUTPUT", area.reduced (4.0f).removeFromTop (14.0f),
-                    juce::Justification::topRight);
+        // The accent badge says what this card is showing, so the old
+        // "LIVE OUTPUT" caption would only repeat it.
+        drawBadge (g, theme, badgeBounds (area.getRight(), area.getY(), badgeText),
+                   badgeText);
         return;
     }
 
@@ -541,6 +653,34 @@ void WaveformView::paint (juce::Graphics& g)
     // --- Waveform ------------------------------------------------------------
     auto inner = card.reduced (kCardPadding);
 
+    // Measured up front: the lane numerals below have to step around it.
+    const auto badgeRect = badgeBounds (inner.getRight(), inner.getY(), badgeText);
+
+    // --- Bottom strip: chips on the left, engine hint on the right (spec 4.3)
+    {
+        auto footer = inner.removeFromBottom (kFooterH);
+        inner.removeFromBottom (3.0f);          // breathing room above the chips
+
+        float chipX = footer.getX();
+        const auto sampleName = proc.getLoadedSampleName();
+        if (sampleName.isNotEmpty())
+        {
+            const auto shown = sampleName.length() > 24
+                                 ? sampleName.substring (0, 23) + juce::String::charToString (0x2026)
+                                 : sampleName;
+            chipX += drawChip (g, theme, chipX, footer.getY(), footer.getHeight(), shown) + 6.0f;
+        }
+        chipX += drawChip (g, theme, chipX, footer.getY(), footer.getHeight(), "Normalised") + 8.0f;
+
+        if (chipX < footer.getRight())
+        {
+            g.setColour (theme.textSecondary);
+            g.setFont (juce::Font (juce::FontOptions (10.0f)));
+            g.drawText (hintText, footer.withLeft (chipX),
+                        juce::Justification::centredRight, false);
+        }
+    }
+
     // Clip everything below to the rounded card so the fill stays inside.
     {
         juce::Graphics::ScopedSaveState clip (g);
@@ -570,135 +710,72 @@ void WaveformView::paint (juce::Graphics& g)
         g.setColour (theme.separator.withMultipliedAlpha (0.8f));
         g.drawLine (inner.getX(), midY, inner.getRight(), midY, 1.0f);
 
-        // Subtle, near-zero shimmer breathing on the fill (Apple = restrained).
+        // Subtle, near-zero shimmer breathing on the bars (Apple = restrained).
         const float shimmer = 1.0f + 0.05f * std::sin (phase) * glow;
 
-        // Upper body: top contour down to the centre line.
-        juce::Path upperFill;
-        upperFill.startNewSubPath (left, midY - maxEnv[0] * scale);
-        for (size_t x = 1; x < n; ++x)
-            upperFill.lineTo (left + (float) x, midY - maxEnv[x] * scale);
-        upperFill.lineTo (left + (float) (n - 1), midY);
-        upperFill.lineTo (left, midY);
-        upperFill.closeSubPath();
-
-        // Vertical gradient: bright band at the peaks, melting away to almost
-        // nothing at the centre line.
-        if (cyber)
-        {
-            // Hot pink core at the peaks -> purple mid -> transparent centre.
-            const juce::Colour purple (0xffb026ff);
-            juce::ColourGradient grad (
-                theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, 0.95f * shimmer)),
-                { left, midY - scale },
-                purple.withAlpha (0.0f),
-                { left, midY },
-                false);
-            grad.addColour (0.45, purple.withAlpha (
-                                      juce::jlimit (0.0f, 1.0f, 0.55f * shimmer)));
-            g.setGradientFill (grad);
-            g.fillPath (upperFill);
-        }
-        else
-        {
-            juce::ColourGradient grad (
-                theme.waveform.withAlpha (juce::jlimit (0.0f, 1.0f, 0.85f * shimmer)),
-                { left, midY - scale },
-                theme.waveform.withAlpha (0.05f),
-                { left, midY },
-                false);
-            grad.addColour (0.35, theme.waveform.withAlpha (
-                                      juce::jlimit (0.0f, 1.0f, 0.55f * shimmer)));
-            g.setGradientFill (grad);
-            g.fillPath (upperFill);
-        }
-
-        // --- Glassy reflection: mirrored min-envelope below the centre --------
-        juce::Path lowerFill;
-        lowerFill.startNewSubPath (left, midY);
-        lowerFill.lineTo (left, midY - minEnv[0] * scale);
-        for (size_t x = 1; x < n; ++x)
-            lowerFill.lineTo (left + (float) x, midY - minEnv[x] * scale);
-        lowerFill.lineTo (left + (float) (n - 1), midY);
-        lowerFill.closeSubPath();
-
-        {
-            juce::ColourGradient reflGrad (
-                theme.waveform.withAlpha (0.30f),
-                { left, midY },
-                theme.waveform.withAlpha (0.02f),
-                { left, midY + scale },
-                false);
-            g.setGradientFill (reflGrad);
-            g.fillPath (lowerFill);
-        }
-
-        // Faint contour on the reflection so it reads as glass, not fog.
-        juce::Path bottomStroke;
-        bottomStroke.startNewSubPath (left, midY - minEnv[0] * scale);
-        for (size_t x = 1; x < n; ++x)
-            bottomStroke.lineTo (left + (float) x, midY - minEnv[x] * scale);
-        g.setColour (theme.waveform.withAlpha (0.18f));
-        g.strokePath (bottomStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
-
-        // Live playhead positions, read once; the top contour reacts to them.
+        // Live playhead positions, read once.
         float heads[VoicePool::kMaxVoices];
         const int nHeads = proc.getVoicePool().copyPlayheads (heads, VoicePool::kMaxVoices);
 
-        // --- Top contour: glow halo + crisp 1px stroke -------------------------
-        juce::Path topStroke;
-        topStroke.startNewSubPath (left, midY - maxEnv[0] * scale);
-        for (size_t x = 1; x < n; ++x)
-            topStroke.lineTo (left + (float) x, midY - maxEnv[x] * scale);
+        // --- 74 mirrored bars (spec 4.3) --------------------------------------
+        // The cached min/max envelope is still the data source; it is only
+        // resampled into 74 buckets and drawn as rounded, centred bars instead
+        // of a continuous contour.
+        const float slotW = inner.getWidth() / (float) kNumBars;
+        const float gapW  = juce::jlimit (1.0f, 3.0f, slotW * 0.22f);
+        const float barW  = juce::jmax (1.5f, slotW - gapW);
+        const float maxH  = juce::jmax (2.0f, scale * 2.0f);
 
-        if (glow > 0.0f)
+        std::vector<juce::Rectangle<float>> bars;
+        bars.reserve ((size_t) kNumBars);
+
+        for (int b = 0; b < kNumBars; ++b)
         {
-            // Widening, fading passes so the peaks emit light.
-            const float haloW[3]     = { 2.5f, 4.5f, 7.0f };
-            const float haloAlpha[3] = { 0.22f, 0.11f, 0.05f };
-            for (int p = 0; p < 3; ++p)
-            {
-                g.setColour (theme.waveform.withAlpha (haloAlpha[p] * glow * shimmer));
-                g.strokePath (topStroke, juce::PathStrokeType (haloW[p],
-                                                               juce::PathStrokeType::curved,
-                                                               juce::PathStrokeType::rounded));
-            }
+            const size_t c0 = ((size_t) b * n) / (size_t) kNumBars;
+            if (c0 >= n)
+                break;
+            const size_t c1 = juce::jmin (n, juce::jmax (c0 + 1,
+                                  ((size_t) (b + 1) * n) / (size_t) kNumBars));
+
+            float peak = 0.0f;
+            for (size_t c = c0; c < c1; ++c)
+                peak = juce::jmax (peak, juce::jmax (maxEnv[c], -minEnv[c]));
+
+            // Mirrored: the bar is centred on the middle line, so half of its
+            // height sits above it and half below.
+            const float h = juce::jlimit (2.0f, maxH, peak * scale * shimmer * 2.0f);
+            bars.push_back ({ left + (float) b * slotW + gapW * 0.5f,
+                              midY - h * 0.5f, barW, h });
         }
 
-        g.setColour (theme.waveform.brighter (0.35f));
-        g.strokePath (topStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
-
-        if (cyber)
+        // Glow themes get one soft, wider pass beneath the bars.
+        if (glow > 0.0f)
         {
-            // Thin cyan contour riding the peaks...
-            g.setColour (theme.accent.withAlpha (0.28f));
-            g.strokePath (topStroke, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved));
+            g.setColour (theme.accent.withAlpha (0.16f * glow));
+            for (const auto& bar : bars)
+                g.fillRoundedRectangle (bar.expanded (1.6f),
+                                        juce::jmin (barW, bar.getHeight()) * 0.5f + 1.6f);
+        }
 
-            // ...that heats up around each live playhead.
-            for (int h = 0; h < nHeads; ++h)
-            {
-                const float hx = juce::jlimit (0.0f, 1.0f, heads[h]) * inner.getWidth();
-                const int c0 = juce::jlimit (0, (int) n - 1, (int) hx - 24);
-                const int c1 = juce::jlimit (0, (int) n - 1, (int) hx + 24);
-                if (c1 <= c0)
-                    continue;
+        // Gradient: accent on the centre line, --acc2 (accent 76% + black) at
+        // the tips, so tall bars darken as they reach out.
+        {
+            const juce::Colour tip = accentDeep (theme);
+            juce::ColourGradient barGrad (tip, { left, midY - scale },
+                                          tip, { left, midY + scale }, false);
+            barGrad.addColour (0.5, theme.accent);
+            g.setGradientFill (barGrad);
 
-                juce::Path seg;
-                seg.startNewSubPath (left + (float) c0, midY - maxEnv[(size_t) c0] * scale);
-                for (int x = c0 + 1; x <= c1; ++x)
-                    seg.lineTo (left + (float) x, midY - maxEnv[(size_t) x] * scale);
-
-                g.setColour (theme.accent.withAlpha (0.22f));
-                g.strokePath (seg, juce::PathStrokeType (3.5f, juce::PathStrokeType::curved,
-                                                         juce::PathStrokeType::rounded));
-                g.setColour (theme.accent.withAlpha (0.85f));
-                g.strokePath (seg, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved));
-            }
+            for (const auto& bar : bars)
+                g.fillRoundedRectangle (bar, juce::jmin (barW, bar.getHeight()) * 0.5f);
         }
 
         // --- Slice markers ---------------------------------------------------
+        // Spec 7: Chop is the ONLY engine that shows slice markers. Melody
+        // plays the whole sample chromatically, so cut lines there described a
+        // structure that nothing was using.
         auto sample = proc.getLoadedSample();
-        if (sample != nullptr && sample->getNumSamples() > 0)
+        if (chopMode && sample != nullptr && sample->getNumSamples() > 0)
         {
             const auto& slices = proc.getSliceEngine().getSlices();
             const float widthRatio = inner.getWidth() / (float) sample->getNumSamples();
@@ -707,7 +784,7 @@ void WaveformView::paint (juce::Graphics& g)
             // is the other end of the link the keyboard draws: pressing key 04
             // lights lane 04 and vice versa, so a still screenshot shows which
             // piece of audio a key plays.
-            const int selSlice = proc.isChopMode() ? proc.getSelectedSlice() : -1;
+            const int selSlice = proc.getSelectedSlice();
             if (selSlice >= 0 && selSlice < (int) slices.size())
             {
                 const float x0 = left + slices[(size_t) selSlice].startSample * widthRatio;
@@ -722,6 +799,54 @@ void WaveformView::paint (juce::Graphics& g)
                 g.fillRect (lane);
                 g.setColour (theme.accent.withAlpha (0.9f));
                 g.fillRect (lane.getX(), lane.getY(), lane.getWidth(), 2.0f);
+            }
+
+            // --- Numbered lane tabs (spec 4.3) --------------------------------
+            // A small accent numeral at the top-left of each lane; at most
+            // twelve are drawn, past that they stop being readable.
+            {
+                // The sample-edit buttons sit at the card's top-left, so a tab
+                // that would hide under them drops below the strip instead.
+                float stripRight = 0.0f, stripBottom = 0.0f;
+                for (auto* b : { &trimBtn, &cutBtn, &fadeBtn, &normBtn, &undoEditBtn })
+                    if (b->isVisible())
+                    {
+                        stripRight  = juce::jmax (stripRight,  (float) b->getRight());
+                        stripBottom = juce::jmax (stripBottom, (float) b->getBottom());
+                    }
+
+                // Spec 1: the mono face is reserved for numerals - which is
+                // exactly what a lane tab is.
+                const juce::Font tabFont (juce::FontOptions (
+                    juce::Font::getDefaultMonospacedFontName(), 8.5f, juce::Font::bold));
+                const int laneCount = juce::jmin ((int) slices.size(), kMaxLanes);
+
+                for (int i = 0; i < laneCount; ++i)
+                {
+                    const float x0 = left + slices[(size_t) i].startSample * widthRatio;
+                    const float x1 = (i + 1 < (int) slices.size())
+                                       ? left + slices[(size_t) i + 1].startSample * widthRatio
+                                       : inner.getRight();
+                    if (x1 - x0 < 21.0f || x0 > inner.getRight() - 19.0f)
+                        continue;               // lane too narrow for a numeral
+
+                    const juce::Rectangle<float> tab (
+                        x0 + 2.0f,
+                        (x0 + 2.0f < stripRight + 4.0f ? stripBottom + 4.0f
+                                                       : inner.getY() + 1.0f),
+                        17.0f, 12.0f);
+                    if (tab.getBottom() > inner.getBottom()
+                        || tab.expanded (3.0f).intersects (badgeRect))
+                        continue;               // the engine badge owns that corner
+
+                    const bool on = (i == selSlice);
+                    g.setColour (on ? theme.accent : theme.accentSoft);
+                    g.fillRoundedRectangle (tab, 3.5f);
+                    g.setColour (on ? theme.accentInk : theme.accent);
+                    g.setFont (tabFont);
+                    g.drawText (juce::String (i + 1).paddedLeft ('0', 2), tab,
+                                juce::Justification::centred, false);
+                }
             }
 
             int sliceIdx = -1;
@@ -884,6 +1009,9 @@ void WaveformView::paint (juce::Graphics& g)
         g.fillRect (xa - 0.75f, selRect.getY(), 1.5f, selRect.getHeight());
         g.fillRect (xb - 0.75f, selRect.getY(), 1.5f, selRect.getHeight());
     }
+
+    // --- Engine badge, on top of everything (spec 4.3) -----------------------
+    drawBadge (g, theme, badgeRect, badgeText);
 }
 
 bool WaveformView::isInterestedInFileDrag (const juce::StringArray& files)
