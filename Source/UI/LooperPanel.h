@@ -55,7 +55,12 @@ private:
         juce::TextButton revButton   { "REV" };
         juce::Slider     panSlider;
         juce::Slider     volSlider;
-        juce::Rectangle<int> ringArea;   // painted by the panel
+        // All three painted by the panel. A track is one horizontal lane:
+        // number, record pad, sound, the recorded audio, then its controls.
+        juce::Rectangle<int> laneArea;   // the whole row, washed as one lane
+        juce::Rectangle<int> indexArea;  // the track number at the far left
+        juce::Rectangle<int> ringArea;   // square record pad + progress ring
+        juce::Rectangle<int> waveArea;   // this track's recorded material
         int chosenInstrument = -1;       // -1 = keep whatever is loaded
     };
     TrackUI trackUI[LoopStation::kNumTracks];

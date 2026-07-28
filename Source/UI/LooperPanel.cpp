@@ -43,7 +43,11 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             proc.getLooper().setMuted (i, trackUI[i].muteButton.getToggleState());
         };
 
-        t.volSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        // Rotary, not a bar. In a row layout a horizontal slider needs width
+        // this lane does not have - squeezed into its slot it rendered as a
+        // coloured dot with no readable position. The spec asks for knobs here
+        // and a knob is what fits.
+        t.volSlider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
         t.volSlider.setRange (0.0, 1.5, 0.01);
         t.volSlider.setValue (proc.getLooper().getTrackVolume (i),
                               juce::dontSendNotification);
@@ -61,7 +65,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
             proc.getLooper().setReversed (i, trackUI[i].revButton.getToggleState());
         };
 
-        t.panSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        t.panSlider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
         t.panSlider.setRange (-1.0, 1.0, 0.01);
         t.panSlider.setValue (proc.getLooper().getPan (i), juce::dontSendNotification);
         t.panSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
@@ -549,65 +553,111 @@ void LooperPanel::resized()
     mStrip.removeFromLeft (6);
     syncButton.setBounds (mStrip.removeFromLeft (58));
     mStrip.removeFromLeft (12);
-    addTrackButton.setBounds (mStrip.removeFromRight (86));
+    addTrackButton.setBounds (mStrip.removeFromRight (82));
     mStrip.removeFromRight (8);
-    exportButton.setBounds (mStrip.removeFromRight (76));
+    exportButton.setBounds (mStrip.removeFromRight (72));
     mStrip.removeFromRight (6);
-    // Wide enough to read as the slab it is, not as a third button.
-    dragButton.setBounds (mStrip.removeFromRight (juce::jmin (196, mStrip.getWidth() / 2)));
+
+    // The three transport buttons get their width FIRST and the drag slab
+    // takes what is left. It used to be the other way round, and the slab's
+    // fixed 196px squeezed CLEAR down to 50px, where it rendered as "CL..." -
+    // a clipped word reads as a broken build, and this one was on the control
+    // that throws away your recording.
+    const int mw = 66;
+    const int need = mw * 3 + 12 * 2 + 12;
+    dragButton.setBounds (mStrip.removeFromRight (
+        juce::jlimit (120, 196, mStrip.getWidth() - need)));
     mStrip.removeFromRight (12);
-    const int mw = juce::jmax (60, (mStrip.getWidth() - 24) / 3);
     playAllButton.setBounds  (mStrip.removeFromLeft (mw));
     mStrip.removeFromLeft (12);
     stopAllButton.setBounds  (mStrip.removeFromLeft (mw));
     mStrip.removeFromLeft (12);
-    clearAllButton.setBounds (mStrip);
+    clearAllButton.setBounds (mStrip.removeFromLeft (mw));
 
     area.removeFromBottom (24);   // how-to line (painted)
     area.removeFromTop (6);
 
-    // Visible track strips side by side.
-    const int gap = 12;
-    const int stripW = (area.getWidth() - gap * (visibleTracks - 1)) / juce::jmax (1, visibleTracks);
+    // ONE ROW PER TRACK, stacked - which is what a loop station is, and what
+    // the spec asks for. These used to be vertical columns side by side, and
+    // that shape fought the content the whole way: six columns across a 1000px
+    // panel gave each track about 160px, so the five per-track buttons were
+    // squeezed to 30px each and their labels clipped, and a track's recorded
+    // audio had nowhere to be shown at all. A row has the width for all of it
+    // and lines the tracks up against each other, which is the comparison
+    // anyone stacking loops is actually making.
+    const int gap  = 8;
+    const int rowH = juce::jlimit (44, 78,
+                                   (area.getHeight() - gap * (visibleTracks - 1))
+                                       / juce::jmax (1, visibleTracks));
+
+    // Centre the block of lanes rather than letting them hug the top: rows are
+    // capped at 78px, so with four tracks the leftover space was all dumped
+    // underneath and the panel read as half-empty.
+    {
+        const int used = rowH * visibleTracks + gap * (visibleTracks - 1);
+        if (area.getHeight() > used)
+            area = area.withSizeKeepingCentre (area.getWidth(), used);
+    }
+
     for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
         auto& t = trackUI[i];
         if (i >= visibleTracks)
         {
-            t.ringArea = {};
+            t.laneArea = t.indexArea = t.ringArea = t.waveArea = {};
             continue;
         }
 
-        auto strip = area.removeFromLeft (stripW);
+        auto row = area.removeFromTop (rowH);
         if (i < visibleTracks - 1)
-            area.removeFromLeft (gap);
+            area.removeFromTop (gap);
 
-        t.instBox.setBounds (strip.removeFromTop (30));
-        strip.removeFromTop (4);
+        // The lane is the WHOLE row. Washing only part of it left the five
+        // buttons and the two knobs sitting outside the thing they belong to,
+        // so a track read as a strip plus some loose controls beside it.
+        t.laneArea  = row;
+        row         = row.reduced (10, 0);
+        t.indexArea = row.removeFromLeft (24);
+        t.ringArea  = row.removeFromLeft (rowH - 6);
+        // The pad IS the ring: the button sits inside it so the progress
+        // sweep reads as this control's own state, not as decoration near it.
+        t.mainButton.setBounds (t.ringArea.reduced (juce::jmax (7, rowH / 5)));
+        row.removeFromLeft (10);
 
-        auto vol = strip.removeFromBottom (24);
-        t.volSlider.setBounds (vol.reduced (4, 0));
+        const int comboW = juce::jlimit (96, 168, row.getWidth() / 5);
+        t.instBox.setBounds (row.removeFromLeft (comboW)
+                                .withSizeKeepingCentre (comboW, juce::jmin (30, rowH - 8)));
+        row.removeFromLeft (10);
 
-        auto revpan = strip.removeFromBottom (28);
-        t.revButton.setBounds (revpan.removeFromLeft (48));
-        revpan.removeFromLeft (4);
-        t.panSlider.setBounds (revpan.reduced (2, 2));
+        // Right-hand controls first, so the waveform takes whatever is left
+        // rather than pushing them off the end on a narrow panel.
+        const int ctlH = juce::jmin (26, rowH - 10);
+        // SQUARE. These are rotary sliders, and a rotary in a 40x26 box draws
+        // a 26px dial with 14px of dead space either side - which is why they
+        // came out as unreadable smudges rather than as knobs.
+        // JUCE's stock rotary insets its arc by 4px and draws it thin, so a
+        // 28px box yields a 20px dial that reads as a dot in a row this dense.
+        // Give it the row's height.
+        const int kn = juce::jlimit (32, 42, rowH - 8);
+        t.volSlider.setBounds (row.removeFromRight (kn + 4)
+                                  .withSizeKeepingCentre (kn, kn));
+        t.panSlider.setBounds (row.removeFromRight (kn + 4)
+                                  .withSizeKeepingCentre (kn, kn));
+        row.removeFromRight (8);
 
-        auto small = strip.removeFromBottom (34);
-        const int sw = (small.getWidth() - 18) / 4;
-        t.rerecButton.setBounds (small.removeFromLeft (sw));
-        small.removeFromLeft (6);
-        t.undoButton.setBounds  (small.removeFromLeft (sw));
-        small.removeFromLeft (6);
-        t.muteButton.setBounds  (small.removeFromLeft (sw));
-        small.removeFromLeft (6);
-        t.clearButton.setBounds (small);
+        juce::TextButton* small[5] = { &t.rerecButton, &t.undoButton, &t.revButton,
+                                       &t.muteButton,  &t.clearButton };
+        const int bw = juce::jlimit (34, 52, row.getWidth() / 9);
+        auto btns = row.removeFromRight (bw * 5 + 4 * 4);
+        for (int b = 0; b < 5; ++b)
+        {
+            small[b]->setBounds (btns.removeFromLeft (bw)
+                                     .withSizeKeepingCentre (bw, ctlH));
+            if (b < 4) btns.removeFromLeft (4);
+        }
+        row.removeFromRight (10);
 
-        strip.removeFromBottom (6);
-        t.mainButton.setBounds (strip.removeFromBottom (46));
-
-        strip.removeFromBottom (4);
-        t.ringArea = strip;   // whatever remains hosts the progress ring
+        t.waveArea = row;   // whatever is left shows what this track holds
     }
 }
 
@@ -625,6 +675,18 @@ void LooperPanel::paint (juce::Graphics& g)
     {
         t.instBox.setColour (juce::ComboBox::textColourId, theme.text);
         t.instBox.setColour (juce::ComboBox::arrowColourId, theme.textSecondary);
+
+        // Pan and Vol are plain JUCE rotaries rather than our KnobComponent,
+        // so nothing had ever given them theme colours. The stock defaults
+        // draw the track in a colour that vanishes against this panel, which
+        // left only the thumb visible - two purple dots where two knobs should
+        // be. The dial was the right size the whole time; it was invisible.
+        for (auto* s : { &t.panSlider, &t.volSlider })
+        {
+            s->setColour (juce::Slider::rotarySliderFillColourId,    theme.accent);
+            s->setColour (juce::Slider::rotarySliderOutlineColourId, theme.controlTrack);
+            s->setColour (juce::Slider::thumbColourId,               theme.text);
+        }
     }
     for (auto* cb : { &engineBox, &instrumentBox })
     {
@@ -650,6 +712,73 @@ void LooperPanel::paint (juce::Graphics& g)
 
     auto& looper = proc.getLooper();
 
+    /** The strip showing what a track actually holds.
+
+        A loop station where every track looks identical whether it is empty,
+        armed or four layers deep is not showing you your arrangement, and that
+        is what the column layout forced - there was no room for this at all.
+        Empty tracks get a dashed outline that reads as a slot; recorded ones
+        get a block with a playhead. */
+    auto drawTrackWave = [&] (juce::Graphics& gg, juce::Rectangle<int> area, int idx,
+                              int state, float posN, int layers, bool muted)
+    {
+        if (area.getWidth() < 40 || area.getHeight() < 14)
+            return;
+
+        auto r = area.toFloat().reduced (2.0f, 6.0f);
+
+        if (state == LoopStation::Empty)
+        {
+            juce::Path dash;
+            dash.addRoundedRectangle (r, 6.0f);
+            const float pattern[] = { 5.0f, 4.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (dash, dash, pattern, 2);
+            gg.setColour (theme.separator);
+            gg.fillPath (dash);
+
+            gg.setColour (theme.textSecondary.withAlpha (0.75f));
+            gg.setFont (juce::Font (juce::FontOptions (10.5f)));
+            gg.drawText (idx == 0 ? "Empty - record here first, it sets the loop length"
+                                  : "Empty",
+                         area, juce::Justification::centred, false);
+            return;
+        }
+
+        // Filled block. Height stands in for layer count, so an overdubbed
+        // track is visibly denser than a single pass.
+        const float fill = juce::jlimit (0.35f, 1.0f, 0.35f + 0.16f * (float) layers);
+        auto body = r.withSizeKeepingCentre (r.getWidth(), r.getHeight() * fill);
+        gg.setColour ((muted ? theme.textSecondary : theme.waveform)
+                          .withAlpha (muted ? 0.28f : 0.55f));
+        gg.fillRoundedRectangle (body, 4.0f);
+
+        if (state != LoopStation::Stopped)
+        {
+            const float x = r.getX() + r.getWidth() * juce::jlimit (0.0f, 1.0f, posN);
+            gg.setColour (theme.accent.withAlpha (muted ? 0.4f : 1.0f));
+            gg.fillRect (x - 1.0f, r.getY(), 2.0f, r.getHeight());
+        }
+
+        if (layers > 1)
+        {
+            gg.setColour (theme.text.withAlpha (0.8f));
+            gg.setFont (juce::Font (juce::FontOptions (9.5f).withStyle ("Bold")));
+            gg.drawText ("x" + juce::String (layers), area.reduced (6, 0),
+                         juce::Justification::centredRight, false);
+        }
+
+        // Track 1 defines how long every other track is - the one piece of
+        // asymmetry in the six, and worth saying on the track itself.
+        if (idx == 0)
+        {
+            gg.setColour (theme.accent.withAlpha (0.9f));
+            gg.setFont (juce::Font (juce::FontOptions (9.0f).withStyle ("Bold"))
+                            .withExtraKerningFactor (0.06f));
+            gg.drawText ("SETS LOOP LENGTH", area.reduced (8, 0),
+                         juce::Justification::centredLeft, false);
+        }
+    };
+
     for (int i = 0; i < visibleTracks; ++i)
     {
         const auto& t = trackUI[i];
@@ -661,16 +790,27 @@ void LooperPanel::paint (juce::Graphics& g)
         const int   layers = looper.getTrackLayers (i);
         const bool  muted  = looper.isMuted (i);
 
-        auto ringRect = t.ringArea;   // local copy: we carve the label off it
+        // Lane wash: the row a track owns, so six of them read as six lanes
+        // rather than as loose controls. The recording row lifts to accent.
+        {
+            auto lane = t.laneArea.toFloat();
+            const bool rec = st == LoopStation::Recording || st == LoopStation::Overdub;
+            g.setColour (rec ? theme.accent.withAlpha (0.09f)
+                             : theme.material.withAlpha (theme.dark ? 0.45f : 0.55f));
+            g.fillRoundedRectangle (lane, 10.0f);
+            g.setColour (rec ? theme.accent.withAlpha (0.55f) : theme.separator);
+            g.drawRoundedRectangle (lane.reduced (0.5f), 10.0f, 1.0f);
+        }
 
-        g.setColour (theme.textSecondary);
-        g.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Semibold")));
-        g.drawText ("TRACK " + juce::String (i + 1),
-                    ringRect.removeFromTop (16), juce::Justification::centred);
-        // (the sound picker for this track sits directly above)
+        // Track number, at the head of its own lane.
+        g.setColour (st == LoopStation::Empty ? theme.textSecondary : theme.text);
+        g.setFont (juce::Font (juce::FontOptions (13.0f).withStyle ("Bold")));
+        g.drawText (juce::String (i + 1), t.indexArea, juce::Justification::centred);
 
-        const auto  ra    = ringRect.toFloat();
-        const float ringR = juce::jmin (ra.getWidth(), ra.getHeight()) * 0.5f - 10.0f;
+        drawTrackWave (g, t.waveArea, i, st, posN, layers, muted);
+
+        const auto  ra    = t.ringArea.toFloat();
+        const float ringR = juce::jmin (ra.getWidth(), ra.getHeight()) * 0.5f - 6.0f;
         const juce::Point<float> centre (ra.getCentreX(), ra.getCentreY());
 
         if (ringR < 12.0f)
