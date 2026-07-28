@@ -43,6 +43,29 @@ AppleLookAndFeel::AppleLookAndFeel()
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
 }
 
+void AppleLookAndFeel::drawComboBoxTextWhenNothingSelected (juce::Graphics& g,
+                                                            juce::ComboBox& box,
+                                                            juce::Label& label)
+{
+    // The placeholder ("Sound 1", "Instrument", ...) is drawn HERE, not by the
+    // label, and JUCE's version reads the colour with a bare findColour() -
+    // which resolves against the look-and-feel's own scheme, never against the
+    // box. So every setColour (ComboBox::textColourId, ...) we make was being
+    // thrown away for this one piece of text.
+    //
+    // In the dark themes that was invisible as a bug, because the stock colour
+    // is near-white and near-white on a dark card happens to be correct. It
+    // only showed up in the light themes, as white text on a white field - the
+    // looper's six track pickers looked completely empty.
+    g.setColour (box.findColour (juce::ComboBox::textColourId).withMultipliedAlpha (0.55f));
+    g.setFont (label.getLookAndFeel().getLabelFont (label));
+
+    auto area = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds());
+    g.drawFittedText (box.getTextWhenNothingSelected(), area,
+                      label.getJustificationType(), 1,
+                      label.getMinimumHorizontalScale());
+}
+
 juce::PopupMenu::Options
 AppleLookAndFeel::getOptionsForComboBoxPopupMenu (juce::ComboBox& box, juce::Label& label)
 {

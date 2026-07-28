@@ -45,6 +45,12 @@ public:
     juce::PopupMenu::Options getOptionsForComboBoxPopupMenu (juce::ComboBox&,
                                                              juce::Label&) override;
 
+    /** JUCE's stock version asks the LOOK-AND-FEEL for ComboBox::textColourId,
+        not the box, so every colour we set on an individual combo is ignored
+        for its placeholder. See the .cpp - this is the "Sound 1" bug. */
+    void drawComboBoxTextWhenNothingSelected (juce::Graphics&, juce::ComboBox&,
+                                              juce::Label&) override;
+
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
     void drawButtonBackground (juce::Graphics&, juce::Button&,
                                const juce::Colour& backgroundColour,
