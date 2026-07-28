@@ -387,6 +387,88 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--slicesprite <in.wav> <out.wav> <n>": the first n slices, laid end to
+    // end in one mono file, with their offsets printed as JSON.
+    //
+    // For the website: a browser can fetch ONE file, decode it once, and
+    // trigger any slice from an offset - which is how a sample instrument
+    // works and what makes the page playable rather than a video of playing.
+    // Fragments rather than the loop, deliberately: this demonstrates the
+    // instrument without rehosting somebody else's vocal.
+    if (argc > 3 && juce::String (argv[1]) == "--slicesprite")
+    {
+        const juce::File in  { juce::String (argv[2]) };
+        const juce::File out { juce::String (argv[3]) };
+        const int want = argc > 4 ? juce::jmax (1, juce::String (argv[4]).getIntValue()) : 12;
+
+        if (! proc.loadSampleFromFile (in)) { printf ("load failed\n"); return 1; }
+        auto src = proc.getLoadedSample();
+        if (src == nullptr || src->getNumSamples() == 0) { printf ("no audio\n"); return 1; }
+
+        const int total = proc.getSliceEngine().getNumSlices();
+        if (total <= 0) { printf ("no slices\n"); return 1; }
+
+        // 22.05 kHz mono: a vocal chop has nothing above 11 kHz that survives
+        // a laptop speaker, and this has to travel over the web.
+        const double outSr = 22050.0, inSr = proc.getLoadedSampleRate();
+        const double ratio = inSr / outSr;
+        const int maxLen = (int) (outSr * 0.85);          // cap a slice at 850 ms
+
+        std::vector<float> sprite;
+        juce::String json = "[";
+        const int step = juce::jmax (1, total / want);
+
+        for (int k = 0, taken = 0; k < total && taken < want; k += step, ++taken)
+        {
+            SlicePoint sp;
+            if (! proc.getSliceEngine().tryGetSlice (k, sp)) continue;
+            const int len = juce::jmin (maxLen, (int) (sp.lengthSamples / ratio));
+            if (len < 400) { --taken; continue; }
+
+            const int start = (int) sprite.size();
+            for (int i = 0; i < len; ++i)
+            {
+                const int srcIdx = sp.startSample + (int) (i * ratio);
+                float v = 0.0f;
+                if (srcIdx < src->getNumSamples())
+                    for (int ch = 0; ch < src->getNumChannels(); ++ch)
+                        v += src->getSample (ch, srcIdx);
+                v /= (float) juce::jmax (1, src->getNumChannels());
+
+                // 4 ms in, 25 ms out - a raw cut clicks at both ends.
+                const float fi = juce::jmin (1.0f, (float) i / (0.004f * (float) outSr));
+                const float fo = juce::jmin (1.0f, (float) (len - i) / (0.025f * (float) outSr));
+                sprite.push_back (v * fi * fo);
+            }
+            for (int i = 0; i < (int) (outSr * 0.02); ++i) sprite.push_back (0.0f);  // guard gap
+
+            if (taken > 0) json += ",";
+            json += "{\"o\":" + juce::String (start) + ",\"n\":" + juce::String (len) + "}";
+        }
+        json += "]";
+
+        float pk = 0.0f;
+        for (float v : sprite) pk = juce::jmax (pk, std::abs (v));
+        const float g = pk > 1.0e-6f ? 0.89f / pk : 1.0f;
+
+        juce::AudioBuffer<float> buf (1, (int) sprite.size());
+        for (size_t i = 0; i < sprite.size(); ++i) buf.setSample (0, (int) i, sprite[i] * g);
+
+        out.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> fos (out.createOutputStream());
+        if (fos == nullptr) { printf ("cannot write\n"); return 1; }
+        std::unique_ptr<juce::AudioFormatWriter> w (
+            wav.createWriterFor (fos.release(), outSr, 1, 16, {}, 0));
+        w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+        w.reset();
+
+        printf ("%s\n", json.toRawUTF8());
+        printf ("wrote %s  %.2f s mono %.0f Hz  peak %.3f\n", argv[3],
+                (double) sprite.size() / outSr, outSr, pk * g);
+        return 0;
+    }
+
     // "--genres": do the genre banks hold up?
     //
     // The banks are 400 hand-written name strings pointing into a catalogue

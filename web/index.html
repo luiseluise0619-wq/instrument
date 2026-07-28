@@ -72,9 +72,19 @@ a { color: inherit; }
           Menlo, Consolas, monospace;
 }
 
+/* LIGHT IS THE DEFAULT, not a preference the OS happens to hold. This is a
+   product page and it opens white; the dark scheme is still there for anyone
+   who picks it. The base is near-white rather than the old grey-lilac. */
+:root {
+  --base: #ffffff; --card: #ffffff; --card-2: #f7f6fa; --highlight: #eceaf2;
+  --line: rgba(22,16,36,.09); --line-2: rgba(22,16,36,.16);
+  --text: #15141a; --muted: #5e5c6a; --dim: #8b8996;
+  --glow: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 @media (prefers-color-scheme: light) {
   :root {
-    --base: #f6f5f8; --card: #ffffff; --card-2: #f2f1f6; --highlight: #e3e1ea;
+    --base: #ffffff; --card: #ffffff; --card-2: #f7f6fa; --highlight: #eceaf2;
     --line: rgba(22,16,36,.10); --line-2: rgba(22,16,36,.18);
     --text: #15141a; --muted: #5e5c6a; --dim: #8b8996;
     --accent: #8e2fc9; --accent-2: #6d1fa3; --signal: #b96500; --cyan: #0a84c8;
@@ -89,12 +99,31 @@ a { color: inherit; }
   --glow: rgba(191,90,242,.26);
 }
 :root[data-theme="light"] {
-  --base: #f6f5f8; --card: #ffffff; --card-2: #f2f1f6; --highlight: #e3e1ea;
+  --base: #ffffff; --card: #ffffff; --card-2: #f7f6fa; --highlight: #eceaf2;
   --line: rgba(22,16,36,.10); --line-2: rgba(22,16,36,.18);
   --text: #15141a; --muted: #5e5c6a; --dim: #8b8996;
   --accent: #8e2fc9; --accent-2: #6d1fa3; --signal: #b96500; --cyan: #0a84c8;
   --glow: rgba(142,47,201,.16);
 }
+
+:root[data-accent="violet"] { --accent:#8e2fc9; --accent-2:#6d1fa3; }
+:root[data-accent="signal"] { --accent:#e01862; --accent-2:#a8114a; }
+:root[data-accent="acid"]   { --accent:#6f9400; --accent-2:#536e00; }
+:root[data-accent="mint"]   { --accent:#008f66; --accent-2:#00694b; }
+:root[data-accent="cobalt"] { --accent:#0a63d6; --accent-2:#0749a1; }
+:root[data-accent="ember"]  { --accent:#d2500d; --accent-2:#9e3c0a; }
+:root[data-accent="clay"]   { --accent:#a85436; --accent-2:#7d3f28; }
+:root[data-accent="graphite"]{--accent:#4c4a57; --accent-2:#33323b; }
+/* Dark ground wants the brighter end of each hue; the light values above go
+   muddy on it. */
+:root[data-theme="dark"][data-accent="violet"] { --accent:#bf5af2; --accent-2:#8e3fd0; }
+:root[data-theme="dark"][data-accent="signal"] { --accent:#ff3d7f; --accent-2:#c72a60; }
+:root[data-theme="dark"][data-accent="acid"]   { --accent:#c2f24a; --accent-2:#93b833; }
+:root[data-theme="dark"][data-accent="mint"]   { --accent:#2fd6a3; --accent-2:#1fa37b; }
+:root[data-theme="dark"][data-accent="cobalt"] { --accent:#3d8bff; --accent-2:#2a66c2; }
+:root[data-theme="dark"][data-accent="ember"]  { --accent:#ff7a3d; --accent-2:#c25a2a; }
+:root[data-theme="dark"][data-accent="clay"]   { --accent:#d98a6a; --accent-2:#a6664d; }
+:root[data-theme="dark"][data-accent="graphite"]{--accent:#b9b6c4; --accent-2:#8a8794; }
 
 * { box-sizing: border-box; }
 
@@ -491,6 +520,40 @@ th { font-family: var(--mono); font-weight: 400; font-size: .66rem; letter-spaci
 .hear-sub { color: var(--muted); font-size: .84rem; }
 .hear-audio { width: 100%; height: 36px; }
 
+/* The playable chopper. */
+.chop { margin-top: 1.15rem; padding: .9rem 1rem 1rem; border-radius: var(--r-md);
+        background: var(--card); border: 1px solid var(--line); max-width: 34rem;
+        box-shadow: 0 8px 26px rgba(22,16,36,.06); }
+.chop-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap;
+             margin-bottom: .75rem; font-size: .92rem; }
+.pads { display: grid; grid-template-columns: repeat(6, 1fr); gap: .4rem; }
+.pad { aspect-ratio: 1 / .8; border-radius: 10px; border: 1px solid var(--line-2);
+       background: var(--card-2); color: var(--muted); font: 600 .78rem/1 var(--mono);
+       display: grid; place-items: center; cursor: pointer; user-select: none;
+       transition: transform .09s cubic-bezier(.32,.72,0,1), background .12s, color .12s;
+       -webkit-tap-highlight-color: transparent; }
+.pad:hover { border-color: var(--accent); color: var(--text); }
+.pad.on { background: var(--accent); color: #fff; border-color: var(--accent);
+          transform: scale(.94); }
+.chop-foot { display: flex; align-items: center; gap: .7rem; margin-top: .75rem;
+             flex-wrap: wrap; }
+.chop-btn { border: 1px solid var(--line-2); background: var(--card-2); color: var(--text);
+            border-radius: var(--r-pill); padding: .42rem .95rem; font-size: .85rem;
+            font-weight: 600; cursor: pointer; }
+.chop-btn:hover { border-color: var(--accent); }
+.chop-btn[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chop-note { color: var(--dim); font-size: .8rem; }
+
+/* Theme picker in the nav. */
+.skin { display: flex; align-items: center; gap: .3rem; }
+.skin-sw { width: 18px; height: 18px; border-radius: 999px; border: 1px solid var(--line-2);
+           cursor: pointer; padding: 0; transition: transform .12s; }
+.skin-sw:hover { transform: scale(1.18); }
+.skin-sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--base), 0 0 0 4px var(--text); }
+.skin-mode { border: 1px solid var(--line-2); background: var(--card-2); color: var(--text);
+             border-radius: var(--r-pill); padding: .3rem .7rem; font-size: .78rem;
+             font-weight: 600; cursor: pointer; margin-left: .35rem; }
+
 .price-was { font-size: clamp(1.2rem, 2.4vw, 1.6rem); font-weight: 600; color: var(--muted);
              text-decoration: line-through; text-decoration-thickness: 2px; opacity: .75; }
 .pill {
@@ -657,6 +720,12 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
       <a href="#loop">Loop station</a><a href="#specs">Specs</a>
       <a href="#affiliate">Affiliate</a>
     </div>
+    <!-- The plugin ships sixteen themes; the page can at least offer its
+         accent. Swatches rather than a menu of names - "Bone" and "Clay"
+         mean nothing until you have seen them, which is the same reason the
+         plugin's own theme menu now shows colours. -->
+    <div class="skin" id="skin" role="group" aria-label="Accent colour"></div>
+    <button class="skin-mode" id="skinMode" type="button" aria-label="Switch between light and dark">Dark</button>
     <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce">Get Slyce</a>
   </div>
 </nav>
@@ -681,22 +750,26 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
       </ul>
 
       <div class="hero-cta">
-        <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce — $14.90</a>
+        <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce — $14.99</a>
         <a class="btn magnet" href="https://luiseluise.gumroad.com/l/slyce-demo">Try the free demo</a>
       </div>
 
-      <!-- The strongest thing this page can offer is the sound. Everything
-           else on it is a claim; this is the instrument doing the thing.
-           preload="none" so a 1.9 MB file costs nothing until it is asked for. -->
-      <div class="hear">
-        <div class="hear-head">
+      <!-- PLAYABLE. A page can say "it chops vocals" or it can hand you the
+           vocal and the keys. The 12 slices are one 113 KB sprite, decoded
+           once; a pad just plays an offset into it, which is exactly what the
+           plugin does. Fragments rather than the whole loop, on purpose -
+           this shows the instrument without rehosting someone's vocal. -->
+      <div class="chop" id="chop">
+        <div class="chop-head">
           <span class="hear-dot" aria-hidden="true"></span>
-          <b>Hear it</b>
-          <span class="hear-sub">one vocal, cut into 154 slices, played back as a pattern</span>
+          <b>Chop it yourself</b>
+          <span class="hear-sub">one vocal, 12 slices &mdash; tap a pad or press <kbd>1</kbd>&ndash;<kbd>9</kbd></span>
         </div>
-        <audio class="hear-audio" controls preload="none"
-               src="audio/slyce-chop-demo.wav"
-               aria-label="A vocal hook chopped into slices and played as a pattern by Slyce"></audio>
+        <div class="pads" id="pads" role="group" aria-label="Vocal slice pads"></div>
+        <div class="chop-foot">
+          <button class="chop-btn" id="chopPlay" type="button">Play the pattern</button>
+          <span class="chop-note" id="chopNote">click a pad to start</span>
+        </div>
       </div>
 
       <p class="clock">
@@ -955,7 +1028,7 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
         </tbody></table></div>
       </div>
       <div class="price rise" style="--d:130ms">
-        <div class="price-row"><span class="price-was">$29.90</span><span class="price-now">$14.90</span>
+        <div class="price-row"><span class="price-was">$29.99</span><span class="price-now">$14.99</span>
           <span class="pill">launch price — 50% off</span></div>
         <ul class="incl">
           <li>Windows, macOS and Linux — one purchase covers all three</li>
@@ -2195,7 +2268,7 @@ const PG = (() => {
   const dmLayer = document.getElementById("danmaku");
   const LINES = ["wait this is one plugin?","the 808 slide 🔥","arp locks to the grid perfectly",
     "chopped my vocal in 10 seconds","403 sounds is insane","loop station is the whole point",
-    "drag straight into the DAW??","sidechain with no routing","$14.90 is a steal","the pump is so clean",
+    "drag straight into the DAW??","sidechain with no routing","$14.99 is a steal","the pump is so clean",
     "made a whole beat on my laptop","formant knob is nasty","runs on my old machine fine"];
   const HUES = ["#bf5af2","#ff9f0a","#5ac8fa","#f2f2f7","#ff6482","#64d2a0"];
   let dmIdx = 0;
@@ -2359,6 +2432,148 @@ const PG = (() => {
     document.addEventListener("visibilitychange", () => { running = !document.hidden; });
     for (let i = 0; i < 4; i++) setTimeout(emitComment, 400 + i * 900);
   }
+  /* ============ theme picker ============================================ */
+  {
+    const ACCENTS = [
+      ['violet',  'Studio Violet'], ['signal', 'Signal'], ['acid',  'Acid'],
+      ['mint',    'Mint'],          ['cobalt', 'Cobalt'], ['ember', 'Ember'],
+      ['clay',    'Clay'],          ['graphite','Graphite'] ];
+    const bar = document.getElementById('skin');
+    const modeBtn = document.getElementById('skinMode');
+    const saved = (() => { try { return JSON.parse(localStorage.getItem('slyce.skin') || '{}'); }
+                           catch (e) { return {}; } })();
+
+    let accent = saved.accent || 'violet';
+    // Light unless the visitor said otherwise. This is a product page.
+    let mode = saved.mode || 'light';
+
+    function apply() {
+      root.setAttribute('data-accent', accent);
+      root.setAttribute('data-theme', mode);
+      modeBtn.textContent = mode === 'dark' ? 'Light' : 'Dark';
+      bar.querySelectorAll('button').forEach(b =>
+        b.setAttribute('aria-pressed', String(b.dataset.a === accent)));
+      // Every canvas colour is cached; the cache has to be told.
+      if (typeof cssCache !== 'undefined') cssCache.clear();
+      try { localStorage.setItem('slyce.skin', JSON.stringify({ accent, mode })); } catch (e) {}
+    }
+
+    ACCENTS.forEach(([id, name]) => {
+      const b = document.createElement('button');
+      b.className = 'skin-sw'; b.type = 'button'; b.dataset.a = id;
+      b.title = name; b.setAttribute('aria-label', name);
+      // The swatch has to show the colour it is offering, so it cannot come
+      // from --accent (that is whatever is currently selected).
+      b.style.background = { violet:'#8e2fc9', signal:'#e01862', acid:'#6f9400',
+                             mint:'#008f66', cobalt:'#0a63d6', ember:'#d2500d',
+                             clay:'#a85436', graphite:'#4c4a57' }[id];
+      b.onclick = () => { accent = id; apply(); };
+      bar.appendChild(b);
+    });
+    modeBtn.onclick = () => { mode = mode === 'dark' ? 'light' : 'dark'; apply(); };
+    apply();
+  }
+
+  /* ============ playable chopper ======================================== */
+  {
+    const SLICES = [{"o":0,"n":18742},{"o":19183,"n":1664},{"o":21288,"n":3840},
+                    {"o":25569,"n":2432},{"o":28442,"n":2432},{"o":31315,"n":2304},
+                    {"o":34060,"n":4224},{"o":38725,"n":1920},{"o":41086,"n":2048},
+                    {"o":43575,"n":4096},{"o":48112,"n":6400},{"o":54953,"n":1152}];
+    const SR = 22050;                       // the sprite's own rate
+    const padWrap = document.getElementById('pads');
+    const note = document.getElementById('chopNote');
+    const playBtn = document.getElementById('chopPlay');
+    if (!padWrap) return;
+
+    let ctx = null, buf = null, loading = false, pattern = null;
+
+    async function ready() {
+      if (buf) return true;
+      if (loading) return false;
+      loading = true;
+      note.textContent = 'loading...';
+      try {
+        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+        await ctx.resume();
+        const r = await fetch('audio/slyce-slices.wav');
+        buf = await ctx.decodeAudioData(await r.arrayBuffer());
+        note.textContent = 'go on then';
+        return true;
+      } catch (e) {
+        note.textContent = 'audio unavailable in this browser';
+        return false;
+      } finally { loading = false; }
+    }
+
+    function hit(i, when) {
+      if (!buf) return;
+      const sl = SLICES[i % SLICES.length];
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      // 12 ms out, so a retrigger does not click over the tail of the last one.
+      const t = when || ctx.currentTime;
+      const dur = sl.n / SR;
+      g.gain.setValueAtTime(1, t);
+      g.gain.setValueAtTime(1, t + Math.max(0, dur - 0.012));
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      src.connect(g).connect(ctx.destination);
+      src.start(t, sl.o / SR, dur);
+    }
+
+    const pads = SLICES.map((_, i) => {
+      const b = document.createElement('button');
+      b.className = 'pad'; b.type = 'button';
+      b.textContent = String(i + 1).padStart(2, '0');
+      b.setAttribute('aria-label', 'Slice ' + (i + 1));
+      const fire = async (ev) => {
+        ev.preventDefault();
+        if (!(await ready())) return;
+        hit(i);
+        b.classList.add('on');
+        setTimeout(() => b.classList.remove('on'), 110);
+      };
+      b.addEventListener('pointerdown', fire);
+      padWrap.appendChild(b);
+      return b;
+    });
+
+    addEventListener('keydown', async (e) => {
+      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const i = '123456789'.indexOf(e.key);
+      if (i < 0) return;
+      if (!(await ready())) return;
+      hit(i);
+      pads[i].classList.add('on');
+      setTimeout(() => pads[i].classList.remove('on'), 110);
+    });
+
+    // A pattern, on the page's own 128 BPM clock, so pressing play lines up
+    // with everything else that is already pulsing.
+    playBtn.onclick = async () => {
+      if (pattern) { clearInterval(pattern); pattern = null;
+                     playBtn.setAttribute('aria-pressed', 'false');
+                     playBtn.textContent = 'Play the pattern';
+                     note.textContent = 'stopped'; return; }
+      if (!(await ready())) return;
+      const seq = [0, 3, 1, 6, 0, 9, 4, 2, 0, 5, 7, 3, 0, 8, 2, 10];
+      let k = 0;
+      const stepMs = 60000 / 128 / 4;
+      playBtn.setAttribute('aria-pressed', 'true');
+      playBtn.textContent = 'Stop';
+      note.textContent = '128 BPM, sixteenths';
+      const tick = () => {
+        const i = seq[k % seq.length]; k++;
+        hit(i);
+        pads[i].classList.add('on');
+        setTimeout(() => pads[i].classList.remove('on'), 90);
+      };
+      tick();
+      pattern = setInterval(tick, stepMs);
+    };
+  }
+
   PG.init();
   onScroll();
 })();
@@ -2383,8 +2598,8 @@ const PG = (() => {
     },
     cap: { en: "of every sale, per sale", ko: "판매 건당, 매 건마다" },
     math: {
-      en: "Slyce is <b>$14.90</b> at the launch price. Each copy sold through your link pays you <b>$7.45</b>, settled by Gumroad directly to your account — the money never passes through me, so there is nothing to chase.",
-      ko: "Slyce는 런치 가격 <b>$14.90</b>입니다. 내 링크로 팔린 한 카피당 <b>$7.45</b>가 들어오고, 정산은 Gumroad가 계정으로 직접 처리합니다. 판매자를 거치지 않으니 따로 받아낼 일이 없습니다."
+      en: "Slyce is <b>$14.99</b> at the launch price. Each copy sold through your link pays you <b>$7.49</b>, settled by Gumroad directly to your account — the money never passes through me, so there is nothing to chase.",
+      ko: "Slyce는 런치 가격 <b>$14.99</b>입니다. 내 링크로 팔린 한 카피당 <b>$7.49</b>가 들어오고, 정산은 Gumroad가 계정으로 직접 처리합니다. 판매자를 거치지 않으니 따로 받아낼 일이 없습니다."
     },
     cta: { en: "Apply to be an affiliate", ko: "제휴 신청하기" },
 
