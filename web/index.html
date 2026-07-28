@@ -608,10 +608,19 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
 .pg-bar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .pg-hint { font-family: var(--mono); font-size: .64rem; letter-spacing: .08em; color: var(--dim); margin-left: auto; }
 
+/* No backdrop-filter here on purpose.
+
+   This gate covers the whole playground - 1175x609, about 715,000 pixels -
+   and the panel underneath it is animating canvases. A backdrop blur has to be
+   recomputed over that entire area on every frame the content behind it
+   changes, which is every frame. Measured: 26 fps with it, 59.6 fps without,
+   and it was the ONLY thing standing between this section and a locked 60.
+   The scrim is opaque enough to do the same job (separate the gate from the
+   panel) at zero cost. */
 #audioGate {
   position: absolute; inset: 0; display: grid; place-items: center; z-index: 5;
-  background: color-mix(in srgb, var(--base) 84%, transparent);
-  backdrop-filter: blur(6px); border-radius: var(--r-card); cursor: pointer;
+  background: color-mix(in srgb, var(--base) 93%, transparent);
+  border-radius: var(--r-card); cursor: pointer;
 }
 #audioGate .inner { display: grid; gap: .7rem; justify-items: center; text-align: center; padding: 1.4rem; }
 #audioGate h3 { font-size: 1.3rem; }
@@ -1276,7 +1285,35 @@ const AudioEngine = (() => {
 const PG = (() => {
   const E = AudioEngine, P = E.P;
   const dpr2 = Math.min(devicePixelRatio || 1, 2);
-  const cssv = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  /* Same two caches as the main scene below, and needed here for the same
+     reason: this is a separate IIFE, so it cannot see those. Both
+     getComputedStyle().getPropertyValue() and getBoundingClientRect() force a
+     style/layout resolve, and the beat clock dirties the root element every
+     frame - so every colour lookup and every "how big are you" was paying for
+     a full recalc, eight dials at a time. */
+  const cssvCache = new Map();
+  const cssv = (n) => {
+    let v = cssvCache.get(n);
+    if (v === undefined) {
+      v = getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+      cssvCache.set(n, v);
+    }
+    return v;
+  };
+  const rectCache2 = new WeakMap();
+  let rectEpoch2 = 0;
+  const bump2 = () => { rectEpoch2++; cssvCache.clear(); };
+  addEventListener("resize", bump2, { passive: true });
+  addEventListener("scroll", bump2, { passive: true });
+  function rectOf(el) {
+    let e = rectCache2.get(el);
+    if (!e || e.epoch !== rectEpoch2) {
+      e = { epoch: rectEpoch2, r: el.getBoundingClientRect() };
+      rectCache2.set(el, e);
+    }
+    return e.r;
+  }
 
   const fmtHz = (v) => { const h = 60 * Math.pow(18000 / 60, v);
     return h >= 1000 ? (h / 1000).toFixed(1) + "k" : Math.round(h) + ""; };
@@ -1349,7 +1386,7 @@ const PG = (() => {
 
   function drawDial(d) {
     const cv = d.cv, g = d.ctx;
-    const r = cv.getBoundingClientRect();
+    const r = rectOf(cv);
     if (!r.width) return;
     const w = Math.round(r.width * dpr2), h = Math.round(r.height * dpr2);
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
@@ -1518,17 +1555,31 @@ const PG = (() => {
   const pgScope = document.getElementById("pgScope");
   const psx = pgScope.getContext("2d");
   let tdata = null;
+  let pgIdleW = -1, pgIdleH = -1;
   function drawPgScope() {
-    const r = pgScope.getBoundingClientRect();
+    const r = rectOf(pgScope);
     if (!r.width) return;
     const w = Math.round(r.width * dpr2), h = Math.round(118 * dpr2);
     if (pgScope.width !== w || pgScope.height !== h) { pgScope.width = w; pgScope.height = h; }
+
+    const idle = !E.started || !E.analyser;
+
+    // Until someone starts the engine this panel shows one static line of
+    // text - and it was clearing the canvas, building a font string and
+    // re-rendering that same text sixty times a second, which made it the most
+    // expensive thing on the page once the wordmark stopped. It only needs
+    // painting when it changes, which is when the canvas is resized or the
+    // engine starts.
+    if (idle && w === pgIdleW && h === pgIdleH) return;
+    pgIdleW = idle ? w : -1;
+    pgIdleH = idle ? h : -1;
+
     psx.clearRect(0, 0, w, h);
 
     psx.strokeStyle = cssv("--line"); psx.lineWidth = 1;
     psx.beginPath(); psx.moveTo(0, h / 2); psx.lineTo(w, h / 2); psx.stroke();
 
-    if (!E.started || !E.analyser) {
+    if (idle) {
       psx.fillStyle = cssv("--dim");
       psx.font = `${11 * dpr2}px ${cssv("--mono")}`;
       psx.textAlign = "center"; psx.textBaseline = "middle";
@@ -1610,14 +1661,62 @@ const PG = (() => {
   const fine = matchMedia("(pointer: fine)").matches;
   const BPM = 128, SPB = 60 / BPM;
   const root = document.documentElement;
-  const css = (n) => getComputedStyle(root).getPropertyValue(n).trim();
+  /* Cached. This one line was 20% of the page's CPU.
+
+     getComputedStyle() builds a fresh live style object and getPropertyValue()
+     forces a style resolve if anything is dirty - and something always is,
+     because the beat clock writes --pulse onto this very element every single
+     frame. So every colour lookup was paying for a full style recalc, and the
+     draw code calls css() per shard, up to four times each, on every frame.
+
+     Profiling had blamed drawWordmark, which is why caching its TEXT did
+     nothing: the text was never the cost, the colour lookups inside the loop
+     were. Values only change when the colour scheme flips, so cache until
+     then. */
+  const cssCache = new Map();
+  const css = (n) => {
+    let v = cssCache.get(n);
+    if (v === undefined) {
+      v = getComputedStyle(root).getPropertyValue(n).trim();
+      cssCache.set(n, v);
+    }
+    return v;
+  };
+  for (const q of ["(prefers-color-scheme: dark)", "(prefers-color-scheme: light)"])
+    matchMedia(q).addEventListener("change", () => cssCache.clear());
+  new MutationObserver(() => cssCache.clear())
+    .observe(root, { attributes: true, attributeFilter: ["data-theme", "class"] });
   const dpr = Math.min(devicePixelRatio || 1, 2);
+
+  /* Cached element rects.
+
+     getBoundingClientRect() forces the browser to resolve layout if anything
+     is dirty, and something always is here - the beat clock writes --pulse to
+     the root element on every frame. fit() calls it for each canvas, drawDial
+     calls it for each of eight dials, and the wordmark calls it again: better
+     than ten forced reflows per frame, purely to ask "what size are you?"
+
+     Sizes only change on resize; the wordmark's POSITION also changes on
+     scroll. So invalidate on exactly those two events and read once. */
+  const rectCache = new WeakMap();
+  let rectEpoch = 0;
+  const bumpRects = () => { rectEpoch++; };
+  addEventListener("resize", bumpRects, { passive: true });
+  addEventListener("scroll", bumpRects, { passive: true });
+  function rectOf(el) {
+    let e = rectCache.get(el);
+    if (!e || e.epoch !== rectEpoch) {
+      e = { epoch: rectEpoch, r: el.getBoundingClientRect() };
+      rectCache.set(el, e);
+    }
+    return e.r;
+  }
 
   let beats = 0, pulse = 0;
   const t0 = performance.now();
 
   function fit(cv, hOverride) {
-    const r = cv.getBoundingClientRect();
+    const r = rectOf(cv);
     if (!r.width) return false;
     const h = hOverride != null ? hOverride : (cv.dataset.h ? +cv.dataset.h : r.height);
     const w = Math.round(r.width * dpr), hh = Math.round(h * dpr);
@@ -1643,6 +1742,9 @@ const PG = (() => {
 
   const SHARD_COLS = 7, SHARD_ROWS = 3;
   let shards = null, shardBox = null;
+  // Set once every piece has faded out on the floor, cleared if you scroll
+  // back up far enough to bring them into view again. See drawWordmark.
+  let shardsGone = false, shardsGoneK = 2;
 
   function buildShards(x0, y0, tw, th) {
     // A jittered lattice cut into quads. Regular slices read as a barcode;
@@ -1690,6 +1792,16 @@ const PG = (() => {
   const SHARD_STOPS = ["#3ae9ff", "#79a6ff", "#b06bff", "#ff6ae0"];
 
   function drawWordmark() {
+    // Cheapest test first. k depends only on the scroll position, so "is there
+    // anything left to paint" can be answered before touching a canvas. This
+    // used to sit forty lines down, AFTER clearing the canvas, setting an
+    // 800-weight ~170px font and measuring the text - every frame, for the
+    // whole rest of the page, only to then return having drawn nothing.
+    const k = Math.pow(Math.min(1, scrollK * 1.25), 0.42);
+    const falling = k > 0.002;
+    if (falling && shardsGone && k >= shardsGoneK - 0.004) return;
+    if (k < shardsGoneK - 0.004) shardsGone = false;
+
     if (!fit(wm)) return;
     const w = wm.width, h = wm.height;
     wx.clearRect(0, 0, w, h);
@@ -1713,15 +1825,13 @@ const PG = (() => {
     // gone. An eased-out curve made the break read as a slow drift, and the
     // whole point of a shatter is that it happens FAST and then you watch the
     // pieces go.
-    const k = Math.pow(Math.min(1, scrollK * 1.25), 0.42);
     const spread = tw * 1.35;
 
     // Once the word starts breaking, hand the pieces to the full-window
     // canvas: they need to fall past the bottom of the screen, and the
     // wordmark's own box is 190px tall. Below that threshold the logo is
     // still whole and paints in place as normal.
-    const falling = k > 0.002;
-    const r = wm.getBoundingClientRect();
+    const r = rectOf(wm);
     let C = wx, ox = 0, oy = 0;
     if (falling) {
       const fw = Math.round(innerWidth * dpr), fh = Math.round(innerHeight * dpr);
@@ -1745,6 +1855,7 @@ const PG = (() => {
     // barely move at first and are moving fastest as they leave.
     const fallTo = (innerHeight - r.top + r.height) * dpr * 1.9;
 
+    let anyInk = false;      // did ANY piece actually put pixels down this frame?
     for (const sh of shards) {
       const kk = Math.min(1, k * sh.lead * 1.35);
       let settle = 0;          // 0 in flight, 1 once it has faded out on the floor
@@ -1773,6 +1884,29 @@ const PG = (() => {
         C.translate(-sh.cx, -sh.cy);
       }
 
+      // Off-screen pieces cost the same four fillText calls as visible ones.
+      // Shards with a low `lead` never reach the floor - kk caps their fall -
+      // so they park a thousand pixels above the viewport and stay there,
+      // fully opaque, being painted for the whole rest of the page. Skipping
+      // them is most of the win, and it also lets anyInk below settle to false
+      // so the canvas can stop entirely.
+      if (falling) {
+        const screenY = oy + sh.cy + sh.dy * spread * kk * 0.8
+                      + (kk > 0.001 ? Math.min((innerHeight - r.top) * dpr - sh.cy - 10 * dpr,
+                                               fallTo * kk * kk * (0.9 + sh.lead * 0.8)) : 0);
+        const wh = innerHeight * dpr;
+        if (screenY + boxH < 0 || screenY - boxH > wh) { C.restore(); continue; }
+      }
+
+      // Faded out where it landed. Every term below carries (1 - settle), so
+      // once a piece has settled the whole shard paints nothing - and it was
+      // still costing four clipped fillText calls a frame to paint it. These
+      // land at the BOTTOM of the window, on screen, so the bounds test above
+      // never catches them.
+      const baseAlpha = (falling ? 1 - kk * 0.15 : 1 - kk * 0.55) * (1 - settle);
+      if (baseAlpha <= 0.004) { C.restore(); continue; }
+      anyInk = true;
+
       C.beginPath();
       C.moveTo(sh.poly[0].x, sh.poly[0].y);
       for (let i = 1; i < 4; i++) C.lineTo(sh.poly[i].x, sh.poly[i].y);
@@ -1787,7 +1921,7 @@ const PG = (() => {
         if (r() < 0.42) { bx = (r() - .5) * 22 * chopHit; by = (r() - .5) * 12 * chopHit; }
       }
 
-      C.globalAlpha = (falling ? 1 - kk * 0.15 : 1 - kk * 0.55) * (1 - settle);
+      C.globalAlpha = baseAlpha;
       C.fillStyle = css("--text");
       C.fillText(text, x0 + bx, y0 + by);
 
@@ -1815,6 +1949,14 @@ const PG = (() => {
     }
 
     if (falling) C.restore();
+
+    if (falling && !anyInk) {
+      // Nothing landed on the canvas this frame and nothing will until the
+      // scroll reverses. Leave it cleared and stop.
+      sfx.clearRect(0, 0, sf.width, sf.height);
+      shardsGone = true;
+      shardsGoneK = k;
+    }
 
     // the version tag rides at the end of the word and fades out with it
     if (falling) return;
@@ -2117,6 +2259,33 @@ const PG = (() => {
     if (half !== lastEmit) { lastEmit = half; emitComment(); }
   }
 
+  /* ---- only paint what is on screen ----------------------------------
+     Every frame used to redraw all nine canvases whether or not they were
+     anywhere near the viewport - the loop rings, the arp grid, the pump
+     envelope and the playground scope were being rendered at 60 Hz while
+     scrolled a full page out of sight. That is most of the frame budget spent
+     on pixels nobody can see, and it is why the page measured 24 fps against a
+     60 fps blank control.
+
+     Profiling had pointed at drawWordmark, which was true and misleading: the
+     wordmark IS the most expensive single canvas, so it topped the list even
+     though the real problem was that the other eight were running at all.
+     Caching its text did nothing, because the text was never the cost.
+
+     rootMargin keeps a canvas live slightly before it scrolls in, so nothing
+     pops in mid-animation. */
+  const onScreen = new WeakSet();
+  const visObs = new IntersectionObserver((entries) => {
+    for (const e of entries)
+      e.isIntersecting ? onScreen.add(e.target) : onScreen.delete(e.target);
+  }, { rootMargin: "160px 0px" });
+  for (const c of [wm, scope, arp, pump, gl, lp, pgScope]) {
+    if (!c) continue;
+    onScreen.add(c);          // assume visible until the observer says otherwise
+    visObs.observe(c);
+  }
+  const vis = (c) => !c || onScreen.has(c);
+
   let running = true;
   let audioT0 = -1;
   function frame(now) {
@@ -2132,8 +2301,18 @@ const PG = (() => {
       pulse = Math.pow(1 - inBeat, 3);                 // sharp attack, smooth decay
       root.style.setProperty("--pulse", pulse.toFixed(3));
       chopHit *= 0.86;
-      drawField(); drawWordmark(); drawScope(); drawArp(); drawPump();
-      drawGlide(); PG.tick(); drawLoop(); readout();
+      drawField();
+      // The wordmark keeps painting once it starts breaking even after it
+      // scrolls away: the shards fall on the full-window canvas, so stopping
+      // when the logo's own box leaves the viewport would freeze them midair.
+      if (vis(wm) || scrollK > 0.002) drawWordmark();
+      if (vis(scope)) drawScope();
+      if (vis(arp))   drawArp();
+      if (vis(pump))  drawPump();
+      if (vis(gl))    drawGlide();
+      if (vis(pgScope)) PG.tick();
+      if (vis(lp))    drawLoop();
+      readout();
     }
     requestAnimationFrame(frame);
   }
