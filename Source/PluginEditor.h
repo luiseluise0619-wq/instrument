@@ -12,6 +12,7 @@
 #include "UI/KnobComponent.h"
 #include "UI/MeterComponent.h"
 #include "UI/ScopePanel.h"
+#include "UI/SegmentedControl.h"
 #include "UI/LooperPanel.h"
 #include "UI/UnlockPanel.h"
 #include "UI/WelcomePanel.h"
@@ -113,6 +114,13 @@ private:
 
     // Slicing controls.
     juce::ComboBox engineBox;      // Chop / Synth
+    // Spec 4.2: "Slice by (Transient|Beats segmented)" and "Wave (Saw|Square
+    // |Sine|Tri)". Both were drop-downs, which hides the alternatives behind a
+    // click and makes a two-way choice look like a list of many.
+    // sliceModeBox / synthWaveBox stay alive and parameter-attached but
+    // hidden - the segments drive them, so host automation and every saved
+    // session keep working.
+    SegmentedControl sliceModeSeg, waveSeg;
     juce::ComboBox sliceModeBox;
     juce::ComboBox gridBox;
     juce::ComboBox synthWaveBox;   // Saw / Square / Sine / Triangle

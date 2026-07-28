@@ -39,6 +39,12 @@ public:
     static float radiusFor (juce::Component&, juce::Rectangle<float> bounds,
                             float defaultRadius);
 
+    /** A combo can ask for a multi-column popup by setting a "menuColumns"
+        property on itself. The theme picker needs it: sixteen rows in one
+        column runs off a short plugin window. */
+    juce::PopupMenu::Options getOptionsForComboBoxPopupMenu (juce::ComboBox&,
+                                                             juce::Label&) override;
+
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
     void drawButtonBackground (juce::Graphics&, juce::Button&,
                                const juce::Colour& backgroundColour,

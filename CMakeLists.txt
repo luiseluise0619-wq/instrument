@@ -120,6 +120,7 @@ target_sources(VocalChopStudio PRIVATE
     Source/UI/AppleLookAndFeel.cpp
     Source/UI/MeterComponent.cpp
     Source/UI/ScopePanel.cpp
+    Source/UI/SegmentedControl.cpp
     Source/UI/WaveformView.cpp
     Source/UI/KnobComponent.cpp
     Source/UI/SliceGrid.cpp
@@ -182,6 +183,7 @@ set(SLYCE_CORE_SOURCES
     Source/UI/AppleLookAndFeel.cpp
     Source/UI/MeterComponent.cpp
     Source/UI/ScopePanel.cpp
+    Source/UI/SegmentedControl.cpp
     Source/UI/WaveformView.cpp
     Source/UI/KnobComponent.cpp
     Source/UI/SliceGrid.cpp

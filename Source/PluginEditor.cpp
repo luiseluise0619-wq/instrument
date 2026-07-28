@@ -566,9 +566,73 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     }
 
     // --- Theme selector ---
-    int themeId = 1;
-    for (const auto& t : ThemeManager::themes())
-        themeBox.addItem (t.name, themeId++);
+    //
+    // Spec 4.1 wants a swatch, the name and Dark/Light per row, two columns.
+    // A plain text list makes you read sixteen names to find the one you can
+    // picture, when the whole point of a theme is that it is a colour - so
+    // each row now shows the colour it is offering. Two columns because
+    // sixteen single-column rows run off a short plugin window.
+    struct ThemeRow : juce::PopupMenu::CustomComponent
+    {
+        ThemeRow (const Theme& t, bool sel)
+            : juce::PopupMenu::CustomComponent (true), th (t), selected (sel) {}
+
+        void getIdealSize (int& w, int& h) override { w = 172; h = 26; }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto& active = ThemeManager::active();
+            auto r = getLocalBounds().reduced (4, 2);
+
+            if (isItemHighlighted())
+            {
+                g.setColour (active.accent);
+                g.fillRoundedRectangle (r.toFloat(), 6.0f);
+            }
+
+            // The swatch IS the information: accent over the theme's own
+            // backdrop, so you see the pairing rather than the accent alone.
+            auto sw = r.removeFromLeft (26).reduced (0, 4).toFloat();
+            g.setColour (th.bgTop);
+            g.fillRoundedRectangle (sw, 4.0f);
+            g.setColour (th.accent);
+            g.fillRoundedRectangle (sw.removeFromRight (sw.getWidth() * 0.45f), 4.0f);
+            g.setColour (active.separator);
+            g.drawRoundedRectangle (r.removeFromLeft (0).toFloat(), 4.0f, 1.0f);
+
+            r.removeFromLeft (8);
+            const auto ink = isItemHighlighted() ? active.accentInk : active.text;
+
+            auto tag = r.removeFromRight (40);
+            g.setColour (ink.withAlpha (0.62f));
+            g.setFont (juce::Font (juce::FontOptions (9.5f)));
+            g.drawText (th.dark ? "Dark" : "Light", tag,
+                        juce::Justification::centredRight, false);
+
+            g.setColour (ink);
+            g.setFont (juce::Font (juce::FontOptions (12.5f)
+                                       .withStyle (selected ? "Bold" : "Regular")));
+            g.drawText (th.name, r, juce::Justification::centredLeft, true);
+        }
+
+        const Theme& th;
+        bool selected;
+    };
+
+    {
+        auto* root = themeBox.getRootMenu();
+        const auto& all = ThemeManager::themes();
+        for (int i = 0; i < (int) all.size(); ++i)
+        {
+            juce::PopupMenu::Item it;
+            it.itemID = i + 1;
+            it.text   = all[(size_t) i].name;   // keeps the combo's own label right
+            it.customComponent = new ThemeRow (all[(size_t) i],
+                                               i == ThemeManager::current());
+            root->addItem (std::move (it));
+        }
+    }
+    themeBox.getProperties().set ("menuColumns", 2);
     themeBox.setSelectedId (ThemeManager::current() + 1, juce::dontSendNotification);
     themeBox.setJustificationType (juce::Justification::centred);
     themeBox.onChange = [this]
@@ -758,7 +822,17 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     synthWaveBox.addItem ("Triangle", 4);
     comboAttachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         processor.getAPVTS(), "synthWave", synthWaveBox));
-    addAndMakeVisible (synthWaveBox);
+    // Hidden but attached: the segments are its face.
+    addChildComponent (synthWaveBox);
+    waveSeg.setItems ({ "Saw", "Square", "Sine", "Tri" });
+    waveSeg.setSelectedIndex (juce::jmax (0, synthWaveBox.getSelectedItemIndex()),
+                              juce::dontSendNotification);
+    waveSeg.onChange = [this] (int i)
+    { synthWaveBox.setSelectedItemIndex (i, juce::sendNotificationSync); };
+    synthWaveBox.onChange = [this]
+    { waveSeg.setSelectedIndex (synthWaveBox.getSelectedItemIndex(),
+                                juce::dontSendNotification); };
+    addAndMakeVisible (waveSeg);
 
     // Instrument menu: a flat 225-row list scrolled past the screen edge and
     // appeared to show "only a few" items depending on where the popup
@@ -912,11 +986,21 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
 
     sliceModeBox.addItem ("Transient", 1);
     sliceModeBox.addItem ("Grid", 2);
+    // Keep the segment in step with the engine's own state (project reload,
+    // preset switch, a re-slice that fell back to a grid).
+    sliceModeSeg.setSelectedIndex (engine.getMode() == SliceEngine::Grid ? 1 : 0,
+                                   juce::dontSendNotification);
     sliceModeBox.setSelectedId (engine.getMode() == SliceEngine::Grid ? 2 : 1,
                                 juce::dontSendNotification);
     sliceModeBox.setJustificationType (juce::Justification::centred);
     sliceModeBox.onChange = [this] { applySlicing(); syncEngineEnablement(); };
-    addAndMakeVisible (sliceModeBox);
+    addChildComponent (sliceModeBox);
+    sliceModeSeg.setItems ({ "Transient", "Beats" });
+    sliceModeSeg.setSelectedIndex (juce::jmax (0, sliceModeBox.getSelectedItemIndex()),
+                                   juce::dontSendNotification);
+    sliceModeSeg.onChange = [this] (int i)
+    { sliceModeBox.setSelectedItemIndex (i, juce::sendNotificationSync); };
+    addAndMakeVisible (sliceModeSeg);
 
     for (int div : { 4, 8, 16, 32 })
         gridBox.addItem (juce::String (div) + " slices", div);
@@ -1000,9 +1084,13 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // A macro moves many parameters at once, and the whole point of it is that
     // you do not have to know which. Naming them on the panel is what turns
     // the dial from a mystery into a shortcut.
-    hypeKnob ->setSubCaption ("unison - drive - air");
-    spaceKnob->setSubCaption ("reverb - width - delay");
-    dirtKnob ->setSubCaption ("saturation - noise - grain");
+    // Short enough to survive the cell. Three words in a 70px slot came out as
+    // "unison - dri...", and a truncated hint is worse than a shorter one: it
+    // reads as text that failed rather than as a label. The full list is in
+    // the tooltip, and hovering the macro lights the actual dials anyway.
+    hypeKnob ->setSubCaption ("unison / drive");
+    spaceKnob->setSubCaption ("reverb / delay");
+    dirtKnob ->setSubCaption ("drive / noise");
 
     // Hovering a macro lights every dial it moves. The sub-caption names them
     // in words; this points at them, which is the difference between reading
@@ -1456,6 +1544,10 @@ void VocalChopAudioProcessorEditor::applySlicing()
 void VocalChopAudioProcessorEditor::syncSliceControls()
 {
     auto& engine = processor.getSliceEngine();
+    // Keep the segment in step with the engine's own state (project reload,
+    // preset switch, a re-slice that fell back to a grid).
+    sliceModeSeg.setSelectedIndex (engine.getMode() == SliceEngine::Grid ? 1 : 0,
+                                   juce::dontSendNotification);
     sliceModeBox.setSelectedId (engine.getMode() == SliceEngine::Grid ? 2 : 1,
                                 juce::dontSendNotification);
 
@@ -1519,6 +1611,11 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
         }
     }
 
+    // The segments dim themselves in paint(), so they take setEnabled rather
+    // than dim()'s setAlpha - the two would compound to about 0.14 and the
+    // control would vanish instead of greying.
+    sliceModeSeg.setEnabled (slicing);
+    waveSeg.setEnabled (voice);
     dim (sliceModeBox,    slicing);
     dim (gridBox,         slicing && byBeats);
     dim (sensitivityKnob, slicing && ! byBeats);
@@ -2358,7 +2455,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
             if (chop)
             {
                 auto a = slot (capH + rowH, "Slice by");
-                sliceModeBox.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
+                sliceModeSeg.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
                 in.removeFromTop (4);
                 auto b = slot (capH + rowH + 12, "Grid");
                 auto sens = b.removeFromRight (66);
@@ -2371,7 +2468,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
                 if (synth)
                 {
                     auto a = slot (capH + rowH, "Wave");
-                    synthWaveBox.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
+                    waveSeg.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
                     in.removeFromTop (4);
                 }
                 auto o = slot (capH + rowH, "Octave");

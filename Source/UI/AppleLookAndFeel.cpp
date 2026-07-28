@@ -43,6 +43,16 @@ AppleLookAndFeel::AppleLookAndFeel()
     setColour (juce::PopupMenu::backgroundColourId, juce::Colours::transparentBlack);
 }
 
+juce::PopupMenu::Options
+AppleLookAndFeel::getOptionsForComboBoxPopupMenu (juce::ComboBox& box, juce::Label& label)
+{
+    auto opts = LookAndFeel_V4::getOptionsForComboBoxPopupMenu (box, label);
+    const int cols = (int) box.getProperties().getWithDefault ("menuColumns", 1);
+    if (cols > 1)
+        opts = opts.withMaximumNumColumns (cols);
+    return opts;
+}
+
 float AppleLookAndFeel::radiusFor (juce::Component& c, juce::Rectangle<float> bounds,
                                    float defaultRadius)
 {
