@@ -813,17 +813,38 @@ void WaveformView::paint (juce::Graphics& g)
                               midY - h * 0.5f, barW, h });
         }
 
-        // Glow themes get one soft, wider pass beneath the bars.
-        if (glow > 0.0f)
+        // The bars are drawn in four passes rather than one fill. A single
+        // gradient rectangle per bar is a bar chart; what makes this read as an
+        // instrument is the light coming OFF it - a bloom under the loud ones,
+        // a lit tip where the energy is, and a spine holding the row together.
+
+        // Loudest bar in the row, so the bloom and the caps can key off energy
+        // rather than being applied evenly - an even glow is just a blur.
+        float loudest = 1.0f;
+        for (const auto& bar : bars)
+            loudest = juce::jmax (loudest, bar.getHeight());
+
+        // (1) BLOOM. Two widening passes at low alpha under the bars, weighted
+        // by how tall each one is, so a transient throws light and a quiet
+        // passage does not. Cheap: two rounded rects per bar, no blur.
         {
-            g.setColour (theme.accent.withAlpha (0.16f * glow));
-            for (const auto& bar : bars)
-                g.fillRoundedRectangle (bar.expanded (1.6f),
-                                        juce::jmin (barW, bar.getHeight()) * 0.5f + 1.6f);
+            for (int pass = 0; pass < 2; ++pass)
+            {
+                const float grow = 2.5f + (float) pass * 5.0f;
+                const float base = (pass == 0 ? 0.26f : 0.13f) * (0.6f + 0.4f * glow);
+                for (const auto& bar : bars)
+                {
+                    const float e = bar.getHeight() / loudest;          // 0..1 energy
+                    if (e < 0.12f) continue;
+                    g.setColour (theme.accent.withAlpha (base * e * e));
+                    g.fillRoundedRectangle (bar.expanded (grow),
+                                            juce::jmin (barW, bar.getHeight()) * 0.5f + grow);
+                }
+            }
         }
 
-        // Gradient: accent on the centre line, --acc2 (accent 76% + black) at
-        // the tips, so tall bars darken as they reach out.
+        // (2) BODY. Accent on the centre line, --acc2 at the tips, so tall bars
+        // darken as they reach out - the spec's gradient.
         {
             const juce::Colour tip = accentDeep (theme);
             juce::ColourGradient barGrad (tip, { left, midY - scale },
@@ -833,6 +854,39 @@ void WaveformView::paint (juce::Graphics& g)
 
             for (const auto& bar : bars)
                 g.fillRoundedRectangle (bar, juce::jmin (barW, bar.getHeight()) * 0.5f);
+        }
+
+        // (3) PEAK CAPS. A short bright segment at both ends of each bar, in
+        // the light end of the accent. This is the detail that makes a level
+        // display look alive rather than printed - the eye reads the caps as
+        // the moving part.
+        {
+            const juce::Colour capCol = theme.accent
+                                            .interpolatedWith (juce::Colours::white,
+                                                               theme.dark ? 0.45f : 0.18f);
+            // Small and only on the loud ones. The first attempt used a cap
+            // of barW*0.9 at up to 0.85 alpha, which on a short bar is half
+            // its length - every bar came out as a dumbbell with two bright
+            // ends and a dark middle. A highlight has to be smaller than the
+            // thing it is highlighting.
+            for (const auto& bar : bars)
+            {
+                const float e = bar.getHeight() / loudest;
+                if (e < 0.30f) continue;
+                const float capH = juce::jmin (bar.getHeight() * 0.20f, 3.0f);
+                if (capH < 1.0f) continue;
+                const float r = juce::jmin (barW, capH) * 0.5f;
+                g.setColour (capCol.withAlpha (0.18f + 0.30f * e));
+                g.fillRoundedRectangle (bar.getX(), bar.getY(), barW, capH, r);
+                g.fillRoundedRectangle (bar.getX(), bar.getBottom() - capH, barW, capH, r);
+            }
+        }
+
+        // (4) SPINE. A hairline down the centre, brightest where the bars are.
+        // Without it the mirrored halves read as two separate rows.
+        {
+            g.setColour (theme.accent.withAlpha (theme.dark ? 0.30f : 0.22f));
+            g.fillRect (left, midY - 0.5f, inner.getWidth(), 1.0f);
         }
 
         // --- Slice markers ---------------------------------------------------
