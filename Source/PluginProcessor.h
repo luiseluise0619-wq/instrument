@@ -181,6 +181,16 @@ public:
         dials in a designed patch (engine architecture + knob defaults). */
     static juce::StringArray getInstrumentNames();
     static juce::StringArray getInstrumentCategories();   // parallel to names
+
+    /** A second index over the same instruments, grouped the way someone
+        building a track thinks: EDM / HIP-HOP / POP, each split into the roles
+        a track needs filled. Members are instrument NAMES from the catalogue
+        above - no bank owns a patch of its own, and one instrument can appear
+        in several banks. */
+    static juce::StringArray getGenreBankNames();
+    static juce::StringArray getGenreRoleNames (int bank);
+    static juce::StringArray getGenreRoleInstruments (int bank, int role);
+    static int               getGenreBankSize (int bank);
     void applyInstrument (int instrumentIndex);
     int  getCurrentInstrument() const { return currentInstrument; }
 

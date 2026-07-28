@@ -303,6 +303,59 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--genres": do the genre banks hold up?
+    //
+    // The banks are 400 hand-written name strings pointing into a catalogue
+    // that keeps growing. Every one of them is a chance to typo a name or to
+    // rename an instrument and forget the bank referencing it, and the symptom
+    // either way is a menu row that silently does nothing - which is exactly
+    // the class of bug that survives a screenshot.
+    if (argc > 1 && juce::String (argv[1]) == "--genres")
+    {
+        const auto names = VocalChopAudioProcessor::getInstrumentNames();
+        const auto banks = VocalChopAudioProcessor::getGenreBankNames();
+        printf ("catalogue: %d instruments\n\n", names.size());
+
+        // What the sizes were asked to be. Stated here rather than derived
+        // from the table, so shrinking a bank fails instead of redefining
+        // what the target was.
+        const int wanted[] = { 150, 150, 100 };
+        int bad = 0;
+
+        for (int b = 0; b < banks.size(); ++b)
+        {
+            const auto roles = VocalChopAudioProcessor::getGenreRoleNames (b);
+            const int  size  = VocalChopAudioProcessor::getGenreBankSize (b);
+            printf ("%-8s %3d instruments across %d roles\n",
+                    banks[b].toRawUTF8(), size, roles.size());
+
+            std::set<juce::String> seen;
+            for (int r = 0; r < roles.size(); ++r)
+            {
+                const auto members =
+                    VocalChopAudioProcessor::getGenreRoleInstruments (b, r);
+                printf ("    %-18s %3d\n", roles[r].toRawUTF8(), members.size());
+
+                for (const auto& m : members)
+                {
+                    if (names.indexOf (m) < 0)
+                    { printf ("        NO SUCH INSTRUMENT: \"%s\"\n", m.toRawUTF8()); ++bad; }
+                    // A duplicate inside one bank is a wasted slot: the bank
+                    // claims 150 sounds and delivers fewer.
+                    else if (! seen.insert (m).second)
+                    { printf ("        DUPLICATE IN BANK: \"%s\"\n", m.toRawUTF8()); ++bad; }
+                }
+            }
+
+            if (b < 3 && size != wanted[b])
+            { printf ("    SIZE: asked for %d, bank holds %d\n", wanted[b], size); ++bad; }
+            printf ("\n");
+        }
+
+        printf ("%d problem(s)\n", bad);
+        return bad == 0 ? 0 : 1;
+    }
+
     // "--keymap": which SLICE does each typing key select, in Chop mode?
     //
     // SCOPE, stated up front because two earlier versions of this test

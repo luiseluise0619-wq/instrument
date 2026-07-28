@@ -64,7 +64,7 @@ public:
         // a breath makes a burst of inharmonic noise BEFORE the tone arrives,
         // and the ear uses it to decide whether it is hearing an instrument or
         // an oscillator. Every voice here started as a clean ramp, which is
-        // most of why 376 sounds all read as "synth".
+        // most of why 403 sounds all read as "synth".
         std::atomic<float> attackNoise    { 0.0f };   // 0..1 burst level
         std::atomic<float> attackTone     { 3.0f };   // burst centre, x the note
         std::atomic<float> attackMs       { 14.0f };  // burst decay

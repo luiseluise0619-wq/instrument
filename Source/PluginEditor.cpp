@@ -634,11 +634,12 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // "Load Sample" - so the pair now reads "ours" and "yours".
     demoButton.setTooltip ("Loads one of 10 built-in vocals to chop - press again for the next");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
-    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 376 built-in sounds.  "
+    engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 403 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
                           "Melody = play the loaded sample as pitched notes");
     synthWaveBox.setTooltip ("Basic oscillator shape for the synth");
-    instrumentBox.setTooltip ("376 built-in sounds, organised by category - start with FEATURED");
+    instrumentBox.setTooltip ("403 built-in sounds. BY GENRE picks them for you;\n"
+                              "the category list below is for when you already know");
     looperTabButton.setTooltip ("Loop station: record and stack up to 6 loop tracks from your keyboard");
     themeBox.setTooltip ("Color themes and artwork skins");
     presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
@@ -703,10 +704,10 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     instNameLabel.setFont (juce::Font (juce::FontOptions (27.0f).withStyle ("Bold")));
     addAndMakeVisible (instNameLabel);
 
-    instBrowseButton.setTooltip ("Browse all 376 instruments by category");
+    instBrowseButton.setTooltip ("Browse 403 instruments - by genre (EDM / Hip-hop / Pop) or by category");
     instBrowseButton.onClick = [this]
     {
-        // The combo still OWNS the 376-entry categorised menu - this shows a
+        // The combo still OWNS the 403-entry categorised menu - this shows a
         // copy of it - so there is exactly one list in the program to keep
         // correct. Going through the menu rather than ComboBox::showPopup()
         // is what lets the combo itself stay hidden.
@@ -728,7 +729,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (instBrowseButton);
 
     // Eight category chips: one click lands on the first voice of a family,
-    // instead of scrolling a 376-entry menu to find out what is in there.
+    // instead of scrolling a 403-entry menu to find out what is in there.
     {
         static const char* chips[kNumChips] =
             { "BASS", "DRUMS", "LEAD", "PAD", "KEYS", "PLUCK", "VOCAL", "BELL" };
@@ -773,6 +774,44 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
                 instrumentBox.addItem (f, 1000 + idx);
         }
         root->addSeparator();
+
+        // BY GENRE, above the category list on purpose. The categories below
+        // answer "what kind of sound is this", which you can only ask once you
+        // already know what you are looking for. Someone opening this to start
+        // a track is asking "what do I need for a drop", and that question has
+        // no answer in a list called BASS.
+        {
+            root->addSectionHeader ("BY GENRE");
+            const auto banks = VocalChopAudioProcessor::getGenreBankNames();
+            for (int b = 0; b < banks.size(); ++b)
+            {
+                juce::PopupMenu bank;
+                const auto roles = VocalChopAudioProcessor::getGenreRoleNames (b);
+                for (int r = 0; r < roles.size(); ++r)
+                {
+                    juce::PopupMenu roleMenu;
+                    const auto members =
+                        VocalChopAudioProcessor::getGenreRoleInstruments (b, r);
+                    for (const auto& m : members)
+                    {
+                        const int idx = names.indexOf (m);
+                        // A name that no longer resolves is a catalogue edit
+                        // that forgot the banks; --genres fails on it. Skip
+                        // rather than add a dead row.
+                        jassert (idx >= 0);
+                        if (idx >= 0)
+                            roleMenu.addItem (idx + 1, m);
+                    }
+                    bank.addSubMenu (roles[r] + "  (" + juce::String (members.size()) + ")",
+                                     roleMenu);
+                }
+                root->addSubMenu (banks[b] + "  ("
+                                    + juce::String (VocalChopAudioProcessor::getGenreBankSize (b))
+                                    + ")",
+                                  bank);
+            }
+            root->addSeparator();
+        }
 
         // SFZ banks the user loaded themselves - remembered across sessions
         // so a violin or piano they hunted down never just disappears.
@@ -845,7 +884,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // steppers move through it. The combo remains as the one list.
     addChildComponent (instrumentBox);
 
-    // Auditioning 376 sounds through a nested menu means six clicks per
+    // Auditioning 403 sounds through a nested menu means six clicks per
     // sound. These step one at a time, so you can hold the keyboard down and
     // walk the whole list with the other hand.
     instPrevButton.setTooltip ("Previous instrument");

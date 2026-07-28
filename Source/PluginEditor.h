@@ -93,7 +93,7 @@ private:
     // automation binding and every saved session's engine setting.
     juce::TextButton engineTab[4];
     static constexpr const char* kEngineSub[4] =
-        { "Slices", "376 voices", "SFZ", "Chromatic" };
+        { "Slices", "403 voices", "SFZ", "Chromatic" };
 
     // Instrument hero: the voice name is the largest type in the window,
     // because it is the control people are actually looking for.
@@ -153,7 +153,7 @@ private:
     WaveformView   waveform;
     ChordBar       chordBar;
     juce::ComboBox instrumentBox;
-    // Step through the instrument list without opening a 376-entry menu.
+    // Step through the instrument list without opening a 403-entry menu.
     juce::TextButton instPrevButton { "<" }, instNextButton { ">" };
     void stepInstrument (int delta);
     MeterComponent meter { processor.getOutputLevelRef() };

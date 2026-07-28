@@ -113,7 +113,7 @@ public:
               "Z S X D C V G B H N J M  (or any MIDI keyboard)." },
             { "2", "Sounds",
               "Preset > Sounds loads a complete patch in one click.\n"
-              "Or open INSTRUMENT for all 376 voices, by category." },
+              "Or open INSTRUMENT for all 403 voices, by category." },
             { "3", "Loop",
               "Open LOOPER (top right). Pick a sound per track,\n"
               "hit REC and stack a whole beat from one laptop." },

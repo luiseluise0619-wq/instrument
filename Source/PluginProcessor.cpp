@@ -1431,6 +1431,10 @@ namespace
     { "BASS",  "Reggaeton Sub",  1, 0.00f,1.00f,0.00f, 0.15f, 2.0f, 0.0f, 0.0f,   260, 1.4f,  120, 2, -2,  0.0f,  0,  520, 0.45f, 240, 0.25f, 0.05f, 0.00f, 0, 0.7f },
     { "BASS",  "Club Rumble",    2, 0.15f,0.90f,0.02f, 0.20f, 2.0f, 0.0f, 0.0f,   340, 1.8f,  260, 2, -2,  5.0f,  0,  800, 0.55f, 380, 0.30f, 0.08f, 0.00f, 0, 0.75f },
     { "BASS",  "Drill Slide",    1, 0.00f,0.95f,0.00f, 0.40f, 1.0f, 5.5f, 22.0f,  300, 2.0f,  200, 2, -2,  0.0f,  0, 1000, 0.45f, 400, 0.35f, 0.06f, 0.00f, 0, 0.7f },
+    // Named for the job rather than the tone, because that is how anyone
+    // building a track searches for them.
+    { "BASS",  "Sidechain Bass", 1, 0.00f,0.80f,0.00f, 0.20f, 1.0f, 0.0f,  0.0f,  600, 1.6f,  180, 2, -1,  0.0f, 90,  260, 0.55f, 150, 0.15f, 0.05f, 0.00f, 0, 0.8f },
+    { "BASS",  "Reese Growl",    5, 0.55f,0.45f,0.02f, 0.10f, 2.0f, 4.0f,  9.0f,  900, 1.4f,  320, 0, -1, 26.0f,  4,  600, 0.75f, 260, 0.45f, 0.08f, 0.00f, 0, 0.9f },
     { "DRUMS", "Drum Kit",     1, 0.00f,0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,   0,  500, 0.00f, 200, 0.30f, 0.02f, 0.00f, 0, 0.7f },
     { "DRUMS", "Kick 808",      1, 0.0f, 0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,  0,  500, 0.00f, 200, 0.30f, 0.02f, 0.0f, 0, 0.7f },
     { "DRUMS", "Kick Punch",    1, 0.0f, 0.0f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  4000, 0.0f,  200, 2, -1,  0.0f,  0,  260, 0.00f, 120, 0.45f, 0.02f, 0.0f, 0, 0.7f },
@@ -1464,6 +1468,11 @@ namespace
     { "DRUMS", "Amapiano Shaker",1, 0.00f,0.0f, 0.92f, 0.40f, 8.1f, 0.0f, 0.0f, 18000, 0.0f,  200, 2,  1,  0.0f,  0,  120, 0.00f,  95, 0.08f, 0.10f, 0.00f, 0, 1.1f },
     { "DRUMS", "Afro Conga",     1, 0.00f,0.25f,0.20f, 0.35f, 2.4f, 0.0f, 0.0f,  2600, 1.4f,   90, 2, -1,  0.0f,  0,  260, 0.00f, 200, 0.18f, 0.10f, 0.00f, 0, 0.95f },
     { "DRUMS", "Reggaeton Perc", 1, 0.00f,0.15f,0.30f, 0.50f, 3.1f, 0.0f, 0.0f,  5200, 1.1f,   70, 2,  0,  0.0f,  0,  150, 0.00f, 120, 0.22f, 0.12f, 0.00f, 0, 1.0f },
+    { "DRUMS", "Festival Kick",  1, 0.00f,0.95f,0.10f, 0.55f, 0.5f, 0.0f, 0.0f,   400, 3.2f,   45, 2, -2,  0.0f,  0,  130, 0.00f,  90, 0.35f, 0.04f, 0.00f, 0, 0.8f },
+    { "DRUMS", "Trap Snare",     1, 0.00f,0.10f,0.80f, 0.25f, 2.4f, 0.0f, 0.0f,  6500, 0.9f,   60, 2,  0,  0.0f,  0,  180, 0.00f, 140, 0.20f, 0.14f, 0.05f, 0, 1.1f },
+    { "DRUMS", "Drum Machine",   1, 0.00f,0.35f,0.45f, 0.35f, 1.6f, 0.0f, 0.0f,  4200, 1.4f,   70, 2,  0,  0.0f,  0,  160, 0.00f, 120, 0.18f, 0.10f, 0.00f, 0, 1.0f },
+    { "DRUMS", "Big Drums",      2, 0.30f,0.70f,0.35f, 0.40f, 1.0f, 0.0f, 0.0f,  3000, 1.8f,  110, 2, -1,  6.0f,  0,  320, 0.05f, 280, 0.28f, 0.30f, 0.08f, 0, 1.3f },
+    { "DRUMS", "Drum Fill",      1, 0.00f,0.40f,0.40f, 0.45f, 1.3f, 0.0f, 0.0f,  4800, 1.6f,   90, 2,  0,  0.0f,  0,  240, 0.00f, 190, 0.22f, 0.18f, 0.06f, 0, 1.15f },
     { "VOCAL", "Vox Choir",     5, 0.85f,0.0f, 0.08f, 0.00f, 2.0f, 4.5f, 8.0f,  1800, 0.4f,  500, 0,  0, 12.0f, 260,  700, 0.85f, 700, 0.00f, 0.55f, 0.00f, 0, 1.5f },
     { "VOCAL", "Vox Ahh",       4, 0.70f,0.0f, 0.06f, 0.00f, 2.0f, 5.0f,10.0f,  2600, 0.6f,  300, 0,  0, 10.0f, 120,  500, 0.85f, 450, 0.00f, 0.45f, 0.00f, 0, 1.35f },
     { "VOCAL", "Vox Ooh",       3, 0.60f,0.0f, 0.05f, 0.00f, 2.0f, 4.5f, 8.0f,   950, 0.4f,  350, 3,  0,  8.0f, 150,  600, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.25f },
@@ -1487,6 +1496,13 @@ namespace
     { "VOCAL", "Vox Chant Low",  4, 0.65f,0.2f, 0.06f, 0.00f, 2.0f, 4.0f, 6.0f,  1400, 0.4f,  550, 0, -1, 10.0f, 300,  750, 0.85f, 700, 0.00f, 0.50f, 0.00f, 0, 1.4f },
     { "VOCAL", "Vox Doo Choir",  4, 0.70f,0.1f, 0.05f, 0.00f, 2.0f, 4.5f, 8.0f,  1100, 0.5f,  350, 3,  0,  9.0f, 100,  550, 0.85f, 450, 0.00f, 0.40f, 0.05f, 0, 1.3f },
     { "VOCAL", "Vox Siren Air",  3, 0.60f,0.0f, 0.30f, 0.00f, 2.0f, 5.5f,20.0f,  2800, 0.6f,  300, 0,  1, 12.0f, 150,  800, 0.80f, 750, 0.00f, 0.60f, 0.15f, 0, 1.5f },
+    // A reverse vocal is a swell, not a hit: the whole shape is the long
+    // attack, so it is the one voice here where atk dwarfs everything else.
+    { "VOCAL", "Reverse Vocal",  4, 0.70f,0.0f, 0.08f, 0.00f, 2.0f, 4.0f, 8.0f,  3000, 0.8f,  600, 0,  0, 12.0f, 900,  200, 0.00f,  60, 0.00f, 0.45f, 0.20f, 1, 1.5f },
+    { "VOCAL", "Vocal Adlib",    2, 0.35f,0.0f, 0.06f, 0.00f, 2.0f, 5.5f,16.0f,  3400, 0.9f,  220, 0,  1,  8.0f,  20,  260, 0.35f, 300, 0.05f, 0.40f, 0.25f, 1, 1.3f },
+    { "VOCAL", "Vocal Harmony",  6, 0.85f,0.0f, 0.05f, 0.00f, 2.0f, 4.5f, 7.0f,  2600, 0.5f,  400, 0,  0, 16.0f, 120,  500, 0.85f, 520, 0.00f, 0.50f, 0.10f, 0, 1.55f },
+    { "VOCAL", "Vocal Loop",     3, 0.50f,0.0f, 0.05f, 0.00f, 2.0f, 4.8f,10.0f,  2800, 0.7f,  260, 0,  0, 10.0f,  10,  340, 0.55f, 320, 0.04f, 0.35f, 0.18f, 1, 1.35f },
+    { "VOCAL", "Formant Vocal",  2, 0.30f,0.0f, 0.04f, 0.35f, 3.0f, 5.0f,12.0f,  2200, 1.2f,  260, 0,  0,  7.0f,  15,  300, 0.60f, 280, 0.10f, 0.30f, 0.15f, 0, 1.2f },
     { "HITS",  "Neon 84 Lead",  5, 0.70f,0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  4500, 0.6f,  250, 0,  0, 14.0f,   5,  300, 0.80f, 250, 0.15f, 0.35f, 0.20f, 0, 1.4f },
     { "HITS",  "Trap Flute",    1, 0.00f,0.0f, 0.10f, 0.00f, 2.0f, 4.5f, 9.0f,  3200, 0.3f,  300, 2,  0,  0.0f,  60,  250, 0.85f, 300, 0.00f, 0.40f, 0.15f, 0, 1.1f },
     { "HITS",  "Moody Keys",    2, 0.30f,0.05f,0.02f, 0.15f, 2.0f, 0.0f, 0.0f,  1800, 0.9f,  320, 3,  0,  6.0f,   8,  900, 0.35f, 700, 0.05f, 0.50f, 0.20f, 0, 1.25f },
@@ -1604,6 +1620,10 @@ namespace
     { "SYNTH", "Vapor Wash",     4, 0.85f,0.1f, 0.10f, 0.00f, 2.0f, 3.5f, 9.0f,  1400, 0.5f,  700, 3,  0, 16.0f, 400,  900, 0.80f, 900, 0.05f, 0.65f, 0.20f, 1, 1.5f },
     { "SYNTH", "Future Chord",   5, 0.75f,0.10f,0.02f, 0.20f, 2.0f, 4.2f,  6.0f, 2800, 1.5f,  260, 0,  0, 20.0f,  6,  420, 0.65f, 340, 0.18f, 0.35f, 0.15f, 1, 1.4f },
     { "SYNTH", "Drill Dark Pad", 4, 0.70f,0.20f,0.05f, 0.15f, 2.0f, 3.0f,  5.0f, 1200, 0.6f,  700, 0, -1, 16.0f,300, 1000, 0.80f, 900, 0.10f, 0.50f, 0.10f, 0, 1.4f },
+    { "SYNTH", "Wavetable Lead", 3, 0.45f,0.00f,0.01f, 0.55f, 3.0f, 4.5f,  6.0f, 5200, 1.2f,  260, 0,  0, 10.0f,  3,  260, 0.70f, 220, 0.18f, 0.25f, 0.20f, 0, 1.25f },
+    { "SYNTH", "Chord Synth",    5, 0.75f,0.05f,0.01f, 0.00f, 2.0f, 0.0f,  0.0f, 3200, 0.7f,  340, 0,  0, 16.0f, 12,  420, 0.70f, 400, 0.06f, 0.40f, 0.15f, 0, 1.45f },
+    { "SYNTH", "Arp Synth",      2, 0.35f,0.05f,0.01f, 0.20f, 2.0f, 0.0f,  0.0f, 3800, 1.8f,  120, 0,  0,  8.0f,  0,  180, 0.10f, 150, 0.08f, 0.30f, 0.30f, 1, 1.25f },
+    { "SYNTH", "Dark Synth",     4, 0.60f,0.35f,0.03f, 0.10f, 2.0f, 3.5f,  6.0f, 1100, 0.8f,  500, 0, -1, 14.0f, 40,  700, 0.65f, 600, 0.15f, 0.40f, 0.12f, 0, 1.3f },
     { "PIANO", "Syn Grand",      1, 0.0f, 0.05f,0.02f,0.0f, 2.0f, 0.0f, 0.0f,  3200, 1.2f,  700, 3,  0,  3.0f,  1,   900, 0.22f, 260, 0.00f, 0.20f, 0.00f, 0, 1.0f },
     { "PIANO", "Syn Bright",     1, 0.0f, 0.0f, 0.03f,0.12f,1.0f, 0.0f, 0.0f,  5200, 1.0f,  500, 3,  0,  4.0f,  1,   750, 0.28f, 220, 0.05f, 0.18f, 0.00f, 0, 1.05f },
     { "PIANO", "Syn Soft Key",       1, 0.0f, 0.08f,0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2000, 0.8f,  900, 2,  0,  2.0f,  2,  1100, 0.18f, 350, 0.00f, 0.30f, 0.00f, 0, 1.0f },
@@ -1621,6 +1641,8 @@ namespace
     { "PIANO", "Concert Bright",2, 0.20f,0.05f,0.02f, 0.14f, 3.5f, 0.0f, 0.0f,  4200, 1.5f,  220, 3,  0,  3.0f,   1, 1200, 0.20f, 450, 0.05f, 0.32f, 0.05f, 0, 1.25f },
     { "PIANO", "Felt Piano",     1, 0.10f,0.10f,0.03f, 0.10f, 2.0f, 0.0f, 0.0f,  1500, 1.2f,  400, 3,  0,  2.0f,  1,  900, 0.30f, 500, 0.00f, 0.35f, 0.05f, 0, 1.0f },
     { "PIANO", "Toy Piano",      1, 0.00f,0.0f, 0.02f, 0.55f, 5.0f, 0.0f, 0.0f,  4000, 1.0f,  200, 2,  1,  0.0f,  0,  600, 0.10f, 400, 0.05f, 0.30f, 0.10f, 0, 0.9f },
+    { "PIANO", "Emotional Piano",2, 0.20f,0.05f,0.01f, 0.30f, 2.0f, 0.0f, 0.0f,  2400, 0.8f,  420, 3,  0,  4.0f,  3, 1200, 0.20f, 900, 0.02f, 0.55f, 0.15f, 0, 1.3f },
+    { "PIANO", "Piano Chord",    3, 0.35f,0.05f,0.01f, 0.25f, 2.0f, 0.0f, 0.0f,  2800, 1.0f,  380, 3,  0,  6.0f,  2,  900, 0.30f, 700, 0.04f, 0.40f, 0.12f, 0, 1.35f },
     { "GUITAR","Syn Nylon",     1, 0.0f, 0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  140, 3,  0,  3.0f,  0,   380, 0.10f, 200, 0.00f, 0.25f, 0.08f, 0, 1.0f },
     { "GUITAR","Syn Steel",     1, 0.0f, 0.0f, 0.05f,0.15f,2.0f, 0.0f, 0.0f,  2600, 1.8f,  160, 0,  0,  5.0f,  0,   420, 0.12f, 220, 0.05f, 0.22f, 0.06f, 0, 1.05f },
     { "GUITAR","Syn Clean Gtr",     1, 0.0f, 0.0f, 0.0f, 0.08f,1.0f, 0.0f, 0.0f,  2400, 1.2f,  250, 3,  0,  2.0f,  1,   550, 0.30f, 250, 0.06f, 0.18f, 0.10f, 0, 1.1f },
@@ -1641,6 +1663,8 @@ namespace
     { "GUITAR","Syn Acoustic",  2, 0.20f,0.0f, 0.04f, 0.30f, 3.0f, 0.0f, 0.0f,  3400, 1.1f,  180, 3,  0,  4.0f,   1,  700, 0.12f, 380, 0.03f, 0.25f, 0.06f, 0, 1.2f },
     { "GUITAR","Muted Chug",     1, 0.00f,0.2f, 0.03f, 0.25f, 2.0f, 0.0f, 0.0f,   900, 2.5f,   70, 0, -1,  3.0f,  0,  120, 0.10f,  90, 0.45f, 0.05f, 0.00f, 0, 0.8f },
     { "GUITAR","Nylon Soft",     1, 0.10f,0.05f,0.02f, 0.20f, 2.0f, 0.0f, 0.0f,  1800, 1.5f,  200, 3,  0,  2.0f,  1,  700, 0.15f, 450, 0.00f, 0.30f, 0.06f, 0, 1.0f },
+    { "GUITAR","Disco Guitar",   2, 0.25f,0.05f,0.02f, 0.30f, 3.0f, 0.0f, 0.0f,  3200, 2.4f,  110, 3,  0,  5.0f,  0,  200, 0.05f, 160, 0.12f, 0.22f, 0.20f, 1, 1.2f },
+    { "GUITAR","Guitar Loop",    2, 0.20f,0.05f,0.02f, 0.25f, 2.0f, 0.0f, 0.0f,  2600, 1.8f,  160, 3,  0,  4.0f,  1,  420, 0.20f, 340, 0.08f, 0.28f, 0.15f, 0, 1.15f },
     { "PAD",   "Dream Pad",        5, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2600, 0.0f,  200, 0,  0, 18.0f, 450,  800, 0.80f, 1000, 0.00f, 0.60f, 0.00f, 0, 1.6f },
     { "PAD",   "Warm Strings",     5, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 4.5f,  6.0f, 3400, 0.0f,  200, 0,  0, 12.0f, 220,  500, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.3f },
     { "PAD",   "Dark Pad",         5, 0.8f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   900, 0.0f,  200, 0, -1, 15.0f, 600, 1000, 0.85f, 1200, 0.00f, 0.70f, 0.00f, 0, 1.4f },
@@ -1681,6 +1705,10 @@ namespace
     { "PAD",   "Dusk Pad",      4, 0.75f,0.1f, 0.05f, 0.15f, 2.0f, 4.5f, 6.0f,  1400, 0.3f,  700, 3,  0, 11.0f, 400,  900, 0.85f, 900, 0.00f, 0.60f, 0.10f, 0, 1.45f },
     { "PAD",   "Polar Lights",     6, 0.90f,0.1f, 0.08f, 0.00f, 2.0f, 3.0f, 6.0f,  1600, 0.4f,  900, 0,  0, 20.0f, 900, 1400, 0.85f,1600, 0.00f, 0.70f, 0.15f, 1, 1.6f },
     { "PAD",   "Cinema Swell",   5, 0.80f,0.2f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,   800, 1.5f, 1600, 0, -1, 15.0f,1400, 1800, 0.90f,1500, 0.10f, 0.65f, 0.10f, 0, 1.5f },
+    { "PAD",   "Big Pad",        7, 0.95f,0.15f,0.04f, 0.00f, 2.0f, 0.0f, 0.0f,  2600, 0.6f,  900, 0,  0, 24.0f, 600, 1200, 0.90f,1100, 0.05f, 0.60f, 0.15f, 0, 1.7f },
+    // The pump is the sound, so it lives in the envelope: a fast dip and a
+    // 90 ms climb back, which is what a compressor keyed off a kick does.
+    { "PAD",   "Sidechain Pad",  6, 0.85f,0.10f,0.03f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.5f,  700, 0,  0, 18.0f,  90,  380, 0.55f, 300, 0.04f, 0.50f, 0.18f, 0, 1.6f },
     { "PLUCK", "Crystal Pluck",    1, 0.0f, 0.0f, 0.10f,0.0f, 2.0f, 0.0f, 0.0f,   500, 4.0f,  120, 3,  0,  7.0f,  0,   200, 0.00f, 140, 0.00f, 0.25f, 0.30f, 1, 1.2f },
     { "PLUCK", "Syn Kalimba",          1, 0.0f, 0.0f, 0.02f,0.5f, 4.2f, 0.0f, 0.0f,  3000, 2.0f,  100, 2,  0,  0.0f,  0,   250, 0.00f, 150, 0.00f, 0.30f, 0.10f, 0, 1.1f },
     { "PLUCK", "Syn Marimba",          1, 0.0f, 0.0f, 0.0f, 0.25f,3.0f, 0.0f, 0.0f,  2500, 2.0f,   90, 2,  0,  0.0f,  0,   220, 0.00f, 160, 0.00f, 0.30f, 0.05f, 0, 1.0f },
@@ -1743,6 +1771,7 @@ namespace
     { "KEYS",  "Amapiano Keys",  3, 0.50f,0.10f,0.02f, 0.30f, 2.0f, 3.5f,  5.0f, 2400, 0.8f,  400, 2,  0,  8.0f, 25,  700, 0.70f, 500, 0.05f, 0.40f, 0.12f, 0, 1.3f },
     { "KEYS",  "RnB Rhodes",     2, 0.35f,0.08f,0.02f, 0.45f, 2.0f, 4.0f,  4.0f, 1900, 1.0f,  350, 2,  0,  5.0f, 12,  900, 0.60f, 650, 0.05f, 0.35f, 0.10f, 0, 1.25f },
     { "KEYS",  "Gospel Organ",   3, 0.45f,0.30f,0.02f, 0.20f, 1.0f, 5.0f,  6.0f, 3000, 0.4f,  200, 2,  0,  6.0f,  8,  200, 1.00f, 180, 0.15f, 0.30f, 0.08f, 0, 1.25f },
+    { "KEYS",  "Soul Sample",    2, 0.30f,0.10f,0.04f, 0.25f, 2.0f, 4.0f,  9.0f, 1600, 0.7f,  340, 3,  0,  7.0f,  10,  700, 0.45f, 520, 0.14f, 0.42f, 0.14f, 0, 1.25f },
     { "BELL",  "Glass Bell",       1, 0.0f, 0.0f, 0.0f, 0.85f,3.5f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  4.0f,  2,   700, 0.15f, 800, 0.00f, 0.50f, 0.00f, 0, 1.3f },
     { "BELL",  "Deep Bell",        1, 0.0f, 0.0f, 0.0f, 0.90f,2.76f,0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  3.0f,  3,  1500, 0.00f, 1500, 0.00f, 0.60f, 0.00f, 0, 1.3f },
     { "BELL",  "Syn Celesta",          1, 0.0f, 0.0f, 0.0f, 0.35f,4.0f, 0.0f, 0.0f,  6000, 0.0f,  200, 2,  0,  2.0f,  0,   900, 0.00f, 600, 0.00f, 0.45f, 0.08f, 0, 1.2f },
@@ -1772,9 +1801,196 @@ namespace
     
     { "MISC",  "Air Horn",      3, 0.40f,0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2500, 0.5f,  200, 0,  0, 16.0f,  10,  400, 0.90f, 300, 0.40f, 0.25f, 0.10f, 0, 1.2f },
     { "MISC",  "Horror Drone",  4, 0.80f,0.4f, 0.15f, 0.20f, 2.5f, 0.0f, 0.0f,   700, 0.3f, 1500, 0, -1, 22.0f, 800, 1500, 0.90f,1500, 0.20f, 0.70f, 0.20f, 0, 1.5f },
-    { "MISC",  "Impact Hit",    2, 0.50f,0.6f, 0.30f, 0.00f, 2.0f, 0.0f, 0.0f,  1200, 1.8f,  300, 0, -1, 18.0f,   0,  900, 0.00f, 700, 0.30f, 0.55f, 0.10f, 0, 1.3f },};
+    { "MISC",  "Impact Hit",    2, 0.50f,0.6f, 0.30f, 0.00f, 2.0f, 0.0f, 0.0f,  1200, 1.8f,  300, 0, -1, 18.0f,   0,  900, 0.00f, 700, 0.30f, 0.55f, 0.10f, 0, 1.3f },
+    { "MISC",  "Noise Sweep",   1, 0.00f,0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f,  6000, 3.5f, 1200, 0,  0,  0.0f, 700, 1400, 0.30f, 900, 0.10f, 0.45f, 0.25f, 1, 1.5f },
+    { "MISC",  "Reverse Cymbal",1, 0.00f,0.0f, 0.95f, 0.10f, 5.0f, 0.0f, 0.0f,  9000, 2.0f, 1000, 0,  1,  0.0f,1100,  180, 0.00f,  50, 0.05f, 0.40f, 0.20f, 1, 1.45f },
+    { "MISC",  "Ambient FX",    4, 0.80f,0.1f, 0.20f, 0.15f, 2.5f, 3.0f, 8.0f,  1800, 0.4f, 1400, 0,  0, 20.0f, 900, 1600, 0.70f,1400, 0.05f, 0.70f, 0.30f, 1, 1.6f },
+    { "MISC",  "Vinyl Crackle", 1, 0.00f,0.0f, 0.90f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.2f,  400, 0,  0,  0.0f,  60,  900, 0.65f, 500, 0.08f, 0.25f, 0.05f, 0, 1.1f },};
 
     constexpr int kNumInstruments = (int) (sizeof (kInstruments) / sizeof (kInstruments[0]));
+
+    // -----------------------------------------------------------------------
+    // GENRE BANKS
+    //
+    // The catalogue above is filed by what a voice IS - bass, pad, lead. That
+    // is the right way to store it and the wrong way to shop for it. Someone
+    // opening this to build a festival track does not think "I need a BASS",
+    // they think "I need the pumping one that sits under the drop", and the
+    // thing they want is called "Sidechain Bass" and lives 40 rows into a
+    // 47-row list next to 46 basses that are not it.
+    //
+    // So the banks below are a second index over the SAME instruments: no new
+    // engines, no duplicated patches, just curated running orders for the
+    // three things people actually build. An instrument appears in as many
+    // banks as it earns - a grand piano is pop and hip-hop and, on the right
+    // record, EDM.
+    //
+    // Entries are names, not indices, so this cannot silently drift out of
+    // sync when the catalogue grows: a name that stops existing fails the
+    // --genres check instead of quietly pointing at whatever moved into that
+    // slot. Everything is generic - a role, never an artist or a record.
+    // -----------------------------------------------------------------------
+    struct GenreGroup { const char* role; const char* const* names; int count; };
+    struct GenreBank  { const char* name; const GenreGroup* groups; int numGroups; };
+
+    #define SLYCE_GROUP(role, arr) { role, arr, (int) (sizeof (arr) / sizeof (arr[0])) }
+
+    // --- EDM: 150 ----------------------------------------------------------
+    const char* const kEdmLead[] = {
+        "Supersaw Lead", "Saw Stack", "Hyper Saw", "Trance Saw", "Festival Lead",
+        "Mainstage", "Stadium Lead", "Neon Lead", "Rave Hoover", "Hoover",
+        "Grime Hoover", "Goa Lead", "Laser Lead", "Hard Lead", "Scream Lead",
+        "Rage Lead", "Wire Lead", "Dream Lead", "Silk Lead", "Haze Lead",
+        "PWM Lead", "Wavetable Lead", "Acid Lead", "Emo Lead" };
+    const char* const kEdmPluck[] = {
+        "Trance Pluck", "Dance Pluck", "Neon Pluck", "Crystal Pluck", "Glass Pluck",
+        "Bubble Pluck", "Droplet Pluck", "Ice Pluck", "Water Pluck", "Water Drop",
+        "Tropic Pluck", "Sunny Pluck", "Isla Pluck", "Dembow Pluck", "Arp Synth",
+        "Italo Arp", "Trance Gate", "Gate Dream", "Modular Blip", "Tech Blip" };
+    const char* const kEdmPad[] = {
+        "Big Pad", "Sidechain Pad", "Shimmer Pad", "Aurora Pad", "Dream Pad",
+        "Nebula Pad", "Ocean Pad", "Ice Pad", "Frost Pad", "Glass Pad",
+        "Polar Lights", "Solar Winds", "Deep Space", "Sunset Haze", "Vapor Pad",
+        "Vapor Wash", "Analog Sweep", "Analog Wash", "Cinema Strings",
+        "Cinema Swell", "Grain Cloud", "Ambient FX" };
+    const char* const kEdmBass[] = {
+        "Sidechain Bass", "Future Bass", "Reese Bass", "Reese Growl", "Dark Reese",
+        "Neuro Bass", "Growl Sub", "Gnarl Bass", "Wobble Growl", "Hoover Bass",
+        "Donk Bass", "Bounce Bass", "Deep House", "Slap House", "Club Rumble",
+        "Psy Stomp", "Metal Bass", "Rubber Bass", "Hyper Sub", "Liquid Sub",
+        "Garage Sub", "Sub Drone", "Moog Bass", "Analog Warm" };
+    const char* const kEdmChord[] = {
+        "Future Chords", "Future Chord", "Chord Synth", "Chord Keys", "French Chord",
+        "2-Step Chord", "Soul Chords", "Rave Stab", "Bigroom Stab", "Techno Stab",
+        "Gabber Stab", "Vox Stab", "Piano Chord", "Retro Pop Poly", "Warm Poly",
+        "80s Poly" };
+    const char* const kEdmVocal[] = {
+        "Vocal Chop Hit", "Chop Vox", "Vox Pluck", "Vox Choir", "Vox Ahh",
+        "Vox Ahh Wide", "Angel Choir", "Diva Vox", "Reverse Vocal", "Vocal Harmony",
+        "Vocal Loop", "Whisper Air", "Vox Siren Air", "Robot Vox" };
+    const char* const kEdmFx[] = {
+        "Riser Sweep", "Noise Riser", "Noise Sweep", "Downlifter", "Reverse Cymbal",
+        "Sub Drop", "Impact Hit", "Cinema Braam", "Rave Hit", "Air Horn",
+        "Sci-Fi Sweep", "Laser Zap", "Tape Rewind", "Tonal Wind", "Horror Drone",
+        "Ambient Drone" };
+    const char* const kEdmDrums[] = {
+        "Festival Kick", "Kick Punch", "Kick 808", "Clap", "Finger Snap",
+        "Hat Closed", "Hat Open", "Hat Tight", "Crash Splash", "Ride Ping",
+        "Perc 909", "Big Drums", "Drum Fill", "Drum Kit" };
+
+    const GenreGroup kEdmGroups[] = {
+        SLYCE_GROUP ("Supersaw & Lead",   kEdmLead),
+        SLYCE_GROUP ("Pluck & Arp",       kEdmPluck),
+        SLYCE_GROUP ("Pad & Atmosphere",  kEdmPad),
+        SLYCE_GROUP ("Bass",              kEdmBass),
+        SLYCE_GROUP ("Chord & Stab",      kEdmChord),
+        SLYCE_GROUP ("Vocal",             kEdmVocal),
+        SLYCE_GROUP ("FX & Riser",        kEdmFx),
+        SLYCE_GROUP ("Drums",             kEdmDrums) };
+
+    // --- HIP-HOP: 150 ------------------------------------------------------
+    const char* const kHipBass[] = {
+        "Sub 808", "Memphis 808", "Rage 808", "Drill 808", "Chart 808",
+        "Growl 808", "Trap Knock", "FM Knock", "Drift Phonk", "Drill Slide",
+        "Dusty Bass", "Rust Bass", "Talk Bass", "Lately Bass", "Pluck Bass",
+        "Jersey Boom", "UK Bass", "Seoul Bass", "Metal Bass", "Liquid Sub",
+        "Garage Sub", "Hyper Sub", "Whisper Bass", "Boogie Bass", "Syn Bass Gtr",
+        "Moog Bass" };
+    const char* const kHipDrums[] = {
+        "Trap Snare", "Snare 808", "Snare Tight", "Hat Roll", "Hat Trap Open",
+        "Hat Sizzle", "Hat Pedal", "Hat Closed", "Hat Open", "Kick 808",
+        "Kick Punch", "Clap", "Rim Snap", "Rim Perc", "Perc Click",
+        "Cowbell 808", "Phonk Cowbell", "Woodblock", "Clave", "Shaker",
+        "Tambourine", "Tom Low", "Tom High", "Drum Machine", "Drum Fill",
+        "Drum Kit" };
+    const char* const kHipKeys[] = {
+        "RnB Rhodes", "Tine EP", "Suitcase EP", "Soft EP", "EP Keys",
+        "Wurli EP", "Dusty Keys", "Night Keys", "Noir Keys", "Ghost Keys",
+        "Lo-Fi Keys", "Vinyl Keys", "Moody Keys", "Soul Keys", "Soul Sample",
+        "Gospel Organ", "Full Organ", "Retro Organ", "Piano Stab", "Felt Piano" };
+    const char* const kHipBell[] = {
+        "Rage Bell", "Drill Bell Lead", "Cloud Bell", "Night Bell", "Deep Bell",
+        "Glass Bell", "Ice Bell", "Crystal Bell", "Fairy Bell", "Syn Glock",
+        "Syn Celesta", "Syn Vibes", "Syn Handbell", "Toy Bell", "Trap Flute",
+        "Drill Flute", "Phonk Whistle", "Hook Marimba" };
+    const char* const kHipGuitar[] = {
+        "Syn Nylon", "Nylon Soft", "Syn Acoustic", "Syn Clean Gtr", "Syn Jazz Gtr",
+        "Syn Mute Gtr", "Muted Chug", "Crunch Syn", "Drive Lead Gtr", "Syn Spanish",
+        "Syn Slide", "Syn 12-String", "Chorus Gtr", "Guitar Loop" };
+    const char* const kHipDark[] = {
+        "Dark Synth", "Dark Rage", "Dark Pad", "Drill Dark Pad", "Tension Bed",
+        "Sub Drone", "Nebula Drone", "Horror Drone", "Deep Space", "Submerged",
+        "Hollow Glass", "Dusk Pad", "Velvet Pad", "Soul Pad", "Warm Strings",
+        "Ensemble Str", "Cold Strings", "Tape Strings", "Cinema Strings",
+        "Analog Strings" };
+    const char* const kHipVocal[] = {
+        "Chop Vox", "Vocal Adlib", "Vocal Loop", "Vocal Harmony", "Formant Vocal",
+        "Talkbox Vox", "Robot Vox", "Vox Hum", "Vox Hum Ooh", "Vox Ooh",
+        "Deep Choir", "Vox Chant Low", "Vox Doo Choir", "Whisper Air",
+        "Beatbox Kick", "Beatbox Snare" };
+    const char* const kHipFx[] = {
+        "Vinyl Crackle", "Ambient FX", "Brass Stab", "Funk Brass", "Anthem Brass",
+        "Air Horn", "Sub Drop", "Impact Hit", "Reverse Cymbal", "Tape Rewind" };
+
+    const GenreGroup kHipGroups[] = {
+        SLYCE_GROUP ("808 & Bass",        kHipBass),
+        SLYCE_GROUP ("Drums & Perc",      kHipDrums),
+        SLYCE_GROUP ("Keys & Piano",      kHipKeys),
+        SLYCE_GROUP ("Bell & Melody",     kHipBell),
+        SLYCE_GROUP ("Guitar",            kHipGuitar),
+        SLYCE_GROUP ("Dark Synth & Pad",  kHipDark),
+        SLYCE_GROUP ("Vocal",             kHipVocal),
+        SLYCE_GROUP ("FX & Texture",      kHipFx) };
+
+    // --- POP: 100 ----------------------------------------------------------
+    const char* const kPopPiano[] = {
+        "Royal Grand", "Concert Bright", "Emotional Piano", "Piano Chord",
+        "Ballad Keys", "Felt Piano", "Syn Grand", "Syn Bright", "Syn Pop Key",
+        "Syn Soft Key", "House Keys", "Glass CP80", "DX Piano", "Soft Keys",
+        "Dream Keys", "K-RnB Keys", "Amapiano Keys", "Smooth EP" };
+    const char* const kPopGuitar[] = {
+        "Disco Guitar", "Funk Gtr Syn", "Pop Mute Gtr", "Syn Clean Gtr",
+        "Syn Acoustic", "Syn Steel", "Syn Nylon", "Tropic Gtr", "Chime Syn",
+        "Chorus Gtr", "Latin Guitar Pl", "Guitar Loop" };
+    const char* const kPopSynth[] = {
+        "K-Pop Saw", "Idol Pluck", "Silk Lead", "Velvet Lead", "Neon Lead",
+        "Midnight Lead", "Neon 84 Lead", "Retro Lead", "Italo Lead", "Analog Poly",
+        "Warm Poly", "80s Poly", "Night Drive", "Glass Keys", "Glass Sync",
+        "Wavetable Lead", "Chord Synth", "Arp Synth" };
+    const char* const kPopBass[] = {
+        "Syn Bass Gtr", "Slap Funk", "Octave Disco", "Outrun Bass", "Neon Bass",
+        "Analog Warm", "Moog Bass", "Rubber Bass", "Sub 808", "Seoul Bass",
+        "Deep House", "Bounce Bass", "Sidechain Bass", "Syn Jazz Bass" };
+    const char* const kPopVocal[] = {
+        "Vocal Chop Hit", "Chop Vox", "Vox Pluck", "Vocal Harmony", "Vocal Adlib",
+        "Vocal Loop", "Vox Lead", "Vox Ahh", "Vox Ooh", "Angel Choir",
+        "Boys Choir", "Choir Air", "Diva Vox", "Whisper Air", "Formant Vocal",
+        "Reverse Vocal" };
+    const char* const kPopStrings[] = {
+        "Warm Strings", "Ensemble Str", "Tape Strings", "Cinema Strings",
+        "Analog Strings", "PWM Strings", "Big Pad", "Shimmer Pad", "Soul Pad",
+        "Velvet Pad", "Juno Warmth", "Sunset Haze" };
+    const char* const kPopDrums[] = {
+        "Drum Machine", "Perc 909", "Clap", "Finger Snap", "Hat Tight",
+        "Kick Punch", "Snare Tight", "Tambo Jingle", "Riser Sweep", "Impact Hit" };
+
+    const GenreGroup kPopGroups[] = {
+        SLYCE_GROUP ("Piano & Keys",      kPopPiano),
+        SLYCE_GROUP ("Guitar",            kPopGuitar),
+        SLYCE_GROUP ("Synth & Lead",      kPopSynth),
+        SLYCE_GROUP ("Bass",              kPopBass),
+        SLYCE_GROUP ("Vocal",             kPopVocal),
+        SLYCE_GROUP ("Strings & Pad",     kPopStrings),
+        SLYCE_GROUP ("Drums & FX",        kPopDrums) };
+
+    #undef SLYCE_GROUP
+
+    const GenreBank kGenreBanks[] = {
+        { "EDM",     kEdmGroups, (int) (sizeof (kEdmGroups) / sizeof (kEdmGroups[0])) },
+        { "HIP-HOP", kHipGroups, (int) (sizeof (kHipGroups) / sizeof (kHipGroups[0])) },
+        { "POP",     kPopGroups, (int) (sizeof (kPopGroups) / sizeof (kPopGroups[0])) } };
+
+    constexpr int kNumGenreBanks = (int) (sizeof (kGenreBanks) / sizeof (kGenreBanks[0]));
 }
 
 int VocalChopAudioProcessor::defaultInstrumentIndex()
@@ -1799,6 +2015,46 @@ juce::StringArray VocalChopAudioProcessor::getInstrumentCategories()
     for (const auto& d : kInstruments)
         cats.add (d.category);
     return cats;
+}
+
+juce::StringArray VocalChopAudioProcessor::getGenreBankNames()
+{
+    juce::StringArray a;
+    for (const auto& b : kGenreBanks)
+        a.add (b.name);
+    return a;
+}
+
+juce::StringArray VocalChopAudioProcessor::getGenreRoleNames (int bank)
+{
+    juce::StringArray a;
+    if (juce::isPositiveAndBelow (bank, kNumGenreBanks))
+        for (int g = 0; g < kGenreBanks[bank].numGroups; ++g)
+            a.add (kGenreBanks[bank].groups[g].role);
+    return a;
+}
+
+juce::StringArray VocalChopAudioProcessor::getGenreRoleInstruments (int bank, int role)
+{
+    juce::StringArray a;
+    if (! juce::isPositiveAndBelow (bank, kNumGenreBanks))
+        return a;
+    const auto& b = kGenreBanks[bank];
+    if (! juce::isPositiveAndBelow (role, b.numGroups))
+        return a;
+    for (int i = 0; i < b.groups[role].count; ++i)
+        a.add (b.groups[role].names[i]);
+    return a;
+}
+
+int VocalChopAudioProcessor::getGenreBankSize (int bank)
+{
+    if (! juce::isPositiveAndBelow (bank, kNumGenreBanks))
+        return 0;
+    int n = 0;
+    for (int g = 0; g < kGenreBanks[bank].numGroups; ++g)
+        n += kGenreBanks[bank].groups[g].count;
+    return n;
 }
 
 void VocalChopAudioProcessor::buildKitPieces()
