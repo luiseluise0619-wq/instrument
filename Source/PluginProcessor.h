@@ -57,7 +57,17 @@ public:
     std::shared_ptr<juce::AudioBuffer<float>> getLoadedSample() const;
     bool loadSampleFromFile (const juce::File&, bool switchEngineToChop = true);
     bool loadSampleFromMemory (const void* data, int sizeBytes);
-    bool loadDemoSample();   // embedded demo vocal, one-click start
+    bool loadDemoSample();            // next built-in vocal in the cycle
+    bool loadDemoSample (int index);  // a specific one; wraps at either end
+
+    /** The ten built-in vocals, in menu order. */
+    static juce::StringArray getDemoSampleNames();
+    static int               getNumDemoSamples();
+
+    /** Which built-in vocal is loaded, or -1 when the sample came from a file
+        of the user's own. The hero row needs this to say "3 of 10" and to know
+        where stepping should go next. */
+    int getCurrentDemoIndex() const { return currentDemo; }
 
     /** Name of whatever is currently loaded — the built-in vocal's label, or
         the file's name. Empty when nothing is loaded. The Demo button was
@@ -387,7 +397,8 @@ private:
     std::array<int, 128> padKeyToVoice {};
 
     // Which embedded demo vocal the Demo button loads next.
-    int demoCycle = 0;
+    int demoCycle  = 0;
+    int currentDemo = -1;   // index into the built-in vocals, -1 for a user file
 
     // Engine-architecture half of an instrument (non-APVTS synth settings).
     void applyEnginePatch (int instrumentIndex);

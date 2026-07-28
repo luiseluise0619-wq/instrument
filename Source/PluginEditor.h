@@ -207,6 +207,13 @@ private:
     // Step through the instrument list without opening a 403-entry menu.
     juce::TextButton instPrevButton { "<" }, instNextButton { ">" };
     void stepInstrument (int delta);
+    /** True while the engine plays the LOADED SAMPLE (Chop or Melody) rather
+        than a built-in voice. In those modes the hero row, its two arrows and
+        Browse are about the vocal, not the 403-instrument list - which is
+        otherwise dead weight sitting on the most prominent row in the window. */
+    bool sampleHero() const;
+    void stepDemoVocal (int delta);
+    void showVocalMenu();
     MeterComponent meter { processor.getOutputLevelRef() };
     // Spec 4.5 row 3. Reads the scope ring rather than the meter's atomic:
     // MeterComponent CONSUMES that value with exchange(), so sharing it would

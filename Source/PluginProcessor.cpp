@@ -1080,6 +1080,7 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     loadedSampleRate = sr;
     loadedSampleFile = file;
     loadedSampleName = file.getFileNameWithoutExtension();
+    currentDemo      = -1;    // a file of the user's own, not one of the ten
     prevSampleBuffer.reset();   // edit-undo must not resurrect the OLD sample
     reassignSampleToEngines();
     rescanSlices();
@@ -1094,44 +1095,65 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     return true;
 }
 
-bool VocalChopAudioProcessor::loadDemoSample()
+namespace
 {
-    // Built-in vocals; every Demo press cycles to the next one. Ordered so the
-    // first few presses land on the most obviously useful sources - a chant, a
-    // sung hook, sixteenth-note stabs - rather than making someone press ten
-    // times to find the one that chops well. The last is a human-beatbox loop:
-    // sliced, it turns the keys into mouth drums.
-    struct Embedded { const void* data; int size; };
-    struct Named { const void* data; int size; const char* label; };
-    static const Named demoNames[] = {
-        // Named for what you would hear, not for the file. "Whisper" and "Air"
-        // on their own told nobody they were vocal takes.
-        { nullptr, 0, "Vocal Chop" },  { nullptr, 0, "Chant Vox" }, { nullptr, 0, "Sung Hook" },
-        { nullptr, 0, "Stab Vox" },    { nullptr, 0, "Diva Vox" },  { nullptr, 0, "Choir Vox" },
-        { nullptr, 0, "Whisper Vox" }, { nullptr, 0, "Airy Vox" },  { nullptr, 0, "Rage Shout" },
-        { nullptr, 0, "Beatbox Loop" },
-    };
-    static const Embedded demos[] = {
-        { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize },
-        { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize },
-        { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize },
-        { BinaryData::vox_stabs_wav,       BinaryData::vox_stabs_wavSize },
-        { BinaryData::vox_diva_wav,        BinaryData::vox_diva_wavSize },
-        { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize },
-        { BinaryData::vox_whisper_wav,     BinaryData::vox_whisper_wavSize },
-        { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize },
-        { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize },
-        { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize },
-    };
-    constexpr int numDemos = (int) (sizeof (demos) / sizeof (demos[0]));
+    // The built-in vocals. Ordered so the first few land on the most obviously
+    // useful sources - a chant, a sung hook, sixteenth-note stabs - rather than
+    // making someone step ten times to find the one that chops well. The last
+    // is a human-beatbox loop: sliced, it turns the keys into mouth drums.
+    //
+    // Named for what you would HEAR, not for the file: "Whisper" and "Air" on
+    // their own told nobody they were vocal takes.
+    struct DemoVocal { const void* data; int size; const char* label; };
 
-    const int which = demoCycle % numDemos;
-    const auto& d = demos[which];
-    ++demoCycle;
+    const DemoVocal kDemoVocals[] = {
+        { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize, "Vocal Chop"   },
+        { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize,       "Chant Vox"    },
+        { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize,        "Sung Hook"    },
+        { BinaryData::vox_stabs_wav,       BinaryData::vox_stabs_wavSize,       "Stab Vox"     },
+        { BinaryData::vox_diva_wav,        BinaryData::vox_diva_wavSize,        "Diva Vox"     },
+        { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize,       "Choir Vox"    },
+        { BinaryData::vox_whisper_wav,     BinaryData::vox_whisper_wavSize,     "Whisper Vox"  },
+        { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize,         "Airy Vox"     },
+        { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize,        "Rage Shout"   },
+        { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize,     "Beatbox Loop" },
+    };
+
+    constexpr int kNumDemoVocals = (int) (sizeof (kDemoVocals) / sizeof (kDemoVocals[0]));
+}
+
+juce::StringArray VocalChopAudioProcessor::getDemoSampleNames()
+{
+    juce::StringArray names;
+    for (const auto& d : kDemoVocals)
+        names.add (d.label);
+    return names;
+}
+
+int VocalChopAudioProcessor::getNumDemoSamples()
+{
+    return kNumDemoVocals;
+}
+
+bool VocalChopAudioProcessor::loadDemoSample (int index)
+{
+    // Wrap, so stepping walks off either end and comes back round rather than
+    // stopping dead on the first or last vocal.
+    const int which = ((index % kNumDemoVocals) + kNumDemoVocals) % kNumDemoVocals;
+    const auto& d = kDemoVocals[which];
+
     if (! loadSampleFromMemory (d.data, d.size))
         return false;
-    loadedSampleName = demoNames[which].label;
+
+    loadedSampleName = d.label;
+    currentDemo      = which;
+    demoCycle        = which + 1;   // a plain Demo press continues from here
     return true;
+}
+
+bool VocalChopAudioProcessor::loadDemoSample()
+{
+    return loadDemoSample (demoCycle);
 }
 
 bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBytes)

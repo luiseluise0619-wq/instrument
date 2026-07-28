@@ -793,9 +793,19 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // The primary action in this panel, and the control the first tester could
     // not find. Accent, per spec - this is an active affordance, not chrome.
     instBrowseButton.getProperties().set ("primaryAction", true);
-    instBrowseButton.setTooltip ("Browse 403 instruments - by genre (EDM / Hip-hop / Pop) or by category");
+    instBrowseButton.setTooltip ("Chop / Melody: pick one of 10 built-in vocals, or load your own.\n"
+                                 "Synth: browse 403 instruments by genre or category");
     instBrowseButton.onClick = [this]
     {
+        // Chop and Melody play the loaded sample, so Browse lists the ten
+        // vocals - and "Load your own file..." at the bottom, because the ten
+        // are a starting point rather than the product.
+        if (sampleHero())
+        {
+            showVocalMenu();
+            return;
+        }
+
         // The combo still OWNS the 403-entry categorised menu - this shows a
         // copy of it - so there is exactly one list in the program to keep
         // correct. Going through the menu rather than ComboBox::showPopup()
@@ -981,6 +991,10 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
         // NO refreshChildren() here: an instrument change touches neither the
         // waveform, the slice grid nor the layout - the knob attachments
         // update themselves. The full refresh made every pick stutter.
+        // The hero IS this pick's display, though, and it is two labels and
+        // eight toggles - cheap, and stale without it when the pick came from
+        // the Browse menu rather than from a stepper.
+        refreshInstrumentHero();
         grabKeysSoon();   // pick a patch, play it immediately
     };
     // Hidden: the hero shows the name, Browse opens the menu, and the
@@ -990,8 +1004,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // Auditioning 403 sounds through a nested menu means six clicks per
     // sound. These step one at a time, so you can hold the keyboard down and
     // walk the whole list with the other hand.
-    instPrevButton.setTooltip ("Previous instrument");
-    instNextButton.setTooltip ("Next instrument");
+    instPrevButton.setTooltip ("Previous vocal (Chop / Melody) or instrument");
+    instNextButton.setTooltip ("Next vocal (Chop / Melody) or instrument");
     instPrevButton.setTriggeredOnMouseDown (true);
     instNextButton.setTriggeredOnMouseDown (true);
     instPrevButton.setRepeatSpeed (420, 90);   // hold to scan
@@ -1407,8 +1421,57 @@ void VocalChopAudioProcessorEditor::setAmbient (bool on)
 void VocalChopAudioProcessorEditor::refreshInstrumentHero()
 {
     const auto& th = ThemeManager::active();
-    const int idx = juce::jmax (0, instrumentBox.getSelectedItemIndex());
+    // The PROCESSOR's index, not the combo's selected ROW. The menu carries a
+    // FEATURED shelf that duplicates entries at ids 1000+, plus section
+    // headers, so the row number runs ahead of the instrument number by
+    // however much of that sits above the selection. Reading the row is why
+    // "Supersaw Lead" - a LEAD - was captioned BASS with the Bass chip lit.
+    const int idx = juce::jmax (0, processor.getCurrentInstrument());
     const auto cats = VocalChopAudioProcessor::getInstrumentCategories();
+
+    // In Chop and Melody this row is about the VOCAL. It used to show a greyed
+    // synth instrument name with three dead controls under it, which described
+    // something the engine was not playing and offered no way to reach the ten
+    // built-in vocals except by pressing "Demo vocal" repeatedly and hoping.
+    const bool vox = sampleHero();
+
+    if (vox)
+    {
+        const auto  name = processor.getLoadedSampleName();
+        const int   cur  = processor.getCurrentDemoIndex();
+        const int   tot  = VocalChopAudioProcessor::getNumDemoSamples();
+        const bool  any  = name.isNotEmpty();
+
+        instNameLabel.setText (any ? name : juce::String ("No sample loaded"),
+                               juce::dontSendNotification);
+        instNameLabel.setColour (juce::Label::textColourId,
+                                 any ? th.text : th.text.withAlpha (0.60f));
+
+        juce::String sub;
+        if (! any)          sub = "Press < or > for a built-in vocal, or drop your own audio here";
+        else if (cur >= 0)  sub = "Built-in vocal " + juce::String (cur + 1)
+                                      + " of " + juce::String (tot) + "  -  < > to change";
+        else                sub = "Your own file  -  < > steps the built-in vocals";
+
+        instCategoryLabel.setText (sub, juce::dontSendNotification);
+        instCategoryLabel.setColour (juce::Label::textColourId,
+                                     any ? th.accent : th.text.withAlpha (0.60f));
+
+        for (int c = 0; c < kNumChips; ++c)
+        {
+            categoryChip[c].setEnabled (false);
+            categoryChip[c].setToggleState (false, juce::dontSendNotification);
+        }
+
+        instBrowseButton.setEnabled (true);
+        instPrevButton.setEnabled (true);
+        instNextButton.setEnabled (true);
+
+        for (int i = 0; i < 4; ++i)
+            engineTab[i].setToggleState (i == engineBox.getSelectedItemIndex(),
+                                         juce::dontSendNotification);
+        return;
+    }
 
     const bool live = instrumentBox.isEnabled();
     instNameLabel.setText (instrumentBox.getText(), juce::dontSendNotification);
@@ -1418,8 +1481,6 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
     juce::String sub;
     if (juce::isPositiveAndBelow (idx, cats.size()))
         sub = cats[idx];
-    if (! live)
-        sub = "Chop mode - the loaded sample plays across the keys";
     instCategoryLabel.setText (sub, juce::dontSendNotification);
     instCategoryLabel.setColour (juce::Label::textColourId,
                                  live ? th.accent : th.text.withAlpha (0.60f));
@@ -1452,15 +1513,90 @@ void VocalChopAudioProcessorEditor::jumpToCategory (const juce::String& category
     for (int i = 0; i < cats.size(); ++i)
         if (cats[i] == category)
         {
-            instrumentBox.setSelectedItemIndex (i, juce::sendNotificationSync);
+            // By ID, not by row - ids are index+1 and the FEATURED shelf sits
+            // above the categorised list, so the i-th row is not the i-th
+            // instrument. Selecting by row landed the chips on whatever
+            // happened to be that far down the menu.
+            instrumentBox.setSelectedId (i + 1, juce::sendNotificationSync);
             refreshInstrumentHero();
             grabKeysSoon();
             return;
         }
 }
 
+bool VocalChopAudioProcessorEditor::sampleHero() const
+{
+    // Engine ids: 1 Chop, 2 Synth, 3 Sampled, 4 Melody. Chop and Melody are
+    // the two that play the loaded audio.
+    const int e = engineBox.getSelectedId();
+    return e == 1 || e == 4;
+}
+
+void VocalChopAudioProcessorEditor::stepDemoVocal (int delta)
+{
+    // From a file of the user's own there is no "next" to compute, so a step
+    // enters the built-in list at either end rather than doing nothing.
+    const int cur  = processor.getCurrentDemoIndex();
+    const int next = cur < 0 ? (delta >= 0 ? 0 : VocalChopAudioProcessor::getNumDemoSamples() - 1)
+                             : cur + delta;
+
+    if (! processor.loadDemoSample (next))
+        return;
+
+    syncSliceControls();
+    refreshChildren();          // this refreshes the hero row too
+    grabKeysSoon();
+}
+
+void VocalChopAudioProcessorEditor::showVocalMenu()
+{
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&appleLaf);
+
+    const auto names = VocalChopAudioProcessor::getDemoSampleNames();
+    const int  cur   = processor.getCurrentDemoIndex();
+
+    for (int i = 0; i < names.size(); ++i)
+        menu.addItem (i + 1, names[i], true, i == cur);
+
+    menu.addSeparator();
+    // The ten are a starting point, not the product - someone who came here to
+    // chop their OWN vocal should not have to find a different button for it.
+    menu.addItem (1000, "Load your own file...");
+
+    menu.showMenuAsync (juce::PopupMenu::Options()
+                            .withTargetComponent (&instBrowseButton)
+                            .withMinimumWidth (200),
+                        [this] (int id)
+                        {
+                            if (id == 0)
+                                return;
+                            if (id == 1000)
+                            {
+                                openFileChooser();
+                                return;
+                            }
+                            if (processor.loadDemoSample (id - 1))
+                            {
+                                syncSliceControls();
+                                refreshChildren();
+                                grabKeysSoon();
+                            }
+                        });
+}
+
 void VocalChopAudioProcessorEditor::stepInstrument (int delta)
 {
+    // In Chop and Melody the arrows step the VOCAL. They used to go inert here
+    // because they were wired to a picker the engine was not using - so the
+    // pair of arrows on the most prominent row in the window did nothing at
+    // all in the mode the plugin opens in.
+    if (sampleHero())
+    {
+        stepDemoVocal (delta);
+        return;
+    }
+
     const int n = VocalChopAudioProcessor::getInstrumentNames().size();
     if (n <= 0)
         return;
@@ -1607,11 +1743,12 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     sensitivityKnob.setEnabled (slicing && ! byBeats);
     synthWaveBox.setEnabled  (voice);
     instrumentBox.setEnabled (voice);
-    // The step arrows follow the picker they step. An earlier version had them
-    // switch the engine to Synth so they always did something - which quietly
-    // threw away a loaded chop, so they now simply go inert with the combo.
-    instPrevButton.setEnabled (voice);
-    instNextButton.setEnabled (voice);
+    // The step arrows follow the picker they step - the instrument list in the
+    // voice engines, the ten built-in vocals in Chop and Melody. An earlier
+    // version had them switch the engine to Synth so they always did something,
+    // which quietly threw away a loaded chop.
+    instPrevButton.setEnabled (voice || sampleHero());
+    instNextButton.setEnabled (voice || sampleHero());
 
     auto dim = [] (juce::Component& c, bool on)
     { c.setAlpha (on ? 1.0f : 0.38f); };
