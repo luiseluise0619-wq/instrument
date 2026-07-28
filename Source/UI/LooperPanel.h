@@ -11,12 +11,12 @@
 class VocalChopAudioProcessor;
 
 /**
-    The LOOPER tab: an RC-505-style multi-track looper for the plugin's
-    output (4 tracks visible, expandable to 6 with + TRACK).
+    The Looper tab: an RC-505-style multi-track loop station for the plugin's
+    output. All six tracks are on screen by default, one horizontal lane each.
 
     Each track has its own instrument picker (chosen BEFORE recording, so a
-    tap on REC drops you straight into the right sound), one big pad
-    (record -> set length -> overdub/play), RE-record, UNDO for the last
+    tap on Rec drops you straight into the right sound), one big pad
+    (record -> set length -> overdub/play), Re-rec, Undo for the last
     dub pass, mute, clear and volume, plus a progress ring. Track 1 defines
     the loop length; later tracks quantise to a multiple of it. A BPM
     metronome click (never recorded) keeps takes honest. The on-screen
@@ -47,12 +47,12 @@ private:
     struct TrackUI
     {
         juce::ComboBox   instBox;        // this track's pre-picked sound
-        juce::TextButton mainButton  { "REC" };
-        juce::TextButton rerecButton { "RE" };
-        juce::TextButton undoButton  { "UNDO" };
-        juce::TextButton clearButton { "X" };
-        juce::TextButton muteButton  { "M" };
-        juce::TextButton revButton   { "REV" };
+        juce::TextButton mainButton  { "Rec" };
+        juce::TextButton rerecButton { "Re-rec" };
+        juce::TextButton undoButton  { "Undo" };
+        juce::TextButton clearButton { "Clr" };
+        juce::TextButton muteButton  { "Mute" };
+        juce::TextButton revButton   { "Rev" };
         juce::Slider     panSlider;
         juce::Slider     volSlider;
         // All three painted by the panel. A track is one horizontal lane:
@@ -64,20 +64,23 @@ private:
         int chosenInstrument = -1;       // -1 = keep whatever is loaded
     };
     TrackUI trackUI[LoopStation::kNumTracks];
-    int visibleTracks = 4;
 
-    // Short labels on purpose. The transport row has to fit ten controls plus
-    // the drag slab at the 1020px minimum width, and "PLAY ALL" was being cut
-    // to "PLAY AL" - a clipped word reads as a bug, where a short one reads as
-    // a label. What they act on is in the tooltip.
-    juce::TextButton playAllButton  { "PLAY" };
-    juce::TextButton stopAllButton  { "STOP" };
-    juce::TextButton clearAllButton { "CLEAR" };
-    juce::TextButton exportButton   { "EXPORT" };
-    juce::TextButton addTrackButton { "+ TRACK" };
-    juce::TextButton metroButton    { "MET" };
-    juce::TextButton tapButton      { "TAP" };
-    juce::TextButton syncButton     { "SYNC" };   // follow the host tempo
+    // All six lanes are on screen from the start (spec 4.9): a loop station
+    // that opens showing two thirds of itself reads as a smaller machine than
+    // it is, and "+ Add track" was the only way to find the rest.
+    int visibleTracks = LoopStation::kNumTracks;
+
+    // Full words, sentence case (spec 1). Nothing here is allowed to clip:
+    // every one of these is measured in resized() and given the width its own
+    // text needs, because a cut label reads as a broken build.
+    juce::TextButton playAllButton  { "Play all" };
+    juce::TextButton stopAllButton  { "Stop all" };
+    juce::TextButton clearAllButton { "Clear all" };
+    juce::TextButton exportButton   { "Export WAV" };
+    juce::TextButton addTrackButton { "+ Add track" };
+    juce::TextButton metroButton    { "Click" };
+    juce::TextButton tapButton      { "Tap" };
+    juce::TextButton syncButton     { "Sync" };   // follow the host tempo
 
     /** Press-and-drag to drop the loop mix into the DAW as a WAV. JUCE's
         external drag needs a real file on disk, so the mix is rendered to
@@ -127,18 +130,46 @@ private:
                     g.drawLine (x, r.getBottom(), x + r.getHeight(), r.getY(), 3.0f);
             }
 
-            auto lines = r.reduced (12.0f, 4.0f);
-            auto arrow = lines.removeFromRight (22.0f);
+            auto lines = r.reduced (14.0f, 4.0f);
+            auto arrow = lines.removeFromRight (24.0f);
+            auto heroRow = lines.removeFromTop (lines.getHeight() * 0.58f);
+
+            // HOLD & DRAG is the one all-caps element the spec allows besides
+            // the macro labels, so it stays shouting - but it is measured and
+            // stepped down until it fits, never clipped.
+            float heroSize = juce::jlimit (11.0f, 22.0f, r.getHeight() * 0.44f);
+            const juce::String hero ("HOLD & DRAG");
+            auto heroFont = [] (float s)
+            {
+                return juce::Font (juce::FontOptions (s).withStyle ("Bold"))
+                           .withExtraKerningFactor (0.04f);
+            };
+            while (heroSize > 9.0f
+                   && (float) juce::GlyphArrangement::getStringWidthInt (heroFont (heroSize), hero)
+                          > heroRow.getWidth())
+                heroSize -= 1.0f;
 
             g.setColour (th.accentInk);
-            g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Bold"))
-                           .withExtraKerningFactor (0.06f));
-            g.drawText ("HOLD & DRAG", lines.removeFromTop (lines.getHeight() * 0.56f),
-                        juce::Justification::centredLeft, false);
-            g.setFont (juce::Font (juce::FontOptions (9.5f)));
+            g.setFont (heroFont (heroSize));
+            g.drawText (hero, heroRow, juce::Justification::centredLeft, false);
+
+            // Same rule for the sub-line: longest wording that actually fits.
+            // ASCII only - this codebase renders UTF-8 literals as Latin-1.
+            const juce::Font subFont (juce::FontOptions (
+                juce::jlimit (8.5f, 11.5f, r.getHeight() * 0.23f)));
+            juce::String sub ("Drop the loop mix straight onto the timeline");
+            for (auto* shorter : { "Drop the loop mix onto the timeline",
+                                   "Drop the mix on the timeline", "" })
+            {
+                if ((float) juce::GlyphArrangement::getStringWidthInt (subFont, sub)
+                        <= lines.getWidth())
+                    break;
+                sub = shorter;
+            }
+
+            g.setFont (subFont);
             g.setColour (th.accentInk.withAlpha (0.75f));
-            g.drawText ("Drop the loop mix onto the timeline", lines,
-                        juce::Justification::centredLeft, false);
+            g.drawText (sub, lines, juce::Justification::centredLeft, false);
 
             // Arrow pointing out of the plugin.
             g.setColour (th.accentInk.withAlpha (hot ? 1.0f : 0.8f));
@@ -163,6 +194,17 @@ private:
     double tapIntervalMs = 0.0;
     int    tapCount = 0;
 
+    // Panel header (spec 4.9) - the loop station is one of the three
+    // accent-forward surfaces, so the tick beside the title is accent.
+    juce::Rectangle<int> headerTickArea, headerTitleArea, headerSubArea;
+
+    // The tempo reads as a NUMERAL, in mono, next to its drag slider:
+    // "124.0" is the value, the slider is only the way to change it.
+    juce::Rectangle<int> bpmValueArea, bpmUnitArea;
+    float shownBpm = -1.0f;          // repaint trigger for the numeral
+
+    juce::Rectangle<int> howToArea;  // painted hint line above the footer
+
     // Pick the CURRENT sound without leaving the looper.
     // Captions painted above the two top pickers.
     std::vector<std::pair<juce::String, juce::Rectangle<int>>> pickCaptions;
@@ -171,7 +213,7 @@ private:
     juce::ComboBox instrumentBox;  // Featured + category submenus
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;
     std::unique_ptr<juce::FileChooser> fileChooser;     // per-track audio import
-    std::unique_ptr<juce::FileChooser> exportChooser;   // EXPORT save dialog
+    std::unique_ptr<juce::FileChooser> exportChooser;   // Export WAV save dialog
                                        // (separate members: replacing a live
                                        // FileChooser silently kills its dialog)
 

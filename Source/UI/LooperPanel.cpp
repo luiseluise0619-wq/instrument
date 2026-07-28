@@ -3,6 +3,33 @@
 #include "../PluginProcessor.h"
 #include "../AudioEngine/SampleLoader.h"
 
+namespace
+{
+    // Every word the record pad can ever show. resized() measures the widest
+    // of them, so the pad is sized from its own vocabulary rather than from a
+    // guess - which is how "OVERDUB" ended up cut in half on a 42px pad.
+    const char* const kPadLabels[] = { "Rec", "Set", "Dub", "Play", "Go", "Arm" };
+
+    // The five per-track buttons, in row order. Undo also shows "Redo", which
+    // is narrower, so measuring "Undo" covers both states.
+    const char* const kTrackLabels[] = { "Re-rec", "Undo", "Rev", "Mute", "Clr" };
+
+    /** MUST match AppleLookAndFeel::getTextButtonFont: the width arithmetic
+        below is only honest if it measures the font that actually draws. That
+        look-and-feel paints button text with drawText(..., useEllipses=true)
+        across the button's whole width, so "fits" means text width <= width. */
+    juce::Font buttonFontFor (int buttonHeight)
+    {
+        return juce::Font (juce::FontOptions ((float) juce::jmin (15, buttonHeight - 8))
+                               .withStyle ("Semibold"));
+    }
+
+    int textWidthFor (const juce::Font& f, const juce::String& s)
+    {
+        return juce::GlyphArrangement::getStringWidthInt (f, s);
+    }
+}
+
 LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     : proc (processor)
 {
@@ -20,8 +47,8 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         t.mainButton.onClick = [this, i]
         {
             // Every take on this track — fresh recording OR a new overdub
-            // pass — starts in the track's own pre-picked sound, so four
-            // tracks really are four independently-set instruments.
+            // pass — starts in the track's own pre-picked sound, so six
+            // tracks really are six independently-set instruments.
             const int st = proc.getLooper().getTrackState (i);
             if (st == LoopStation::Empty || st == LoopStation::Playing)
                 applyTrackInstrument (i);
@@ -103,12 +130,12 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         };
 
         t.instBox.setTooltip ("This track's own sound - applied automatically when you record or "
-                              "overdub here.  Top entry loads an audio FILE straight into the track");
+                              "overdub here.  Top entry loads an audio file straight into the track");
         t.mainButton.setTooltip ("1st tap: record.  2nd tap: lock the loop.  Then tap to stack overdubs / play");
         t.rerecButton.setTooltip ("Wipe this track and record it again in one tap");
-        t.undoButton.setTooltip ("Remove the last overdub - press again to bring it back (REDO)");
+        t.undoButton.setTooltip ("Remove the last overdub - press again to bring it back (Redo)");
         t.muteButton.setTooltip ("Mute this track");
-        t.clearButton.setTooltip ("Delete this track's loop");
+        t.clearButton.setTooltip ("Clear - delete this track's loop");
         t.revButton.setTooltip ("Play this track backwards");
         t.panSlider.setTooltip ("Pan left/right (double-click = centre)");
         t.volSlider.setTooltip ("Track volume");
@@ -131,9 +158,11 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     clearAllButton.onClick = [this] { proc.getLooper().tapClearAll(); };
     playAllButton.setTooltip ("Restart every track together from the top");
     stopAllButton.setTooltip ("Stop all tracks (loops are kept)");
-    clearAllButton.setTooltip ("Delete ALL loops");
+    clearAllButton.setTooltip ("Delete every loop on every track");
     exportButton.setTooltip ("Save everything you looped as a WAV file (one full cycle)");
-    addTrackButton.setTooltip ("Show another loop track (up to 6)");
+    addTrackButton.setTooltip ("Show another loop track - all "
+                               + juce::String (LoopStation::kNumTracks)
+                               + " are already on screen");
     metroButton.setTooltip ("Metronome click - heard, never recorded. First take gets a 1-bar count-in");
     tapButton.setTooltip ("Tap in time to set the tempo");
 
@@ -149,12 +178,12 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         if (! proc.getLooper().anyContent())
             juce::AlertWindow::showMessageBoxAsync (
                 juce::MessageBoxIconType::InfoIcon, "Slyce",
-                "Record or load a loop first, then DRAG it into your DAW.");
+                "Record or load a loop first, then drag it into your DAW.");
         else
             juce::AlertWindow::showMessageBoxAsync (
                 juce::MessageBoxIconType::InfoIcon, "Slyce",
                 "Hold this button and drag into your DAW's arrangement to drop "
-                "the loop as a WAV. (EXPORT saves it to a folder instead.)");
+                "the loop as a WAV. (Export WAV saves it to a folder instead.)");
     };
 
     exportButton.onClick = [this]
@@ -283,14 +312,18 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     };
     addAndMakeVisible (tapButton);
 
+    // The slider is only the grip. The VALUE is painted beside it as a large
+    // mono numeral (spec 4.9 / 1: mono is reserved for numbers), so the stock
+    // text box would just be a second, smaller copy of the same reading.
     bpmSlider.setSliderStyle (juce::Slider::LinearHorizontal);
     bpmSlider.setRange (40.0, 240.0, 1.0);
     bpmSlider.setValue (proc.getLooper().getMetroBpm(), juce::dontSendNotification);
-    bpmSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 20);
-    bpmSlider.setTextValueSuffix ("");
+    bpmSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
+    bpmSlider.setTooltip ("Drag to set the loop tempo");
     bpmSlider.onValueChange = [this]
     {
         proc.getLooper().setMetroBpm ((float) bpmSlider.getValue());
+        repaint (bpmValueArea);
     };
     addAndMakeVisible (bpmSlider);
 
@@ -415,6 +448,17 @@ void LooperPanel::timerCallback()
     }
     bpmSlider.setEnabled (! syncButton.getToggleState() || proc.getHostBpm() <= 0.0);
 
+    // Repaint the mono numeral only when the reading actually moves.
+    {
+        const float bpmNow = proc.getLooper().getMetroBpm();
+        if (std::abs (bpmNow - shownBpm) > 0.005f)
+        {
+            shownBpm = bpmNow;
+            if (! bpmValueArea.isEmpty())
+                repaint (bpmValueArea);
+        }
+    }
+
     // Mirror an instrument change made anywhere else. Compare INDICES, not
     // raw ids — QUICK-shelf picks use ids 1000+idx, and comparing ids would
     // freeze the mirror forever after one QUICK selection.
@@ -449,17 +493,21 @@ void LooperPanel::timerCallback()
     {
         auto& t = trackUI[i];
         const int st = looper.getTrackState (i);
+        // Sentence case, and never longer than the pad is wide - resized()
+        // sizes the pad from exactly this set of words, so "Overdub" (which
+        // used to be cut in half on the pad) is now the three-letter "Dub"
+        // the ring itself already used.
         switch (st)
         {
-            case LoopStation::Empty:     t.mainButton.setButtonText ("REC");     break;
-            case LoopStation::Recording: t.mainButton.setButtonText ("SET");     break;
-            case LoopStation::Playing:   t.mainButton.setButtonText ("OVERDUB"); break;
-            case LoopStation::Overdub:   t.mainButton.setButtonText ("PLAY");    break;
-            case LoopStation::Stopped:   t.mainButton.setButtonText ("GO");      break;
-            case LoopStation::Armed:     t.mainButton.setButtonText ("WAIT..."); break;
+            case LoopStation::Empty:     t.mainButton.setButtonText ("Rec");  break;
+            case LoopStation::Recording: t.mainButton.setButtonText ("Set");  break;
+            case LoopStation::Playing:   t.mainButton.setButtonText ("Dub");  break;
+            case LoopStation::Overdub:   t.mainButton.setButtonText ("Play"); break;
+            case LoopStation::Stopped:   t.mainButton.setButtonText ("Go");   break;
+            case LoopStation::Armed:     t.mainButton.setButtonText ("Arm");  break;
             default: break;
         }
-        t.undoButton.setButtonText (looper.isRedo (i) ? "REDO" : "UNDO");
+        t.undoButton.setButtonText (looper.isRedo (i) ? "Redo" : "Undo");
         t.undoButton.setEnabled (looper.canUndo (i));
         t.rerecButton.setEnabled (st != LoopStation::Empty && st != LoopStation::Armed);
 
@@ -524,58 +572,132 @@ juce::File LooperPanel::writeMixToTempFile()
 
 void LooperPanel::resized()
 {
-    auto area = getLocalBounds().reduced (20);
+    auto area = getLocalBounds().reduced (20, 12);
 
-    // Current-sound pickers along the top of the panel. Captioned like the
-    // main strip: two bare combos side by side told nobody which one picked
+    // The looper covers the editor's mid-section, and on the artwork skin that
+    // section is only ~400px tall against ~695px on every other theme. Six
+    // lanes plus a header, the sound pickers and a footer do not fit there at
+    // full size, so the chrome steps down first and the lanes take the rest.
+    const bool tight = area.getHeight() < 460;
+
+    // --- Header line (spec 4.9) -------------------------------------------
+    // "Loop station" on the left, tempo + transport on the right. Every
+    // button width here is MEASURED against the font that draws it, so
+    // "Clear all" can never come back as "Cl...".
+    {
+        auto head = area.removeFromTop (tight ? 40 : 48);
+        const int headBtnH = tight ? 28 : 32;
+        const juce::Font headFont = buttonFontFor (headBtnH);
+
+        auto place = [&head, headBtnH] (juce::Component& c, int w)
+        {
+            c.setBounds (head.removeFromRight (w).withSizeKeepingCentre (w, headBtnH));
+        };
+        auto wideEnough = [&headFont] (const char* s, int minW)
+        {
+            return juce::jmax (minW, textWidthFor (headFont, s) + 20);
+        };
+
+        place (clearAllButton, wideEnough ("Clear all", 74));
+        head.removeFromRight (6);
+        place (stopAllButton,  wideEnough ("Stop all", 70));
+        head.removeFromRight (6);
+        place (playAllButton,  wideEnough ("Play all", 70));
+        head.removeFromRight (12);
+        place (metroButton,    wideEnough ("Click", 56));
+        head.removeFromRight (6);
+        place (tapButton,      wideEnough ("Tap", 46));
+        head.removeFromRight (6);
+        place (syncButton,     wideEnough ("Sync", 56));
+        head.removeFromRight (8);
+
+        const int sliderW = juce::jlimit (70, 110, head.getWidth() / 5);
+        bpmSlider.setBounds (head.removeFromRight (sliderW)
+                                 .withSizeKeepingCentre (sliderW, headBtnH));
+        head.removeFromRight (6);
+
+        // "BPM" is a label, so it stays in the UI face; the reading itself is
+        // mono (spec 1 reserves mono for numbers).
+        const juce::Font unitFont (juce::FontOptions (9.5f).withStyle ("Semibold"));
+        bpmUnitArea = head.removeFromRight (textWidthFor (unitFont, "BPM") + 6);
+        head.removeFromRight (3);
+
+        const juce::Font numFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
+                                                     tight ? 17.0f : 20.0f,
+                                                     juce::Font::plain));
+        bpmValueArea = head.removeFromRight (textWidthFor (numFont, "240.0") + 8);
+        head.removeFromRight (14);
+
+        if (head.getWidth() > 70)
+        {
+            headerTickArea  = head.removeFromLeft (3).withSizeKeepingCentre (3, tight ? 12 : 14);
+            head.removeFromLeft (8);
+            headerTitleArea = head.removeFromTop (head.getHeight() * 55 / 100);
+            headerSubArea   = head;
+        }
+        else
+        {
+            headerTickArea = headerTitleArea = headerSubArea = {};
+        }
+    }
+
+    area.removeFromTop (tight ? 4 : 8);
+
+    // --- Current-sound pickers --------------------------------------------
+    // Captioned: two bare combos side by side told nobody which one picked
     // the sound.
-    auto pickers = area.removeFromTop (52);
-    auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (460, pickers.getWidth()), 48);
-    pickCaptions.clear();
-    auto capRow = pickStrip.removeFromTop (13);
-    pickCaptions.push_back ({ "ENGINE",     capRow.removeFromLeft (110) });
-    capRow.removeFromLeft (12);
-    pickCaptions.push_back ({ "INSTRUMENT", capRow });
-    pickStrip.removeFromTop (1);
-    engineBox.setBounds (pickStrip.removeFromLeft (110));
-    pickStrip.removeFromLeft (12);
-    instrumentBox.setBounds (pickStrip);
+    {
+        auto pickers   = area.removeFromTop (tight ? 40 : 46);
+        auto pickStrip = pickers.withSizeKeepingCentre (juce::jmin (460, pickers.getWidth()),
+                                                        pickers.getHeight());
+        pickCaptions.clear();
+        auto capRow = pickStrip.removeFromTop (13);
+        pickCaptions.push_back ({ "Engine",     capRow.removeFromLeft (110) });
+        capRow.removeFromLeft (12);
+        pickCaptions.push_back ({ "Instrument", capRow });
+        pickStrip.removeFromTop (2);
+        engineBox.setBounds (pickStrip.removeFromLeft (110));
+        pickStrip.removeFromLeft (12);
+        instrumentBox.setBounds (pickStrip);
+    }
 
-    // Master transport row at the bottom: MET + BPM, then the big three,
-    // then + TRACK.
-    auto master = area.removeFromBottom (50);
-    auto mStrip = master.withSizeKeepingCentre (juce::jmin (880, master.getWidth()), 42);
-    metroButton.setBounds (mStrip.removeFromLeft (58));
-    mStrip.removeFromLeft (8);
-    tapButton.setBounds (mStrip.removeFromLeft (52));
-    mStrip.removeFromLeft (8);
-    bpmSlider.setBounds (mStrip.removeFromLeft (juce::jmin (120, mStrip.getWidth() / 5)));
-    mStrip.removeFromLeft (6);
-    syncButton.setBounds (mStrip.removeFromLeft (58));
-    mStrip.removeFromLeft (12);
-    addTrackButton.setBounds (mStrip.removeFromRight (82));
-    mStrip.removeFromRight (8);
-    exportButton.setBounds (mStrip.removeFromRight (72));
-    mStrip.removeFromRight (6);
+    // --- Footer (spec 4.9): the drag slab, with Export WAV / + Add track
+    //     stacked in a narrow column beside it. Stacking them is what buys
+    //     the slab its width back - side by side, the three of them plus the
+    //     transport could not share one row without the slab's sub-line
+    //     being cut off mid-sentence.
+    {
+        auto footer = area.removeFromBottom (tight ? 44 : 52);
+        const int stackH = juce::jmax (24, footer.getHeight() - 4);
+        const int stackBtnH = juce::jlimit (15, 24, (stackH - 6) / 2);
+        const juce::Font stackFont = buttonFontFor (stackBtnH);
 
-    // The three transport buttons get their width FIRST and the drag slab
-    // takes what is left. It used to be the other way round, and the slab's
-    // fixed 196px squeezed CLEAR down to 50px, where it rendered as "CL..." -
-    // a clipped word reads as a broken build, and this one was on the control
-    // that throws away your recording.
-    const int mw = 66;
-    const int need = mw * 3 + 12 * 2 + 12;
-    dragButton.setBounds (mStrip.removeFromRight (
-        juce::jlimit (120, 196, mStrip.getWidth() - need)));
-    mStrip.removeFromRight (12);
-    playAllButton.setBounds  (mStrip.removeFromLeft (mw));
-    mStrip.removeFromLeft (12);
-    stopAllButton.setBounds  (mStrip.removeFromLeft (mw));
-    mStrip.removeFromLeft (12);
-    clearAllButton.setBounds (mStrip.removeFromLeft (mw));
+        int colW = 0;
+        for (auto* s : { "Export WAV", "+ Add track" })
+            colW = juce::jmax (colW, textWidthFor (stackFont, s));
+        colW = juce::jlimit (100, 200, colW + 22);
+        colW = juce::jmin (colW, juce::jmax (60, footer.getWidth() - 180));
 
-    area.removeFromBottom (24);   // how-to line (painted)
-    area.removeFromTop (6);
+        auto col = footer.removeFromRight (colW)
+                         .withSizeKeepingCentre (colW, stackBtnH * 2 + 6);
+        footer.removeFromRight (10);
+        exportButton.setBounds (col.removeFromTop (stackBtnH));
+        col.removeFromTop (6);
+        addTrackButton.setBounds (col.removeFromTop (stackBtnH));
+        dragButton.setBounds (footer.reduced (0, 1));
+    }
+
+    // --- How-to line (painted). First thing to go when space is short.
+    if (tight)
+    {
+        howToArea = {};
+        area.removeFromBottom (4);
+    }
+    else
+    {
+        howToArea = area.removeFromBottom (22);
+        area.removeFromBottom (6);
+    }
 
     // ONE ROW PER TRACK, stacked - which is what a loop station is, and what
     // the spec asks for. These used to be vertical columns side by side, and
@@ -585,19 +707,44 @@ void LooperPanel::resized()
     // audio had nowhere to be shown at all. A row has the width for all of it
     // and lines the tracks up against each other, which is the comparison
     // anyone stacking loops is actually making.
-    const int gap  = 8;
-    const int rowH = juce::jlimit (44, 78,
+    //
+    // The floor came down from 44 to 30: six lanes at 44 plus the chrome
+    // overflowed the short (artwork-skin) panel by ~70px, and a lane that
+    // runs off the bottom of the card is worse than a short one. With gap 5
+    // the clamp only bites below 6*30 + 5*5 = 205px of lane space, and the
+    // tightest panel this thing gets is ~250.
+    const int gap  = tight ? 5 : 8;
+    const int rowH = juce::jlimit (30, 78,
                                    (area.getHeight() - gap * (visibleTracks - 1))
                                        / juce::jmax (1, visibleTracks));
 
     // Centre the block of lanes rather than letting them hug the top: rows are
-    // capped at 78px, so with four tracks the leftover space was all dumped
-    // underneath and the panel read as half-empty.
+    // capped at 78px, so any leftover space would otherwise all be dumped
+    // underneath and the panel would read as half-empty.
     {
         const int used = rowH * visibleTracks + gap * (visibleTracks - 1);
         if (area.getHeight() > used)
             area = area.withSizeKeepingCentre (area.getWidth(), used);
     }
+
+    // The record pad is sized from the longest word it can ever show, not
+    // from the row height alone - at six lanes the row is shorter and a
+    // square pad stopped being wide enough for "Play".
+    const int padInset = juce::jmax (5, rowH / 5);
+    const int padBtnH  = juce::jmax (12, rowH - padInset * 2);
+    const juce::Font padFont = buttonFontFor (padBtnH);
+    int padTextW = 0;
+    for (auto* s : kPadLabels)
+        padTextW = juce::jmax (padTextW, textWidthFor (padFont, s));
+    const int padW = juce::jmax (rowH - 6, padTextW + padInset * 2 + 8);
+
+    // Same treatment for the five per-track buttons: "Re-rec" is the widest
+    // and it sets the column for all of them.
+    const int ctlH = juce::jmax (14, juce::jmin (26, rowH - 10));
+    const juce::Font ctlFont = buttonFontFor (ctlH);
+    int trackBtnW = 34;
+    for (auto* s : kTrackLabels)
+        trackBtnW = juce::jmax (trackBtnW, textWidthFor (ctlFont, s) + 12);
 
     for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
@@ -618,10 +765,10 @@ void LooperPanel::resized()
         t.laneArea  = row;
         row         = row.reduced (10, 0);
         t.indexArea = row.removeFromLeft (24);
-        t.ringArea  = row.removeFromLeft (rowH - 6);
+        t.ringArea  = row.removeFromLeft (juce::jmin (padW, juce::jmax (24, row.getWidth() / 3)));
         // The pad IS the ring: the button sits inside it so the progress
         // sweep reads as this control's own state, not as decoration near it.
-        t.mainButton.setBounds (t.ringArea.reduced (juce::jmax (7, rowH / 5)));
+        t.mainButton.setBounds (t.ringArea.reduced (padInset));
         row.removeFromLeft (10);
 
         const int comboW = juce::jlimit (96, 168, row.getWidth() / 5);
@@ -631,13 +778,10 @@ void LooperPanel::resized()
 
         // Right-hand controls first, so the waveform takes whatever is left
         // rather than pushing them off the end on a narrow panel.
-        const int ctlH = juce::jmin (26, rowH - 10);
-        // SQUARE. These are rotary sliders, and a rotary in a 40x26 box draws
-        // a 26px dial with 14px of dead space either side - which is why they
-        // came out as unreadable smudges rather than as knobs.
-        // JUCE's stock rotary insets its arc by 4px and draws it thin, so a
-        // 28px box yields a 20px dial that reads as a dot in a row this dense.
-        // Give it the row's height.
+        //
+        // SQUARE knobs. These are rotary sliders, and a rotary in a 40x26 box
+        // draws a 26px dial with 14px of dead space either side - which is why
+        // they came out as unreadable smudges rather than as knobs.
         const int kn = juce::jlimit (32, 42, rowH - 8);
         t.volSlider.setBounds (row.removeFromRight (kn + 4)
                                   .withSizeKeepingCentre (kn, kn));
@@ -647,7 +791,7 @@ void LooperPanel::resized()
 
         juce::TextButton* small[5] = { &t.rerecButton, &t.undoButton, &t.revButton,
                                        &t.muteButton,  &t.clearButton };
-        const int bw = juce::jlimit (34, 52, row.getWidth() / 9);
+        const int bw = juce::jmax (34, juce::jmin (trackBtnW, (row.getWidth() - 40) / 5 - 4));
         auto btns = row.removeFromRight (bw * 5 + 4 * 4);
         for (int b = 0; b < 5; ++b)
         {
@@ -704,9 +848,50 @@ void LooperPanel::paint (juce::Graphics& g)
     g.setColour (theme.accent.withAlpha (theme.glow >= 0.9f ? 0.35f : 0.15f));
     g.drawRoundedRectangle (card.reduced (0.5f), radius, 1.2f);
 
+    // --- Panel header (spec 4.9) ---------------------------------------------
+    // The loop station is one of the three accent-forward surfaces, so unlike
+    // every other module header its tick is the accent rather than a neutral.
+    if (! headerTitleArea.isEmpty())
+    {
+        g.setColour (theme.accent);
+        g.fillRoundedRectangle (headerTickArea.toFloat(), 1.5f);
+
+        g.setColour (theme.text);
+        g.setFont (juce::Font (juce::FontOptions (16.0f).withStyle ("Semibold")));
+        g.drawText ("Loop station", headerTitleArea,
+                    juce::Justification::centredLeft, false);
+
+        // ASCII separator on purpose: UTF-8 literals come out of this build as
+        // Latin-1, so a middle dot would render as garbage.
+        const juce::Font subFont (juce::FontOptions (11.0f));
+        juce::String sub = juce::String (LoopStation::kNumTracks)
+                             + " tracks - track 1 sets the length";
+        if (textWidthFor (subFont, sub) > headerSubArea.getWidth())
+            sub = "Track 1 sets the length";
+
+        g.setColour (theme.textSecondary);
+        g.setFont (subFont);
+        g.drawText (sub, headerSubArea, juce::Justification::centredLeft, false);
+    }
+
+    // The tempo READS as a numeral, in mono, with the slider beside it as the
+    // grip. A bare slider made the one number in this panel unreadable.
+    if (! bpmValueArea.isEmpty())
+    {
+        g.setColour (theme.accent);
+        g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
+                                                  bpmValueArea.getHeight() >= 44 ? 20.0f : 17.0f,
+                                                  juce::Font::plain)));
+        g.drawText (juce::String (proc.getLooper().getMetroBpm(), 1), bpmValueArea,
+                    juce::Justification::centredRight, false);
+
+        g.setColour (theme.textSecondary);
+        g.setFont (juce::Font (juce::FontOptions (9.5f).withStyle ("Semibold")));
+        g.drawText ("BPM", bpmUnitArea, juce::Justification::centredLeft, false);
+    }
+
     g.setColour (theme.textSecondary.withAlpha (0.75f));
-    g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold"))
-                   .withExtraKerningFactor (0.14f));
+    g.setFont (juce::Font (juce::FontOptions (10.5f).withStyle ("Semibold")));
     for (const auto& c : pickCaptions)
         g.drawText (c.first, c.second, juce::Justification::centred, false);
 
@@ -772,9 +957,8 @@ void LooperPanel::paint (juce::Graphics& g)
         if (idx == 0)
         {
             gg.setColour (theme.accent.withAlpha (0.9f));
-            gg.setFont (juce::Font (juce::FontOptions (9.0f).withStyle ("Bold"))
-                            .withExtraKerningFactor (0.06f));
-            gg.drawText ("SETS LOOP LENGTH", area.reduced (8, 0),
+            gg.setFont (juce::Font (juce::FontOptions (9.5f).withStyle ("Semibold")));
+            gg.drawText ("Sets loop length", area.reduced (8, 0),
                          juce::Justification::centredLeft, false);
         }
     };
@@ -802,9 +986,11 @@ void LooperPanel::paint (juce::Graphics& g)
             g.drawRoundedRectangle (lane.reduced (0.5f), 10.0f, 1.0f);
         }
 
-        // Track number, at the head of its own lane.
+        // Track number, at the head of its own lane. Mono, because spec 1
+        // reserves the mono face for numerals.
         g.setColour (st == LoopStation::Empty ? theme.textSecondary : theme.text);
-        g.setFont (juce::Font (juce::FontOptions (13.0f).withStyle ("Bold")));
+        g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
+                                                  14.0f, juce::Font::bold)));
         g.drawText (juce::String (i + 1), t.indexArea, juce::Justification::centred);
 
         drawTrackWave (g, t.waveArea, i, st, posN, layers, muted);
@@ -813,7 +999,11 @@ void LooperPanel::paint (juce::Graphics& g)
         const float ringR = juce::jmin (ra.getWidth(), ra.getHeight()) * 0.5f - 6.0f;
         const juce::Point<float> centre (ra.getCentreX(), ra.getCentreY());
 
-        if (ringR < 12.0f)
+        // Below this the ring is narrower than the record pad sitting in it,
+        // and a ring smaller than its own button reads as a mistake. Short
+        // lanes (six tracks on the artwork skin) simply lose the ring and keep
+        // the pad - the lane wash and the strip still show the state.
+        if (ringR < 22.0f)
             continue;
 
         // Recessed well inside the ring, so an empty track reads as a dial
@@ -876,11 +1066,11 @@ void LooperPanel::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Semibold")));
         const juce::String stateText =
             st == LoopStation::Empty     ? "-"
-          : st == LoopStation::Recording ? "REC"
-          : st == LoopStation::Armed     ? "ARM"
-          : st == LoopStation::Overdub   ? "DUB"
-          : st == LoopStation::Playing   ? (muted ? "MUTE" : "PLAY")
-          : "STOP";
+          : st == LoopStation::Recording ? "Rec"
+          : st == LoopStation::Armed     ? "Arm"
+          : st == LoopStation::Overdub   ? "Dub"
+          : st == LoopStation::Playing   ? (muted ? "Mute" : "Play")
+          : "Stop";
         g.drawText (stateText,
                     juce::Rectangle<float> (ringR * 2.0f, 20.0f).withCentre (centre),
                     juce::Justification::centred);
@@ -897,9 +1087,20 @@ void LooperPanel::paint (juce::Graphics& g)
     }
 
     // --- How-to line ---------------------------------------------------------
-    g.setColour (theme.textSecondary);
-    g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText ("REC waits for the loop top (or a 1-bar count-in with MET on).   UNDO flips to REDO.   REV plays a track backwards.   TAP sets the BPM.",
-                card.reduced (14.0f).removeFromBottom (64.0f).removeFromTop (16.0f),
-                juce::Justification::centred);
+    // ASCII only, and the longest wording that fits: this build renders UTF-8
+    // literals as Latin-1, and drawText would otherwise clip mid-word.
+    if (! howToArea.isEmpty())
+    {
+        const juce::Font hintFont (juce::FontOptions (12.0f));
+        juce::String hint = "Rec waits for the loop top (or a 1-bar count-in with Click on).   "
+                            "Undo flips to Redo.   Rev plays a track backwards.   Tap sets the BPM.";
+        if (textWidthFor (hintFont, hint) > howToArea.getWidth())
+            hint = "Rec waits for the loop top.   Undo flips to Redo.   Tap sets the BPM.";
+        if (textWidthFor (hintFont, hint) > howToArea.getWidth())
+            hint = "Rec waits for the loop top.   Tap sets the BPM.";
+
+        g.setColour (theme.textSecondary);
+        g.setFont (hintFont);
+        g.drawText (hint, howToArea, juce::Justification::centred, false);
+    }
 }

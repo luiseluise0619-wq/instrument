@@ -11,6 +11,7 @@
 #include "UI/FXRack.h"
 #include "UI/KnobComponent.h"
 #include "UI/MeterComponent.h"
+#include "UI/ScopePanel.h"
 #include "UI/LooperPanel.h"
 #include "UI/UnlockPanel.h"
 #include "UI/WelcomePanel.h"
@@ -162,6 +163,11 @@ private:
     juce::TextButton instPrevButton { "<" }, instNextButton { ">" };
     void stepInstrument (int delta);
     MeterComponent meter { processor.getOutputLevelRef() };
+    // Spec 4.5 row 3. Reads the scope ring rather than the meter's atomic:
+    // MeterComponent CONSUMES that value with exchange(), so sharing it would
+    // have made the OUT meter under-read by half.
+    ScopePanel     scopePanel { processor };
+    juce::Rectangle<int> scopeCardBounds;
     SliceGrid      sliceGrid;
     FXRack         fxRack;
     LooperPanel    looperPanel { processor };
@@ -244,7 +250,11 @@ private:
 
     // Fixed-size design canvas, scaled as one unit so the window can shrink
     // to 60% without per-widget cramming. All children live inside it.
-    static constexpr int kBaseW = 1080, kBaseH = 1268;
+    // 1080 x 1220 is the spec's canvas. The height was 1268 - 48px over -
+    // which is enough to push the footer off the bottom of a host window
+    // sized to the spec, and enough that the whole panel scales down slightly
+    // more than it should in a fixed-height slot.
+    static constexpr int kBaseW = 1080, kBaseH = 1220;
     struct ContentComp : juce::Component
     {
         explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}

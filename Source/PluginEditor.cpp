@@ -1129,6 +1129,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     };
     addAndMakeVisible (waveform);
     addAndMakeVisible (meter);
+    addAndMakeVisible (scopePanel);
     addAndMakeVisible (sliceGrid);
     addAndMakeVisible (fxRack);
 
@@ -2063,6 +2064,21 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
         auto tb = titleLabel.getBounds().toFloat();
         if (! tb.isEmpty())
         {
+            // Spec 4.1: three ascending accent bars ahead of the word. This is
+            // one of the places the accent is FOR - a mark, not decoration -
+            // and it is what stops the lockup reading as plain set type.
+            {
+                const float bh[3] = { 10.0f, 18.0f, 22.0f };
+                float bx = tb.getX() - 22.0f;
+                for (int i = 0; i < 3; ++i)
+                {
+                    g.setColour (theme.accent.withAlpha (0.55f + 0.18f * (float) i));
+                    g.fillRoundedRectangle (bx, tb.getCentreY() + 4.0f - bh[i],
+                                            3.0f, bh[i], 1.5f);
+                    bx += 6.0f;
+                }
+            }
+
             const auto font = juce::Font (juce::FontOptions (26.0f).withStyle ("Bold"))
                                   .withExtraKerningFactor (0.02f);
             g.setFont (font);
@@ -2137,24 +2153,45 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
         drawCaption (g, "Filter",     filterCardBounds);
         drawCaption (g, "Playback",   playbackCardBounds);
         drawCaption (g, "Arp / Pump", arpCardBounds);
+        drawCard    (g, scopeCardBounds.toFloat());
+        drawCaption (g, "Scope",      scopeCardBounds);
 
     }
 
-    // Footer hint.
-    g.setColour (theme.textSecondary);
-    g.setFont (juce::Font (juce::FontOptions (12.0f)));
+    // Footer, per spec 4.8. The key run used to be elided to "Z S X D C V ..."
+    // which is the half that tells you nothing - the point of printing it is
+    // that you can read off the key you want. It fits at 11.5px.
+    //
     // ASCII only: char literals go through the wrong decoder on some
     // platforms and render as mojibake ("ar!" instead of a bullet).
-    g.drawText (juce::String ("Play: MIDI / click keys / type Z S X D C V ...   |   drop audio to chop   |   v")
-                    + JucePlugin_VersionString,
-                juce::Rectangle<int> (0, 0, kBaseW, kBaseH).removeFromBottom (24)
-                    .reduced (kMargin, 0),
-                juce::Justification::centredRight);
+    {
+        auto foot = juce::Rectangle<int> (0, 0, kBaseW, kBaseH)
+                        .removeFromBottom (26).reduced (kMargin, 0);
+
+        // Version in mono - spec 1 reserves the mono face for numerals, and
+        // this is the only one in the footer.
+        const juce::String ver = juce::String ("v") + JucePlugin_VersionString;
+        auto verFont = juce::Font (juce::FontOptions (11.5f)
+                                       .withName (juce::Font::getDefaultMonospacedFontName()));
+        g.setFont (verFont);
+        const int verW = (int) std::ceil (juce::GlyphArrangement::getStringWidth (verFont, ver)) + 8;
+        g.setColour (theme.textSecondary);
+        g.drawText (ver, foot.removeFromRight (verW), juce::Justification::centredRight);
+
+        // Hairline between the key run and the version.
+        auto rule = foot.removeFromRight (13);
+        g.setColour (theme.separator);
+        g.fillRect (rule.getCentreX(), rule.getCentreY() - 6, 1, 12);
+
+        g.setFont (juce::Font (juce::FontOptions (11.5f)));
+        g.drawText ("MIDI  /  Z S X D C V G B H N J M  /  drop audio to chop",
+                    foot, juce::Justification::centredRight);
+    }
 
     if (! processor.isLicensed())
     {
         g.setColour (juce::Colour (0xffff453a).withAlpha (0.85f));
-        g.drawText ("DEMO - output mutes 2 s every minute",
+        g.drawText ("Demo - output mutes 2 s every minute",
                     juce::Rectangle<int> (kMargin + 104, kBaseH - 26, 300, 22),
                     juce::Justification::centredLeft);
     }
@@ -2442,12 +2479,12 @@ void VocalChopAudioProcessorEditor::layoutContent()
     {
         const int gap = kGap;
         const int free = bottomCards.getWidth() - gap * 3;
-        auto filterCard  = bottomCards.removeFromLeft (free * 16 / 100);
+        auto filterCard  = bottomCards.removeFromLeft (free * 17 / 100);
         filterCardBounds = filterCard;
         bottomCards.removeFromLeft (gap);
 
         // ARP + PUMP: the two tempo-locked performance engines.
-        auto arpCard = bottomCards.removeFromLeft (free * 24 / 100);
+        auto arpCard = bottomCards.removeFromLeft (free * 21 / 100);
         arpCardBounds = arpCard;
         bottomCards.removeFromLeft (gap);
         {
@@ -2483,7 +2520,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
         // for someone who does not want to learn synthesis. They were the
         // SMALLEST dials on the panel, which is exactly backwards - so they
         // get their own wider card and the largest dials in the window.
-        auto macroCard  = bottomCards.removeFromLeft (free * 31 / 100);
+        auto macroCard  = bottomCards.removeFromLeft (free * 22 / 100);
         macroCardBounds = macroCard;
         bottomCards.removeFromLeft (gap);
         {
@@ -2494,6 +2531,23 @@ void VocalChopAudioProcessorEditor::layoutContent()
             for (auto* k : mk)
                 if (k != nullptr)
                     k->setBounds (in.removeFromLeft (w).reduced (4, 0));
+        }
+
+        // Scope, spec 4.5 row 3. Carved off the right end rather than given
+        // its own row: moving Macros out to a row of their own the way the
+        // spec lays it out is a full regrid of this panel, and this gets the
+        // readout on screen without disturbing four working cards.
+        // 12%, and the four cards to its left each gave up a slice to pay
+        // for it. Taking it purely out of Playback's share left that card at
+        // 15% of the row, where "Reverse", "Ping-Pong", "Keys" and "Delay
+        // sync" all clipped - the row has to be rebalanced, not just divided.
+        auto scopeCard  = bottomCards.removeFromRight (free * 12 / 100);
+        scopeCardBounds = scopeCard;
+        bottomCards.removeFromRight (gap);
+        {
+            auto in = scopeCard.reduced (kPadding, kPadding - 4);
+            in.removeFromTop (kCaptionH);
+            scopePanel.setBounds (in);
         }
 
         auto playbackCard  = bottomCards;
