@@ -444,6 +444,56 @@ int main (int argc, char** argv)
         }
         check ("Melodic: upper row is exactly one octave above the lower", octave);
 
+        // ---- and now the half that used to be missing --------------------
+        //
+        // Press each key for real and read back where the voice ACTUALLY
+        // started in the audio. proc.lastVoiceStartSample is written by
+        // triggerSliceIndex at the moment the voice is handed its read
+        // position - downstream of the whole mapping, upstream of the
+        // envelope, filter and master chain that made the audio unusable as
+        // evidence. Comparing it against the SliceEngine's own startSample for
+        // the expected slice is not circular: one is what the engine was told
+        // to play, the other is where the audio for that slice lives.
+        printf ("\n%-5s %-8s %-12s %-12s\n", "key", "expect", "started at", "slice start");
+        printf ("%-5s %-8s %-12s %-12s\n", "---", "------", "----------", "-----------");
+
+        juce::AudioBuffer<float> blk (2, 512);
+        juce::MidiBuffer mid;
+        auto pump = [&] { blk.clear(); proc.processBlock (blk, mid); };
+        for (int b = 0; b < 8; ++b) pump();          // settle
+
+        int played = 0, wrongPlay = 0;
+        for (int i = 0; i < nk; ++i)
+        {
+            const int expect = sliceFor (i, true);
+            SlicePoint sp;
+            if (! proc.getSliceEngine().tryGetSlice (expect, sp))
+                continue;
+
+            proc.lastVoiceStartSample.store (-1);
+            proc.pressSlicePad (slyce::keymap::semitoneFor (i, true), 1.0f);
+            pump();
+            const int got = proc.lastVoiceStartSample.load();
+            proc.releaseSlicePad (slyce::keymap::semitoneFor (i, true));
+            pump();
+
+            if (got < 0)
+            { printf ("%-5c %-8d %-12s %-12d  <-- NO VOICE\n",
+                      (char) slyce::keymap::keys[i], expect, "(none)", sp.startSample);
+              ++wrongPlay; continue; }
+
+            ++played;
+            const bool ok = got == sp.startSample;
+            if (! ok) ++wrongPlay;
+            printf ("%-5c %-8d %-12d %-12d %s\n",
+                    (char) slyce::keymap::keys[i], expect, got, sp.startSample,
+                    ok ? "" : "  <-- PLAYED THE WRONG PART OF THE AUDIO");
+        }
+
+        printf ("\n%d keys triggered a voice, %d started from the wrong sample\n",
+                played, wrongPlay);
+        if (wrongPlay > 0) ++bad;
+
         printf ("\n%d property check(s) failed\n", bad);
         return bad == 0 ? 0 : 1;
     }

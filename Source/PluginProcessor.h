@@ -106,6 +106,22 @@ public:
         can compare the mapping against the audio that actually comes out. */
     static int diatonicSliceIndex (int semis);   // white-key order -> slice order
 
+    /** Where the most recent slice voice ACTUALLY started, in samples into the
+        loaded audio, plus the slice index it resolved to.
+
+        This exists because the question "does key K play slice N" could not be
+        answered from outside. Both trigger entry points run through the same
+        key mapping, so comparing one against the other only ever proved the
+        mapping equals itself; and by the time audio leaves processBlock it has
+        been through an envelope, the filter and the master chain, so every
+        slice correlates best with slice 0. The sample OFFSET the voice began
+        reading from is the one fact that is downstream of the mapping and
+        upstream of everything that smears it.
+
+        Written on the audio thread, read by the offline tests. */
+    std::atomic<int> lastVoiceStartSample { -1 };
+    std::atomic<int> lastVoiceSlice       { -1 };
+
     /** True when the Chop engine is selected: the loaded sample is cut into
         slices laid one per key. */
     bool isChopMode() const

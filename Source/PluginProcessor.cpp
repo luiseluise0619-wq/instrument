@@ -883,6 +883,10 @@ int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
     {
         const int voice = voicePool.triggerVoice (slice.startSample,
                                                   slice.lengthSamples, velocity);
+        // Ground truth for --keymap: the position in the audio this voice
+        // actually began reading from. Relaxed - nothing synchronises on it.
+        lastVoiceSlice.store (sliceIndex, std::memory_order_relaxed);
+        lastVoiceStartSample.store (slice.startSample, std::memory_order_relaxed);
         clearVoiceMapping (voice);
         return voice;
     }
