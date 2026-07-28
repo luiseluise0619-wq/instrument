@@ -117,15 +117,18 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         g.setColour (theme.separator);
     g.drawEllipse (discBounds, theme.glow >= 0.9f ? 1.2f : 1.0f);
 
-    // Learn glow: a soft accent halo behind the dial. Drawn first so the
-    // dial sits on top of it rather than being tinted by it.
+    // Learn mark: hovering a macro points out the knobs it moves.
+    //
+    // This was a 0.55-alpha accent bloom behind the dial, and at that strength
+    // four knobs lighting up at once did not read as "these are linked", it
+    // read as the panel glitching - which is how it got reported. The job is
+    // to answer "what does this macro touch", and a thin ring on the rim
+    // answers it without turning a quarter of the window blue. If a hint needs
+    // to shout to be noticed, it is in the wrong place, not too quiet.
     if (learn)
     {
-        const float hr = radius * 1.30f;
-        g.setGradientFill (juce::ColourGradient (
-            theme.accent.withAlpha (0.55f), centre.x, centre.y,
-            juce::Colours::transparentBlack, centre.x + hr, centre.y, true));
-        g.fillEllipse (juce::Rectangle<float> (hr * 2.0f, hr * 2.0f).withCentre (centre));
+        g.setColour (theme.accent.withAlpha (0.85f));
+        g.drawEllipse (discBounds.expanded (radius * 0.10f), 1.6f);
     }
 
     //--------------------------------------------------------------------------
@@ -372,7 +375,11 @@ void KnobComponent::paint (juce::Graphics& /*g*/)
 
     // Caption: secondary colour, medium weight (font set in constructor).
     label.setColour (juce::Label::textColourId, theme.textSecondary);
-    subLabel.setColour (juce::Label::textColourId, theme.textSecondary.withAlpha (0.55f));
+    // The sub-caption names what a macro moves, so it is the one line on the
+    // knob that carries information the dial itself cannot show. At 0.55 alpha
+    // on top of an already-dimmed colour it measured barely above the card it
+    // sat on - present in a screenshot, invisible in use.
+    subLabel.setColour (juce::Label::textColourId, theme.text.withAlpha (0.68f));
 
     // Minimal value readout under the dial: transparent background/outline.
     slider.setColour (juce::Slider::textBoxTextColourId, theme.text);

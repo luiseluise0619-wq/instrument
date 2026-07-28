@@ -1074,10 +1074,12 @@ bool VocalChopAudioProcessor::loadDemoSample()
     struct Embedded { const void* data; int size; };
     struct Named { const void* data; int size; const char* label; };
     static const Named demoNames[] = {
-        { nullptr, 0, "Vocal Chop" }, { nullptr, 0, "Chant" }, { nullptr, 0, "Hook" },
-        { nullptr, 0, "Stabs" },      { nullptr, 0, "Diva" },  { nullptr, 0, "Choir" },
-        { nullptr, 0, "Whisper" },    { nullptr, 0, "Air" },   { nullptr, 0, "Rage" },
-        { nullptr, 0, "Beatbox" },
+        // Named for what you would hear, not for the file. "Whisper" and "Air"
+        // on their own told nobody they were vocal takes.
+        { nullptr, 0, "Vocal Chop" },  { nullptr, 0, "Chant Vox" }, { nullptr, 0, "Sung Hook" },
+        { nullptr, 0, "Stab Vox" },    { nullptr, 0, "Diva Vox" },  { nullptr, 0, "Choir Vox" },
+        { nullptr, 0, "Whisper Vox" }, { nullptr, 0, "Airy Vox" },  { nullptr, 0, "Rage Shout" },
+        { nullptr, 0, "Beatbox Loop" },
     };
     static const Embedded demos[] = {
         { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize },
@@ -1313,6 +1315,12 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
         set ("pitch", 0.0f);
         set ("formant", 0.0f);
         set ("mix", 1.0f);
+        // The editor has no other way to learn that a preset just changed the
+        // engine and the instrument - parameter attachments cover the knobs,
+        // nothing covers the voice name or the engine tabs. Without this the
+        // sound changes and the screen still shows the old instrument, which
+        // is exactly the "the name never changes" report.
+        sendChangeMessage();
         return;
     }
 
@@ -1360,6 +1368,8 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
         default:
             break;
     }
+
+    sendChangeMessage();
 }
 
 //==============================================================================
@@ -2524,7 +2534,13 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 
     // Common baseline, then the instrument's knob values.
     set ("engine",       1.0f);          // Synth mode
-    set ("filterType",   0.0f);   set ("filterCutoff", 20000.0f);
+    // Low pass wide open, NOT off. 20 kHz passes everything so this sounds
+    // identical, but leaving it OFF is what made the filter look broken:
+    // picking any instrument switched the filter off underneath you, so the
+    // cutoff and resonance knobs turned and nothing happened. The default and
+    // the preset path were both fixed for this and this path was missed - it
+    // is the one that runs every single time someone changes sound.
+    set ("filterType",   1.0f);   set ("filterCutoff", 20000.0f);
     set ("filterReso",   0.707f);
     set ("mix",          1.0f);
     set ("pitch",        0.0f);   set ("formant", 0.0f);

@@ -1289,7 +1289,7 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
     const bool live = instrumentBox.isEnabled();
     instNameLabel.setText (instrumentBox.getText(), juce::dontSendNotification);
     instNameLabel.setColour (juce::Label::textColourId,
-                             live ? th.text : th.textSecondary.withAlpha (0.45f));
+                             live ? th.text : th.text.withAlpha (0.60f));
 
     juce::String sub;
     if (juce::isPositiveAndBelow (idx, cats.size()))
@@ -1298,7 +1298,7 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
         sub = "Chop mode - the loaded sample plays across the keys";
     instCategoryLabel.setText (sub, juce::dontSendNotification);
     instCategoryLabel.setColour (juce::Label::textColourId,
-                                 live ? th.accent : th.textSecondary.withAlpha (0.45f));
+                                 live ? th.accent : th.text.withAlpha (0.60f));
 
     for (auto& c : categoryChip) c.setEnabled (live);
     instBrowseButton.setEnabled (live);
@@ -1546,6 +1546,29 @@ void VocalChopAudioProcessorEditor::applyThemeColours (juce::Component& root)
             tg->setColour (juce::ToggleButton::tickColourId,   th.accent);
             tg->setColour (juce::ToggleButton::tickDisabledColourId, th.separator);
         }
+        // Labels were the gap. JUCE's stock colour scheme paints Label text
+        // near-black, and a Label that nobody explicitly coloured keeps that
+        // whatever the theme is - black type on a black card in the dark
+        // themes, which is where "the letters are pitch black, I cannot read
+        // them" came from. Anything already carrying an explicit colour is
+        // left alone so per-widget choices (captions at textSecondary, the
+        // instrument name at full contrast) still win.
+        else if (auto* lb = dynamic_cast<juce::Label*> (c))
+        {
+            if (! lb->isColourSpecified (juce::Label::textColourId))
+                lb->setColour (juce::Label::textColourId, th.text);
+            lb->setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+            lb->setColour (juce::Label::outlineColourId,    juce::Colours::transparentBlack);
+        }
+        else if (auto* te = dynamic_cast<juce::TextEditor*> (c))
+        {
+            te->setColour (juce::TextEditor::textColourId,            th.text);
+            te->setColour (juce::TextEditor::backgroundColourId,      th.materialStrong);
+            te->setColour (juce::TextEditor::outlineColourId,         th.separator);
+            te->setColour (juce::TextEditor::focusedOutlineColourId,  th.accent);
+            te->setColour (juce::TextEditor::highlightColourId,       th.accentSoft);
+            te->setColour (juce::TextEditor::highlightedTextColourId, th.text);
+        }
 
         applyThemeColours (*c);
     }
@@ -1554,10 +1577,19 @@ void VocalChopAudioProcessorEditor::applyThemeColours (juce::Component& root)
 void VocalChopAudioProcessorEditor::refreshChildren()
 {
     {
+        // The loaded sample's name sits directly under the wordmark, and on
+        // its own it reads as a title rather than as a filename - someone saw
+        // "WHISPER" there and asked what it was, which is fair, because
+        // nothing on screen said it was the audio they had just loaded. The
+        // word SAMPLE costs six characters and answers it.
         const auto nm = processor.getLoadedSampleName();
         subtitleLabel.setText (nm.isEmpty() ? juce::String ("VOCAL CHOP INSTRUMENT")
-                                            : nm.toUpperCase(),
+                                            : "SAMPLE  ·  " + nm.toUpperCase(),
                                juce::dontSendNotification);
+        subtitleLabel.setTooltip (nm.isEmpty()
+                                  ? juce::String()
+                                  : "Loaded sample: " + nm + " - this is the audio "
+                                    "being chopped across the keys");
     }
 
     resized();   // the artwork hero band depends on the active theme
@@ -1868,14 +1900,33 @@ juce::Rectangle<int> VocalChopAudioProcessorEditor::captioned (juce::Rectangle<i
 void VocalChopAudioProcessorEditor::drawStripCaptions (juce::Graphics& g) const
 {
     const auto& theme = ThemeManager::active();
-    g.setColour (theme.textSecondary.withAlpha (0.75f));
-    g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Semibold"))
-                   .withExtraKerningFactor (0.14f));
+
+    // These are the labels that got reported as unreadable, and measuring them
+    // said why. Against the dark backdrop the old setting peaked at 24/100
+    // luminance on a 14/100 ground - a contrast ratio of about 1.5:1, where
+    // 4.5:1 is the accessible floor and the knob captions that read fine sit
+    // near 3.4:1. Two things were fighting: textSecondary is already dimmed by
+    // design and this dimmed it AGAIN, and at 10px with heavy kerning the
+    // stems are thin enough that antialiasing never lets a pixel reach full
+    // colour. So brighten the source (theme.text, not textSecondary), lift the
+    // weight to Bold for more ink per stem, and ease the tracking.
+    // Size, not just colour. Raising the alpha alone took these from 1.5:1 to
+    // 2.2:1 and stalled, because the ceiling was never the colour - at 10px
+    // the stems are thin enough that the brightest pixel only reaches about a
+    // third of the ink it was asked for. The knob captions that read fine hit
+    // 78% coverage. Bigger, heavier, less tracking is what closes that gap.
+    // 12.5 rather than 11.5: measured coverage sits near 43% either way, and
+    // at that coverage only size buys contrast. A 12.5px cap height is about
+    // 9px, so this still clears the 12px strip without moving any control.
+    g.setFont (juce::Font (juce::FontOptions (12.5f).withStyle ("Bold"))
+                   .withExtraKerningFactor (0.03f));
 
     for (const auto& c : stripCaptions)
     {
+        // A dimmed caption still has to be legible - it means "this control is
+        // not doing anything right now", not "this text is decorative".
         const bool off = stripDimmed.count (c.first) > 0;
-        g.setColour (theme.textSecondary.withAlpha (off ? 0.28f : 0.75f));
+        g.setColour (theme.text.withAlpha (off ? 0.55f : 1.0f));
         g.drawText (c.first, c.second, juce::Justification::centred, false);
     }
 }

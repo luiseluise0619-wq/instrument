@@ -70,7 +70,7 @@ namespace
         0xff2a2931, 0xff1a1920,          // knob face top / bottom
         0x2fffffff,                      // inactive track
         0x3affffff,                      // tick marks
-        0xfff2f0f5, 0xb6b6b2c0,          // primary / secondary text
+        0xfff2f0f5, 0xd6c4c0ce,          // primary / secondary text
         0x73000000
     };
 
@@ -83,7 +83,12 @@ namespace
         0xffffffff, 0xf0f0ece6,
         0x14000000,
         0x33000000,
-        0xff1a1a1d, 0x9955515c,
+        // Secondary text was 0x99 alpha over a pale desk, which measured about
+        // 2.5:1 against the card it sits on - every section title, every knob
+        // caption, the whole light theme washed out. 4.5:1 is the readable
+        // floor; this lands there. Darker as well as more opaque, because
+        // alpha alone on a mid grey just makes a slightly less pale grey.
+        0xff1a1a1d, 0xd4423d4b,
         0x21322814
     };
 
