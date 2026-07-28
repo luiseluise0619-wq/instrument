@@ -878,7 +878,9 @@ void LooperPanel::paint (juce::Graphics& g)
     // grip. A bare slider made the one number in this panel unreadable.
     if (! bpmValueArea.isEmpty())
     {
-        g.setColour (theme.accent);
+        // accTxt, not raw accent: this is the one NUMBER in the panel and the
+        // bare accent falls under 4.5:1 on six skins.
+        g.setColour (theme.accTxt);
         g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
                                                   bpmValueArea.getHeight() >= 44 ? 20.0f : 17.0f,
                                                   juce::Font::plain)));

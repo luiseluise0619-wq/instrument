@@ -215,12 +215,19 @@ void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& butt
     const auto& theme = ThemeManager::active();
     g.setFont (getTextButtonFont (button, button.getHeight()));
 
-    // Toggled buttons are filled with the accent — on the neon-cyan theme
-    // white text vanishes into it, so use deep navy there instead.
+    // Toggled and primary buttons are filled with the accent, so their label
+    // sits ON the accent and must use the theme's ink for that - which is
+    // exactly what accentInk is, and this drew white instead. Measured against
+    // each accent, white ran from 6.2:1 on Paper down to 1.30:1 on Acid: the
+    // word "Browse" was lime-on-lime, and Sunset, Mint and Graphite were
+    // barely better. accentInk is 13.4:1 on Acid.
+    //
+    // Only the neon skin keeps a hand-picked ink; it is the one theme whose
+    // accent is a light source rather than a surface.
     const bool primary = (bool) button.getProperties().getWithDefault ("primaryAction", false);
     if (button.getToggleState() || primary)
         g.setColour (theme.glow >= 0.9f ? juce::Colour (0xff041022)
-                                        : juce::Colours::white);
+                                        : theme.accentInk);
     else
         g.setColour (theme.text);
 

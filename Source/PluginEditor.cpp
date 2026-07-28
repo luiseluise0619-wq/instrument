@@ -1265,7 +1265,25 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     addAndMakeVisible (content);
     addAndMakeVisible (tooltipWindow);   // tooltips live OUTSIDE the scaled canvas
 
-    if (! WelcomePanel::hasSeenWelcome())
+    // An unlicensed copy ASKS, every launch, and says what happens if you
+    // don't: the licence prompt used to be a small button in the footer, so
+    // the plugin simply started muting itself once a minute with nothing on
+    // screen having explained why. The first-run guide waits behind it - two
+    // stacked sheets on the very first open is one sheet too many.
+    if (! processor.isLicensed())
+    {
+        unlockPanel.setVisible (true);
+        unlockPanel.toFront (false);
+        unlockPanel.onDismiss = [this]
+        {
+            if (! WelcomePanel::hasSeenWelcome())
+            {
+                welcomePanel.setVisible (true);
+                welcomePanel.toFront (true);
+            }
+        };
+    }
+    else if (! WelcomePanel::hasSeenWelcome())
     {
         welcomePanel.setVisible (true);
         welcomePanel.toFront (false);
@@ -1454,8 +1472,13 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
         else                sub = "Your own file  -  < > steps the built-in vocals";
 
         instCategoryLabel.setText (sub, juce::dontSendNotification);
+        // accTxt (accent 42% mixed into the primary ink), not raw accent.
+        // Measured on the card fill, the bare accent reads 3.43:1 on Sand,
+        // 4.01 on Snow, 4.14 on Bone and 4.16-4.50 on the violets and blues -
+        // under the 4.5 floor on six of the sixteen skins. accTxt clears it on
+        // all sixteen and still reads as the accent.
         instCategoryLabel.setColour (juce::Label::textColourId,
-                                     any ? th.accent : th.text.withAlpha (0.60f));
+                                     any ? th.accTxt : th.text.withAlpha (0.60f));
 
         for (int c = 0; c < kNumChips; ++c)
         {
@@ -1483,7 +1506,7 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
         sub = cats[idx];
     instCategoryLabel.setText (sub, juce::dontSendNotification);
     instCategoryLabel.setColour (juce::Label::textColourId,
-                                 live ? th.accent : th.text.withAlpha (0.60f));
+                                 live ? th.accTxt : th.text.withAlpha (0.60f));
 
     {
         static const char* chipCats[kNumChips] =
@@ -2260,7 +2283,12 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
 
 void VocalChopAudioProcessorEditor::paintOverContent (juce::Graphics& g)
 {
-    if (showLooper || ambientPanel.isVisible() || welcomePanel.isVisible())
+    // Every full-window overlay, not just some of them. This paints from
+    // paintOverChildren, i.e. AFTER the overlay itself, so anything missing
+    // from this list gets drawn on top of the sheet covering it - and the
+    // unlock sheet is now the first thing an unlicensed copy shows.
+    if (showLooper || ambientPanel.isVisible() || welcomePanel.isVisible()
+        || unlockPanel.isVisible())
         return;
 
     const auto& theme = ThemeManager::active();

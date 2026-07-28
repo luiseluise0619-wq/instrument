@@ -27,13 +27,16 @@ public:
         title.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (title);
 
-        info.setText ("Demo mode mutes the output for 2 seconds every minute.\n"
-                      "Paste the license key from your Gumroad receipt.",
+        info.setText ("Paste the license key from your Gumroad receipt.\n"
+                      "Without one Slyce runs in demo: output mutes 2 s every minute.",
                       juce::dontSendNotification);
         info.setFont (juce::Font (juce::FontOptions (13.0f)));
         info.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (info);
 
+        // Placeholder colour is set from the theme in paint(). It was a
+        // hardcoded Colours::grey, which is a fixed mid-grey on every skin -
+        // near-invisible against the pale control fill of the light themes.
         emailBox.setTextToShowWhenEmpty ("e-mail (for VCS- keys)", juce::Colours::grey);
         addAndMakeVisible (emailBox);
 
@@ -44,7 +47,9 @@ public:
         activateButton.onClick = [this] { tryActivate(); };
         addAndMakeVisible (activateButton);
 
-        laterButton.onClick = [this] { setVisible (false); };
+        // Says what happens rather than when. "Later" left the answer to
+        // "and if I don't?" sitting nowhere on screen.
+        laterButton.onClick = [this] { dismiss(); };
         addAndMakeVisible (laterButton);
 
         status.setJustificationType (juce::Justification::centred);
@@ -80,7 +85,16 @@ public:
         card.removeFromTop (14);
 
         auto row = card.removeFromTop (34);
-        laterButton.setBounds (row.removeFromLeft (row.getWidth() / 3));
+        // MEASURED, not a third of the row. "Continue in demo" is three times
+        // the word "Later" it replaced, and a third of this card clipped it.
+        {
+            juce::GlyphArrangement ga;
+            ga.addLineOfText (juce::Font (juce::FontOptions (14.0f)),
+                              laterButton.getButtonText(), 0.0f, 0.0f);
+            const int want = (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth()) + 26;
+            laterButton.setBounds (row.removeFromLeft (
+                juce::jlimit (row.getWidth() / 3, row.getWidth() * 3 / 5, want)));
+        }
         row.removeFromLeft (10);
         activateButton.setBounds (row);
 
@@ -159,16 +173,38 @@ public:
             ed->setColour (juce::CaretComponent::caretColourId, theme.accent);
             ed->setFont (juce::Font (juce::FontOptions (13.5f)));
         }
+
+        // Placeholders in the theme's own dimmed ink. A fixed Colours::grey
+        // sat at roughly 1.9:1 on the pale fills of Paper / Bone / Sand /
+        // Snow - the hint that tells you WHICH box is the e-mail one was the
+        // hardest thing on the card to read.
+        {
+            const auto hint = theme.text.withAlpha (0.55f);
+            emailBox.setTextToShowWhenEmpty ("e-mail (for VCS- keys)", hint);
+            keyBox  .setTextToShowWhenEmpty ("license key",            hint);
+        }
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        // Click outside the card = "later".
+        // Click outside the card = continue in demo.
         if (! getCardBounds().contains (e.getPosition()))
-            setVisible (false);
+            dismiss();
     }
 
+    /** Fired when the panel is closed WITHOUT activating, so the editor can
+        follow up (the first-run guide waits behind this). Not called on a
+        successful activation - that path has its own confirmation. */
+    std::function<void()> onDismiss;
+
 private:
+    void dismiss()
+    {
+        setVisible (false);
+        if (onDismiss != nullptr)
+            onDismiss();
+    }
+
     juce::Rectangle<int> getCardBounds() const
     {
         return getLocalBounds().withSizeKeepingCentre (juce::jmin (460, getWidth() - 40), 372);
@@ -272,7 +308,7 @@ private:
     juce::Label      title, info, status;
     juce::TextEditor emailBox, keyBox;
     juce::TextButton activateButton { "Activate" };
-    juce::TextButton laterButton    { "Later" };
+    juce::TextButton laterButton    { "Continue in demo" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (UnlockPanel)
 };

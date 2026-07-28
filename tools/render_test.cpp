@@ -1,15 +1,129 @@
 // Offline render harness: load each named instrument, play a note, measure.
 #include <algorithm>
 #include "PluginProcessor.h"
+#include "UI/ThemeManager.h"
 #include "UI/TypingKeymap.h"
 #include <cstdio>
 #include <functional>
 #include <set>
+#include <vector>
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI init;
     VocalChopAudioProcessor proc;
     proc.prepareToPlay (44100.0, 512);
+
+    // "--contrast": every label colour against the surface it is drawn on, for
+    // all 16 skins. Reported bugs about text being unreadable kept arriving one
+    // theme at a time, and eyeballing 16 skins does not scale - a token can be
+    // fine on 15 of them and vanish on the sixteenth. 4.5:1 is the WCAG AA
+    // floor the spec's own acceptance list asks for.
+    if (argc > 1 && juce::String (argv[1]) == "--contrast")
+    {
+        auto lum = [] (juce::Colour c)
+        {
+            auto ch = [] (float v)
+            {
+                return v <= 0.03928f ? v / 12.92f
+                                     : std::pow ((v + 0.055f) / 1.055f, 2.4f);
+            };
+            return 0.2126f * ch (c.getFloatRed())
+                 + 0.7152f * ch (c.getFloatGreen())
+                 + 0.0722f * ch (c.getFloatBlue());
+        };
+        // Flatten a translucent fill onto the surface behind it before
+        // measuring. A card at 60% alpha over the desk is NOT its own colour,
+        // and measuring the raw token overstates every panel label.
+        auto over = [] (juce::Colour fg, juce::Colour bg)
+        {
+            const float a = fg.getFloatAlpha();
+            return juce::Colour::fromFloatRGBA (
+                fg.getFloatRed()   * a + bg.getFloatRed()   * (1.0f - a),
+                fg.getFloatGreen() * a + bg.getFloatGreen() * (1.0f - a),
+                fg.getFloatBlue()  * a + bg.getFloatBlue()  * (1.0f - a), 1.0f);
+        };
+        auto ratio = [&lum] (juce::Colour a, juce::Colour b)
+        {
+            const float la = lum (a), lb = lum (b);
+            return (juce::jmax (la, lb) + 0.05f) / (juce::jmin (la, lb) + 0.05f);
+        };
+
+        int failures = 0;
+        printf ("%-15s %-22s %6s\n", "theme", "pair", "ratio");
+        printf ("%-15s %-22s %6s\n", "-----", "----", "-----");
+
+        for (int i = 0; i < ThemeManager::kNumThemes; ++i)
+        {
+            const auto& t = ThemeManager::themes()[(size_t) i];
+            const auto desk = t.bg2;
+            const auto card = over (t.card, desk);      // panel over the desk
+            const auto well = over (t.well, card);      // recess inside a panel
+            const auto ctl  = over (t.ctl,  desk);      // toolbar control
+
+            struct Pair { const char* what; juce::Colour fg, bg; };
+            const Pair pairs[] = {
+                { "primary/card",     t.txt,      card      },
+                { "secondary/card",   t.txt2,     card      },
+                { "tertiary/card",    t.txt3,     card      },
+                { "primary/desk",     t.txt,      desk      },
+                { "secondary/desk",   t.txt2,     desk      },
+                { "primary/well",     t.txt,      well      },
+                { "primary/control",  t.txt,      ctl       },
+                { "ink/accent",       t.onAcc,    t.acc     },
+                { "accTxt/card",      t.accTxt,   card      },
+            };
+
+            // The bare accent is measured too, but only as an ADVISORY - it is
+            // a fill colour, and every remaining use of it on a card is a
+            // shape (a marker, a tick, a dot), not a word. It fails on six
+            // skins, which is exactly why accTxt exists and why labels must
+            // use that instead. Counting it as a failure would leave this
+            // harness permanently red and teach everyone to ignore it.
+            {
+                const float r = ratio (over (t.acc, card), card);
+                if (r < 4.5f)
+                    printf ("%-15s %-22s %6.2f  advisory: fill only, never text\n",
+                            t.name.toRawUTF8(), "accent/card", r);
+            }
+
+            // The keybed letters do NOT use the keyTx / keyTxB tokens - those
+            // are declared and never read. SliceGrid builds the key colours
+            // itself (the ivory is tinted toward the accent) and derives the
+            // letter from the KEY with contrasting(), so measure that, or this
+            // harness reports on paint nobody performs.
+            const juce::Colour ivoryBot =
+                (t.dark ? juce::Colour (0xfff4f7ff) : juce::Colours::white)
+                    .interpolatedWith (t.acc, t.dark ? 0.05f : 0.03f);
+            const juce::Colour ebonyBot = juce::Colour (0xff141416);
+
+            const Pair keyPairs[] = {
+                { "keyletter/white", ivoryBot.contrasting (0.72f), ivoryBot },
+                { "keyletter/black", ebonyBot.contrasting (0.62f), ebonyBot },
+            };
+
+            std::vector<Pair> all (std::begin (pairs), std::end (pairs));
+            all.insert (all.end(), std::begin (keyPairs), std::end (keyPairs));
+
+            for (const auto& p : all)
+            {
+                const float r = ratio (over (p.fg, p.bg), p.bg);
+                // txt3 is deliberately faint decoration (a caption under a
+                // dial), so it is held to the 3:1 large-text floor; anything
+                // carrying a word the user must read gets the full 4.5.
+                const float floorFor = juce::String (p.what).startsWith ("tertiary") ? 3.0f : 4.5f;
+                if (r < floorFor)
+                {
+                    printf ("%-15s %-22s %6.2f  FAIL (needs %.1f)\n",
+                            t.name.toRawUTF8(), p.what, r, floorFor);
+                    ++failures;
+                }
+            }
+        }
+
+        printf ("\n%d failing pair(s) across %d themes.\n",
+                failures, ThemeManager::kNumThemes);
+        return failures == 0 ? 0 : 1;
+    }
 
     const auto names = VocalChopAudioProcessor::getInstrumentNames();
 

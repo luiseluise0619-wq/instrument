@@ -1,5 +1,7 @@
 #include "ThemeManager.h"
 
+#include <cmath>
+
 int ThemeManager::idx = 0; // default to Studio Violet
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,61 @@ namespace
     //==========================================================================
     // Neutral bases - the spec's full token set, one field per --token.
     //==========================================================================
+    /** WCAG relative luminance. Not Colour::getBrightness(), which is HSB
+        value - it reports pure yellow and pure blue as equally bright, and
+        the accents here run from lime to navy. */
+    float relLuminance (juce::Colour c)
+    {
+        auto ch = [] (float v)
+        {
+            return v <= 0.03928f ? v / 12.92f
+                                 : std::pow ((v + 0.055f) / 1.055f, 2.4f);
+        };
+        return 0.2126f * ch (c.getFloatRed())
+             + 0.7152f * ch (c.getFloatGreen())
+             + 0.0722f * ch (c.getFloatBlue());
+    }
+
+    float contrastRatio (juce::Colour a, juce::Colour b)
+    {
+        const float la = relLuminance (a), lb = relLuminance (b);
+        return (juce::jmax (la, lb) + 0.05f) / (juce::jmin (la, lb) + 0.05f);
+    }
+
+    /** `want` if it is legible on `bg`, otherwise `want` pushed further in the
+        direction it already leans until it clears 4.5:1.
+
+        Every theme names its own ink for text sitting on the accent, and most
+        of them are fine, but the table was never measured: Sand's ink lands at
+        3.8:1 on its own accent and Snow's at 4.3. This keeps the designed
+        colour wherever it works and only moves the ones that do not - and it
+        means a sixteenth theme cannot ship an unreadable button by accident. */
+    juce::Colour legibleOn (juce::Colour want, juce::Colour bg)
+    {
+        constexpr float kFloor = 4.5f;
+        if (contrastRatio (want, bg) >= kFloor)
+            return want;
+
+        // Toward whichever pole the ink is already nearer, so a light ink
+        // brightens and a dark ink deepens - never a light ink flipped black.
+        const juce::Colour pole = relLuminance (want) >= relLuminance (bg)
+                                      ? juce::Colours::white : juce::Colours::black;
+
+        juce::Colour best = want;
+        for (int i = 1; i <= 20; ++i)
+        {
+            const auto c = want.interpolatedWith (pole, (float) i / 20.0f);
+            best = c;
+            if (contrastRatio (c, bg) >= kFloor)
+                return c;
+        }
+        // Nothing on that side cleared it (a mid-luminance accent). Take the
+        // better pole outright rather than returning something unreadable.
+        return contrastRatio (juce::Colours::white, bg)
+                   >= contrastRatio (juce::Colours::black, bg)
+               ? juce::Colours::white : juce::Colours::black;
+    }
+
     struct Base
     {
         juce::uint32 bg1, bg2;
@@ -395,7 +452,7 @@ namespace
         t.shK     = tk (b.shK,     w.shK);
 
         t.acc   = acc;
-        t.onAcc = juce::Colour (s.ink);
+        t.onAcc = legibleOn (juce::Colour (s.ink), acc);
 
         // Derived accents - computed, never hand-picked. Note these mix into
         // the TINTED bg2 / sep / txt, exactly as the CSS does: the vars they
@@ -503,7 +560,11 @@ namespace
         b.sep3   = 0x403aa0ff;
         b.txt    = 0xffeafcff;   // unchanged
         b.txtB   = 0xffbfe6f5;
-        b.txt2   = 0xb03aa0ff;   // unchanged (was textSecondary)
+        // Alpha lifted from b0. Same blue, same skin - but at b0 it measured
+        // 3.71:1 on this theme's card and 3.93 on the desk, so every secondary
+        // label here (the sub-captions under the module headers) sat under the
+        // 4.5 floor. d8 lands at 4.9 and nothing else about the look moves.
+        b.txt2   = 0xd83aa0ff;
         b.txt3   = 0xa03aa0ff;
         b.txt4   = 0x8f3aa0ff;
         b.knobT  = 0xff0c1233;   // unchanged (was control)
