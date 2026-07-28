@@ -72,7 +72,8 @@ private:
 
     // Draws a small section caption above a card's content.
     void drawCaption (juce::Graphics&, const juce::String& text,
-                      juce::Rectangle<int> cardBounds) const;
+                      juce::Rectangle<int> cardBounds,
+                      const juce::String& subtitle = {}) const;
 
     VocalChopAudioProcessor& processor;
 
@@ -121,6 +122,42 @@ private:
     // hidden - the segments drive them, so host automation and every saved
     // session keep working.
     SegmentedControl sliceModeSeg, waveSeg;
+
+    /** The up/down badge that sits beside every pop-up field in the spec.
+        Two 1px-apart arrows that step the combo without opening it - the
+        difference between changing a preset and hunting for one. */
+    struct StepperBadge : juce::Component
+    {
+        juce::TextButton up { "+" }, down { "-" };
+        StepperBadge()
+        {
+            up.setConnectedEdges (juce::Button::ConnectedOnBottom);
+            down.setConnectedEdges (juce::Button::ConnectedOnTop);
+            addAndMakeVisible (up);
+            addAndMakeVisible (down);
+        }
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            up.setBounds (r.removeFromTop (r.getHeight() / 2));
+            down.setBounds (r);
+        }
+        /** Wires the pair to a combo, wrapping at both ends. */
+        void attach (juce::ComboBox& box)
+        {
+            auto step = [&box] (int d)
+            {
+                const int n = box.getNumItems();
+                if (n <= 0) return;
+                const int i = ((box.getSelectedItemIndex() + d) % n + n) % n;
+                box.setSelectedItemIndex (i, juce::sendNotificationSync);
+            };
+            up.onClick   = [step] { step (+1); };
+            down.onClick = [step] { step (-1); };
+        }
+    };
+    StepperBadge presetStep, themeStep, arpModeStep, arpRateStep, arpOctStep,
+                 pumpRateStep, playModeStep, delaySyncStep;
     juce::ComboBox sliceModeBox;
     juce::ComboBox gridBox;
     juce::ComboBox synthWaveBox;   // Saw / Square / Sine / Triangle

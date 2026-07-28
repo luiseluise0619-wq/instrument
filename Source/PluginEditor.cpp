@@ -643,6 +643,28 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     };
     addAndMakeVisible (themeBox);
 
+    // Spec 4.1 / 4.5: every pop-up field carries a stepper. Stepping is what
+    // people actually do with these - you audition presets and themes by
+    // walking them, and opening a menu for each step makes that unbearable.
+    {
+        // Only the two toolbar fields. The spec puts a stepper on every pop-up,
+        // and on the inner cards there is no width for one: a 17px badge on an
+        // 80px Arp field left the combo showing "..." for every value. A
+        // stepper you can use next to a value you cannot read is a bad trade,
+        // and these are also the two fields people actually WALK - you
+        // audition presets and themes by stepping them.
+        struct Pair { StepperBadge* badge; juce::ComboBox* box; };
+        const Pair pairs[] = {
+            { &presetStep, &presetBox }, { &themeStep, &themeBox } };
+        for (const auto& p : pairs)
+        {
+            p.badge->attach (*p.box);
+            p.badge->up.setTooltip ("Next");
+            p.badge->down.setTooltip ("Previous");
+            addAndMakeVisible (*p.badge);
+        }
+    }
+
     // --- Load button ---
     loadButton.onClick = [this] { openFileChooser(); };
     addAndMakeVisible (loadButton);
@@ -2055,7 +2077,8 @@ void VocalChopAudioProcessorEditor::drawStripCaptions (juce::Graphics& g) const
 
 void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
                                                  const juce::String& text,
-                                                 juce::Rectangle<int> cardBounds) const
+                                                 juce::Rectangle<int> cardBounds,
+                                                 const juce::String& subtitle) const
 {
     if (cardBounds.isEmpty())
         return;
@@ -2080,7 +2103,22 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
     g.setColour (theme.textSecondary);
     g.setFont (juce::Font (juce::FontOptions (12.5f).withStyle ("Semibold"))
                    .withExtraKerningFactor (-0.01f));
-    g.drawText (text, strip.withTrimmedLeft (9), juce::Justification::centredLeft);
+    auto textArea = strip.withTrimmedLeft (9);
+    if (subtitle.isNotEmpty())
+    {
+        // A panel title says WHAT it is; the second line says what it does.
+        // "Synth" and "Synth / 7-voice unison, formant bank" are different
+        // amounts of help, and the second one costs a line.
+        const int w = juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), text);
+        g.drawText (text, textArea.removeFromLeft (w + 2),
+                    juce::Justification::centredLeft);
+        g.setColour (theme.textSecondary.withAlpha (0.62f));
+        g.setFont (juce::Font (juce::FontOptions (10.5f)));
+        g.drawText (subtitle, textArea.withTrimmedLeft (10),
+                    juce::Justification::centredLeft, false);
+        return;
+    }
+    g.drawText (text, textArea, juce::Justification::centredLeft);
 }
 
 void VocalChopAudioProcessorEditor::paintOverContent (juce::Graphics& g)
@@ -2243,13 +2281,13 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
             const int e = juce::jlimit (0, 3, engineBox.getSelectedItemIndex());
             drawCaption (g, ctxName[e], contextCardBounds);
         }
-        drawCaption (g, "Macros",     macroCardBounds);
+        drawCaption (g, "Macros",     macroCardBounds, "whole patch");
         drawCaption (g, "Envelope",   envCardBounds);
         drawCaption (g, "Pitch / Tone", toneCardBounds);
-        drawCaption (g, "Synth",      synthCardBounds);
+        drawCaption (g, "Synth",      synthCardBounds, "unison + formants");
         drawCaption (g, "Filter",     filterCardBounds);
         drawCaption (g, "Playback",   playbackCardBounds);
-        drawCaption (g, "Arp / Pump", arpCardBounds);
+        drawCaption (g, "Arp / Pump", arpCardBounds, "host-locked");
         drawCard    (g, scopeCardBounds.toFloat());
         drawCaption (g, "Scope",      scopeCardBounds);
 
@@ -2324,13 +2362,21 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // Right-aligned: help, theme, load, demo, preset combo, preset label.
     helpButton.setBounds (top.removeFromRight (34).withSizeKeepingCentre (34, 34));
     top.removeFromRight (kGap / 2);
-    themeBox.setBounds (top.removeFromRight (128).withSizeKeepingCentre (128, 34));
+    {
+        auto cell = top.removeFromRight (128 + 20).withSizeKeepingCentre (148, 34);
+        themeStep.setBounds (cell.removeFromRight (20).reduced (2, 3));
+        themeBox.setBounds (cell);
+    }
     top.removeFromRight (kGap / 2);
     loadButton.setBounds (top.removeFromRight (112).withSizeKeepingCentre (112, 34));
     top.removeFromRight (kGap / 2);
     demoButton.setBounds (top.removeFromRight (94).withSizeKeepingCentre (94, 34));
     top.removeFromRight (kGap / 2);
-    presetBox.setBounds (top.removeFromRight (136).withSizeKeepingCentre (136, 34));
+    {
+        auto cell = top.removeFromRight (136 + 20).withSizeKeepingCentre (156, 34);
+        presetStep.setBounds (cell.removeFromRight (20).reduced (2, 3));
+        presetBox.setBounds (cell);
+    }
     presetLabel.setBounds (top.removeFromRight (46).withSizeKeepingCentre (46, 34));
     top.removeFromRight (kGap / 2);
     looperTabButton.setBounds (top.removeFromRight (78).withSizeKeepingCentre (78, 34));
@@ -2451,6 +2497,15 @@ void VocalChopAudioProcessorEditor::layoutContent()
             octDownButton.setVisible (showOct);
             octUpButton.setVisible   (showOct);
             octLabel.setVisible      (showOct);
+
+            // Only ONE of these is laid out per engine, so the other keeps
+            // whatever bounds it had last time and paints straight through the
+            // one that belongs here - "Saw Square Sine Tri" and "Transient
+            // Beats" drawn on top of each other. The combos this replaced were
+            // dimmed rather than hidden, which hid the same bug behind an
+            // alpha. Visibility has to be driven, not inherited.
+            sliceModeSeg.setVisible (chop);
+            waveSeg.setVisible      (synth);
 
             if (chop)
             {
@@ -2601,7 +2656,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
             arpRateBox.setBounds (captioned (row1.reduced (2, 0), "Arp rate"));
 
             auto row2 = grid.removeFromBottom (cellH);
-            arpOctBox.setBounds   (captioned (row2.removeFromLeft (row2.getWidth() / 2)
+            arpOctBox.setBounds (captioned (row2.removeFromLeft (row2.getWidth() / 2)
                                                   .reduced (2, 0), "Octaves"));
             pumpRateBox.setBounds (captioned (row2.reduced (2, 0), "Pump rate"));
 
@@ -2698,15 +2753,13 @@ void VocalChopAudioProcessorEditor::layoutContent()
             inner.removeFromRight (kGap);
 
             auto controlsCol = inner;
-            playModeBox.setBounds    (captioned (controlsCol.removeFromTop (btnH + 12),
-                                                 "Keys")
-                                          .withSizeKeepingCentre (
-                                              juce::jmin (200, controlsCol.getWidth()), btnH));
+            playModeBox.setBounds (captioned (controlsCol.removeFromTop (btnH + 12), "Keys")
+                                       .withSizeKeepingCentre (
+                                           juce::jmin (200, controlsCol.getWidth()), btnH));
             controlsCol.removeFromTop (3);
-            delaySyncBox.setBounds   (captioned (controlsCol.removeFromTop (btnH + 12),
-                                                 "Delay sync")
-                                          .withSizeKeepingCentre (
-                                              juce::jmin (200, controlsCol.getWidth()), btnH));
+            delaySyncBox.setBounds (captioned (controlsCol.removeFromTop (btnH + 12), "Delay sync")
+                                        .withSizeKeepingCentre (
+                                            juce::jmin (200, controlsCol.getWidth()), btnH));
         }
     }
 
