@@ -192,6 +192,71 @@ void WaveformView::moveMarker (int index, float frac)
     engine.sliceByManual (points);
 }
 
+void WaveformView::addMarkerAt (float frac)
+{
+    auto sample = proc.getLoadedSample();
+    if (sample == nullptr || sample->getNumSamples() == 0)
+        return;
+
+    auto& engine = proc.getSliceEngine();
+    const int total = sample->getNumSamples();
+    const int at    = juce::jlimit (0, total - 1, (int) (frac * (float) total));
+    const int gap   = juce::jmax (64, total / 2000);
+
+    std::vector<int> points;
+    points.reserve (engine.getSlices().size() + 1);
+    for (const auto& sl : engine.getSlices())
+        points.push_back (sl.startSample);
+
+    // Refuse a cut that would sit on top of an existing one - two markers a
+    // handful of samples apart is a slice nobody can hear or grab.
+    for (int p : points)
+        if (std::abs (p - at) < gap)
+            return;
+
+    points.push_back (at);
+    std::sort (points.begin(), points.end());
+    engine.sliceByManual (points);
+}
+
+void WaveformView::removeMarker (int index)
+{
+    auto& engine = proc.getSliceEngine();
+    const auto& slices = engine.getSlices();
+    // Never the first: slice 0 starts where the audio does.
+    if (index <= 0 || index >= (int) slices.size() || slices.size() <= 2)
+        return;
+
+    std::vector<int> points;
+    points.reserve (slices.size() - 1);
+    for (int i = 0; i < (int) slices.size(); ++i)
+        if (i != index)
+            points.push_back (slices[(size_t) i].startSample);
+
+    engine.sliceByManual (points);
+}
+
+void WaveformView::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    // Double-click to CUT, double-click a cut to remove it. Until now the only
+    // way to add a slice was to re-run the whole detector at a different
+    // sensitivity, which throws away every marker you had already placed.
+    if (! editableNow())
+        return;
+
+    const int m = markerNear (e.position.x);
+    if (m > 0) removeMarker (m);
+    else       addMarkerAt (fracAt (e.position.x));
+
+    // The key mapping and the grid below both follow the slice list.
+    // Same notification the marker drag uses: the key mapping and the grid
+    // below both have to follow a changed slice list.
+    refresh();
+    if (onSampleDropped != nullptr)
+        onSampleDropped();
+    repaint();
+}
+
 void WaveformView::mouseMove (const juce::MouseEvent& e)
 {
     if (! editableNow()) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }

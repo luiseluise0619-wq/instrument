@@ -325,6 +325,12 @@ void VoicePool::releaseVoice (int voiceIndex)
         voices[(size_t) voiceIndex].release();
 }
 
+void VoicePool::chokeVoice (int voiceIndex)
+{
+    if (voiceIndex >= 0 && voiceIndex < kMaxVoices)
+        voices[(size_t) voiceIndex].hardStop();
+}
+
 void VoicePool::releaseAll()
 {
     for (auto& v : voices)

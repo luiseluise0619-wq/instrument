@@ -82,6 +82,11 @@ public:
     void pressSlicePad (int sliceIndex, float velocity = 0.9f);
     void releaseSlicePad (int sliceIndex);
 
+    /** Stop a pad NOW rather than entering its release stage. Used when the
+        player moves to another note: on a pad or a bell, a natural release
+        means the previous note is still sounding under the new one. */
+    void chokeSlicePad (int sliceIndex);
+
     /** Live output level (0..1, peak-ish) for the UI meter. */
     std::atomic<float>& getOutputLevelRef() { return outputLevel; }
 
@@ -369,7 +374,7 @@ private:
 
     // Lock-free queue of key/pad hits (message thread -> audio thread).
     // Generous size: a dropped note-off would leave a note stuck on.
-    enum PadEvent { padTap = 0, padOn = 1, padOff = 2 };
+    enum PadEvent { padTap = 0, padOn = 1, padOff = 2, padChoke = 3 };
     juce::AbstractFifo padFifo { 256 };
     std::array<int, 256>   padQueue {};
     std::array<float, 256> padQueueVel {};

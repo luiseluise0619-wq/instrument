@@ -469,6 +469,109 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--reverb": how much does the reverb knob actually add?
+    //
+    // The complaint was that it is too strong. That is measurable: play the
+    // same note at several settings and compare the level during the note and
+    // how long the tail rings after note-off. A wet path that is ADDED to the
+    // dry signal rather than mixed with it makes the whole patch louder as you
+    // turn it up, which is what "too strong" feels like from the outside.
+    if (argc > 1 && juce::String (argv[1]) == "--reverb")
+    {
+        proc.applyInstrument (juce::jmax (0, names.indexOf ("Royal Grand")));
+        const float amounts[] = { 0.0f, 0.10f, 0.25f, 0.50f, 1.0f };
+        printf ("%-8s %9s %9s %9s\n", "reverb", "note rms", "tail s", "vs dry dB");
+        double dryRms = 0.0;
+        for (float a : amounts)
+        {
+            if (auto* r = proc.getAPVTS().getParameter ("reverb"))
+                r->setValueNotifyingHost (r->convertTo0to1 (a));
+            for (int b = 0; b < 60; ++b)   // let the tail flush between takes
+            { juce::AudioBuffer<float> z (2, 512); juce::MidiBuffer m; z.clear();
+              proc.processBlock (z, m); }
+
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 60, 0.9f), 0);
+            std::vector<float> mono;
+            for (int b = 0; b < 260; ++b)
+            {
+                buf.clear(); proc.processBlock (buf, midi); midi.clear();
+                if (b == 60) midi.addEvent (juce::MidiMessage::noteOff (1, 60), 0);
+                for (int i = 0; i < 512; ++i)
+                    mono.push_back (0.5f * (buf.getSample (0, i) + buf.getSample (1, i)));
+            }
+            const size_t noteEnd = 60 * 512;
+            double sq = 0.0; float pk = 0.0f;
+            for (size_t i = 0; i < noteEnd; ++i) { sq += (double) mono[i] * mono[i]; }
+            for (float v : mono) pk = juce::jmax (pk, std::abs (v));
+            const double rms = std::sqrt (sq / (double) noteEnd);
+            if (a == 0.0f) dryRms = rms;
+
+            size_t last = noteEnd;
+            for (size_t i = noteEnd; i < mono.size(); ++i)
+                if (std::abs (mono[i]) > pk * 0.01f) last = i;
+            printf ("%-8.2f %9.4f %9.2f %9.2f\n", a, rms,
+                    (double) (last - noteEnd) / 44100.0,
+                    20.0 * std::log10 ((rms + 1e-9) / (dryRms + 1e-9)));
+        }
+        return 0;
+    }
+
+    // "--extremes": does anything break at the bottom and top of the keyboard?
+    //
+    // Asked directly, and worth answering with numbers: a synth that is fine in
+    // the middle can go silent, alias into noise, or produce NaN at the ends,
+    // and none of that shows up in a test that only ever plays C4.
+    if (argc > 1 && juce::String (argv[1]) == "--extremes")
+    {
+        const int notes[] = { 0, 12, 24, 36, 60, 84, 96, 108, 120, 127 };
+        printf ("%-22s %5s %8s %8s %6s %6s\n",
+                "instrument", "note", "peak", "rms", "nan", "clip");
+        int bad = 0;
+        // A spread across the categories rather than all 403 - this is about
+        // the pitch extremes, not the catalogue.
+        const char* probe[] = { "Supersaw Lead", "Royal Grand", "Sub 808", "Glass Bell",
+                                "Vox Choir", "Drum Kit", "Syn Nylon", "Big Pad" };
+        for (const char* nm : probe)
+        {
+            const int idx = names.indexOf (nm);
+            if (idx < 0) continue;
+            proc.applyInstrument (idx);
+
+            for (int note : notes)
+            {
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.95f), 0);
+                float pk = 0.0f; double sq = 0.0; long n = 0;
+                bool nan = false; int clipped = 0;
+                for (int b = 0; b < 70; ++b)
+                {
+                    buf.clear(); proc.processBlock (buf, midi); midi.clear();
+                    if (b == 30) midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+                    for (int i = 0; i < 512; ++i)
+                        for (int ch = 0; ch < 2; ++ch)
+                        {
+                            const float v = buf.getSample (ch, i);
+                            if (! std::isfinite (v)) nan = true;
+                            if (std::abs (v) > 1.0f) ++clipped;
+                            pk = juce::jmax (pk, std::abs (v));
+                            sq += (double) v * v; ++n;
+                        }
+                }
+                const double rms = std::sqrt (sq / (double) juce::jmax (1L, n));
+                const bool problem = nan || clipped > 0;
+                if (problem) ++bad;
+                if (problem || (argc > 2 && juce::String (argv[2]) == "-v"))
+                    printf ("%-22s %5d %8.4f %8.4f %6s %6d\n", nm, note, pk, rms,
+                            nan ? "NaN" : "-", clipped);
+            }
+        }
+        printf ("\n%d instrument/note combinations produced NaN or clipping\n", bad);
+        return bad == 0 ? 0 : 1;
+    }
+
     // "--genres": do the genre banks hold up?
     //
     // The banks are 400 hand-written name strings pointing into a catalogue

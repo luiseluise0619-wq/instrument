@@ -51,8 +51,13 @@ int SliceGrid::keySpan() const
 {
     // Synth mode: a three-octave keyboard (every key makes sound); the
     // OCT -/+ buttons shift the whole instrument a further +-2 octaves.
+    // FOUR octaves, not three. At 36 semitones a white key came out about 53px
+    // wide on this canvas - nearly an inch, which reads as a toy rather than a
+    // keyboard. 48 puts 28 white keys across the same width at about 26px,
+    // close to the proportion of a real keybed, and gives the top row of the
+    // computer keyboard somewhere to land.
     if (proc.isSynthMode())
-        return 36;
+        return 48;
 
     // Chop mode: whole octaves, at least one, enough to cover every slice.
     // Slices sit on WHITE keys now (do-re-mi = cut order), so one octave
@@ -60,7 +65,9 @@ int SliceGrid::keySpan() const
     // keys get too small to click; slices past the cap stay reachable via
     // MIDI, and the engine wraps out-of-range keys anyway.
     const int numSlices = proc.getSliceEngine().getNumSlices();
-    const int octaves   = juce::jlimit (1, 5, (numSlices + 6) / 7);
+    // At least TWO octaves even for a handful of slices, for the same reason:
+    // one octave of white keys across the full width is not a keyboard.
+    const int octaves   = juce::jlimit (2, 5, (numSlices + 6) / 7);
     return octaves * 12;
 }
 
@@ -459,8 +466,12 @@ void SliceGrid::pressKey (int key, juce::Point<float> position)
     // gated — it sounds until the mouse button is released, like a real key.
     // Only one mouse-held key is tracked, so a second press (multi-touch)
     // must let go of the first or its note would never receive a release.
+    // CHOKE the old key, do not release it. A release runs the instrument's
+    // release stage, so on a pad or a bell the note you just left is still
+    // sounding under the one you moved to. Clicking a different note should
+    // stop the previous one, which is what "stop" means to a player.
     if (pressedKey >= 0 && pressedKey != key)
-        proc.releaseSlicePad (pressedKey);
+        proc.chokeSlicePad (pressedKey);
 
     proc.pressSlicePad (key, velocity);
     pressedKey = key;
@@ -490,7 +501,7 @@ void SliceGrid::mouseDrag (const juce::MouseEvent& e)
         return;
 
     if (pressedKey >= 0)
-        proc.releaseSlicePad (pressedKey);
+        proc.chokeSlicePad (pressedKey);
     pressedKey = -1;
 
     pressKey (key, e.position);

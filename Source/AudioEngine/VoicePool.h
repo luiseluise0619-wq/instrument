@@ -107,6 +107,12 @@ public:
         or -1 if the trigger was dropped. */
     int  triggerVoice (int startSample, int lengthSamples, float velocity);
     void releaseVoice (int voiceIndex);
+
+    /** Cuts a voice in a few milliseconds instead of letting its release
+        stage run. Releasing a pad with a 900 ms tail does not "stop" it in any
+        sense the player recognises - they clicked another note and the old one
+        was still ringing. */
+    void chokeVoice (int voiceIndex);
     void releaseAll();
     void stopAll();    // All Sound Off (hard-stops one-shot voices too)
     void renderNextBlock (juce::AudioBuffer<float>& out, int numSamples);

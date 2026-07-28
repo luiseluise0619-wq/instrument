@@ -2782,21 +2782,26 @@ void VocalChopAudioProcessorEditor::layoutContent()
             // row into the row beside Synth (spec 4.5 row 2), and a fixed
             // reservation left 31px for two dials - they rendered as nothing
             // under their labels.
-            auto comboRow = inner.removeFromBottom (
-                                juce::jlimit (30, 46, inner.getHeight() * 2 / 5));
-            // The field can only be as tall as what is left after its caption.
-            // A fixed 32 overflowed upward into the caption on a short card.
-            filterTypeBox.setBounds (captioned (comboRow, "Type")
+            // SIDE BY SIDE, not stacked. This card is wide and short - in row
+            // two it is about 264x94 - and stacking the type field under the
+            // dials left them roughly 50px of height each, which KnobComponent
+            // draws as its "mini" dial: a 14px dot with a label under it. The
+            // card has plenty of WIDTH; it just has no height to spare.
+            auto comboCol = inner.removeFromRight (
+                                juce::jlimit (96, 130, inner.getWidth() * 2 / 5));
+            inner.removeFromRight (kGap / 2);
+            filterTypeBox.setBounds (captioned (comboCol.withSizeKeepingCentre (
+                                                    comboCol.getWidth(),
+                                                    juce::jmin (comboCol.getHeight(), 46)), "Type")
                                          .withSizeKeepingCentre (
-                                             juce::jmin (220, comboRow.getWidth()),
-                                             juce::jmax (18, comboRow.getHeight() - kCaptionH)));
-            inner.removeFromBottom (kGap / 2);
+                                             comboCol.getWidth(),
+                                             juce::jmax (20, juce::jmin (comboCol.getHeight(), 46) - kCaptionH)));
 
             KnobComponent* fk[] = { filterCutoffKnob.get(), filterResoKnob.get() };
             const int w = inner.getWidth() / 2;
             for (auto* k : fk)
                 if (k != nullptr)
-                    k->setBounds (inner.removeFromLeft (w).reduced (6, 0));
+                    k->setBounds (inner.removeFromLeft (w).reduced (4, 0));
         }
 
         // Playback: toggles + play mode combo on the left, output knob on the right.

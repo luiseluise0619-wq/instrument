@@ -56,6 +56,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp   (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
 
@@ -77,6 +78,8 @@ private:
     // markers were previously the one thing on screen that looked adjustable
     // and was not.
     int  markerNear (float x) const;    // index of a marker within grab range, or -1
+    void addMarkerAt (float frac);      // double-click: cut here
+    void removeMarker (int index);      // double-click ON a marker: uncut
     int  sliceAtFrac (float frac) const;
     void moveMarker (int index, float frac);
     float xOfFrac (float frac) const;

@@ -68,8 +68,11 @@ void ReverbFX::prepare (const juce::dsp::ProcessSpec& spec)
 
     // Wet-only inside the reverb; we do the mixing ourselves.
     juce::dsp::Reverb::Parameters p;
-    p.roomSize = 0.68f;
-    p.damping  = 0.35f;
+    // Smaller and darker than it was (0.68 / 0.35). At the old setting even a
+    // quarter turn put a 0.9 s tail on every note, which is a hall, not an
+    // instrument's own space.
+    p.roomSize = 0.56f;
+    p.damping  = 0.48f;
     p.wetLevel = 1.0f;
     p.dryLevel = 0.0f;
     p.width    = 1.0f;
@@ -140,9 +143,24 @@ void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
     juce::dsp::ProcessContextReplacing<float> ctx (block);
     reverb.process (ctx);
 
-    // High-pass the wet return and mix it in; the dry path stays untouched.
+    // A MIX, not a send.
+    //
+    // This used to be `out[n] += wet * amount * 0.85`, with the dry path left
+    // alone. Adding a wet signal on top of an untouched dry one means turning
+    // the knob up makes the whole patch LOUDER - measured at +6.2 dB against
+    // dry at full - so "more reverb" and "more volume" were the same gesture
+    // and the reverb could never sit behind anything. That is what "why is the
+    // reverb so strong" is describing.
+    //
+    // Equal-power crossfade instead, with the dry deliberately not going all
+    // the way out: this is an instrument's own space, not a send bus, and a
+    // fully-wet chop is not a sound anyone asked for. The wet ceiling of 0.62
+    // is set so full wet measures within about a dB of dry.
     smoothedAmount.skip (numSamples);
-    const float wetGain = smoothedAmount.getCurrentValue() * 0.85f;
+    const float amt     = smoothedAmount.getCurrentValue();
+    const float halfPi  = juce::MathConstants<float>::halfPi;
+    const float wetGain = std::sin (amt * halfPi) * 0.62f;
+    const float dryGain = std::cos (amt * halfPi * 0.55f);
 
     for (int ch = 0; ch < numChannels; ++ch)
     {
@@ -153,7 +171,7 @@ void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
         for (int n = 0; n < numSamples; ++n)
         {
             state += hpCoeff * (wet[n] - state);
-            out[n] += (wet[n] - state) * wetGain;
+            out[n] = out[n] * dryGain + (wet[n] - state) * wetGain;
         }
         hpState[ch] = state;
     }

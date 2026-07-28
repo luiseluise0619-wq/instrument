@@ -923,6 +923,11 @@ void VocalChopAudioProcessor::releaseSlicePad (int sliceIndex)
     queuePadEvent (sliceIndex, 0.0f, padOff);
 }
 
+void VocalChopAudioProcessor::chokeSlicePad (int sliceIndex)
+{
+    queuePadEvent (sliceIndex, 0.0f, padChoke);
+}
+
 void VocalChopAudioProcessor::drainPadQueue()
 {
     int start1, size1, start2, size2;
@@ -934,16 +939,37 @@ void VocalChopAudioProcessor::drainPadQueue()
     {
         const int note = kRootNote + idx;   // same key mapping as MIDI
 
-        if (type == padOff)
+        if (type == padOff || type == padChoke)
         {
             if (juce::isPositiveAndBelow (note, 128))
                 arpHeld[(size_t) note] = false;
 
-            routeNoteOff (note);
+            // A choke cuts the voice in ~1.5 ms instead of running its release
+            // stage. On a pad with a 900 ms tail, "released" and "stopped" are
+            // not the same thing to anyone listening - they clicked the next
+            // note and the last one was still there under it.
+            const bool choke = (type == padChoke);
+
+            if (choke)
+            {
+                if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
+                {
+                    voicePool.chokeVoice (noteToVoice[(size_t) note]);
+                    noteToVoice[(size_t) note] = -1;
+                }
+                synthEngine.noteOff (note);
+                melodyEngine.noteOff (note);
+                samplerEngine.noteOff (note);
+            }
+            else
+            {
+                routeNoteOff (note);
+            }
 
             if (juce::isPositiveAndBelow (idx, 128) && padKeyToVoice[(size_t) idx] >= 0)
             {
-                voicePool.releaseVoice (padKeyToVoice[(size_t) idx]);
+                if (choke) voicePool.chokeVoice   (padKeyToVoice[(size_t) idx]);
+                else       voicePool.releaseVoice (padKeyToVoice[(size_t) idx]);
                 padKeyToVoice[(size_t) idx] = -1;
             }
             return;

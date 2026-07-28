@@ -196,15 +196,27 @@ namespace
     Base makeLightBase()
     {
         Base b {};
-        b.bg1    = 0xfff6f3ef;   // #f6f3ef
-        b.bg2    = 0xffe7e2dc;   // #e7e2dc
+        // DELIBERATE DEVIATION from §2, the second one in this file.
+        //
+        // The spec's light ground is #f6f3ef -> #e7e2dc, a warm paper beige.
+        // Asked for something more premium, and in this category premium reads
+        // COOLER and cleaner - beige reads as vintage or as a document, not as
+        // a mastering-grade instrument. This is a near-white with a faint blue
+        // cast, which is what the expensive plugins and the hardware they are
+        // imitating actually look like.
+        //
+        // The translucency model is untouched: cards are still white at 42%
+        // over the desk, so the accent tint still arrives from underneath and
+        // every theme still reads as its own room.
+        b.bg1    = 0xfffcfcfd;   // near-white, faint cool cast (spec #f6f3ef)
+        b.bg2    = 0xffeceef2;   // (spec #e7e2dc)
         b.mat1   = 0x8cffffff;   // rgba(255,255,255,.55)
         b.mat2   = 0x5cffffff;   // rgba(255,255,255,.36)
         b.matA1  = 0x99ffffff;   // rgba(255,255,255,.60) [HTML only]
         b.matA2  = 0x66ffffff;   // rgba(255,255,255,.40) [HTML only]
         b.card   = 0x6bffffff;   // rgba(255,255,255,.42)
         b.cardA  = 0x85ffffff;   // rgba(255,255,255,.52)
-        b.cardBd = 0x12000000;   // rgba(0,0,0,.07)
+        b.cardBd = 0x17000f1e;   // slightly deeper and cooler than rgba(0,0,0,.07)
         b.hi     = 0xd9ffffff;   // rgba(255,255,255,.85)
         b.ctl    = 0x9effffff;   // rgba(255,255,255,.62)
         b.ctlBd  = 0x1a000000;   // rgba(0,0,0,.10)
@@ -212,7 +224,7 @@ namespace
         b.well2  = 0x0e000000;   // rgba(0,0,0,.055)      [HTML only]
         b.well3  = 0x0f000000;   // rgba(0,0,0,.06)       [HTML only]
         b.wellT  = 0x9effffff;   // rgba(255,255,255,.62) [HTML only]
-        b.sep    = 0x1a000000;   // rgba(0,0,0,.10)
+        b.sep    = 0x1f000c19;   // deeper than rgba(0,0,0,.10) - see bg1
         b.sep2   = 0x14000000;   // rgba(0,0,0,.08)       [HTML only]
         b.sep3   = 0x12000000;   // rgba(0,0,0,.07)       [HTML only]
         b.txt    = 0xff1a1a1d;   // #1a1a1d
