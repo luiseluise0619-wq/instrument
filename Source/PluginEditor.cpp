@@ -2720,21 +2720,36 @@ void VocalChopAudioProcessorEditor::layoutContent()
         arpCardBounds = arpCard;
         bottomCards.removeFromLeft (gap);
         {
-            // A 2x2 combo grid over a two-dial row. The dials keep whatever
-            // height is left, so the card degrades gracefully when the window
-            // is scaled down rather than collapsing them to nothing.
             auto inner = arpCard.reduced (kPadding - 4, kPadding - 4);
             inner.removeFromTop (kCaptionH);
 
-            // Take the grid's share FIRST, then derive the cell height from
-            // it. It used to be the other way round - a cell height picked
-            // from a constant, two of them removed from a grid that turned out
-            // smaller - so on a short card removeFromTop and removeFromBottom
-            // overlapped and the octave field was drawn half inside the row
-            // above it. A row can only be as tall as the space it was given.
-            auto grid = inner.removeFromTop (inner.getHeight() * 55 / 100);
-            const int cellH  = grid.getHeight() / 2;
-            const int comboH = juce::jlimit (16, 28, cellH - 11);
+            // SIDE BY SIDE, not a grid stacked over a dial row - the same fix
+            // the Filter card needed, for the same reason. This row is wide
+            // and short (about 392x137). Splitting its ~89px of inner height
+            // between a 2x2 grid and a dial row left the dials 39px tall, and
+            // KnobComponent switches to its mini rendering below 48 - a 14px
+            // dot with a label under it. It also left the four combos 12px
+            // tall, which is a text box with no text box around it. Width is
+            // the one thing this card has spare, so spend that instead: the
+            // dials take a column at the card's FULL inner height and the grid
+            // takes what is left, also at full height.
+            auto dialCol = inner.removeFromRight (
+                               juce::jlimit (108, 152, inner.getWidth() * 2 / 5));
+            inner.removeFromRight (kGap / 2);
+            {
+                KnobComponent* ak[] = { arpGateKnob.get(), pumpKnob.get() };
+                const int aw = dialCol.getWidth() / 2;
+                for (auto* k : ak)
+                    if (k != nullptr)
+                        k->setBounds (dialCol.removeFromLeft (aw).reduced (4, 0));
+            }
+
+            // Derive the cell from the space the grid actually got, never from
+            // a constant. Picking a cell height first and removing two of them
+            // from a shorter grid is what once drew the octave field half
+            // inside the row above it.
+            auto grid = inner;
+            const int cellH = grid.getHeight() / 2;
 
             auto row1 = grid.removeFromTop (cellH);
             arpModeBox.setBounds (captioned (row1.removeFromLeft (row1.getWidth() / 2)
@@ -2745,14 +2760,6 @@ void VocalChopAudioProcessorEditor::layoutContent()
             arpOctBox.setBounds (captioned (row2.removeFromLeft (row2.getWidth() / 2)
                                                   .reduced (2, 0), "Octaves"));
             pumpRateBox.setBounds (captioned (row2.reduced (2, 0), "Pump rate"));
-
-            juce::ignoreUnused (comboH);
-            inner.removeFromTop (2);
-            KnobComponent* ak[] = { arpGateKnob.get(), pumpKnob.get() };
-            const int aw = inner.getWidth() / 2;
-            for (auto* k : ak)
-                if (k != nullptr)
-                    k->setBounds (inner.removeFromLeft (aw).reduced (6, 0));
         }
 
         // HYPE / SPACE / DIRT are the "make it sound better" controls, meant
@@ -2809,43 +2816,50 @@ void VocalChopAudioProcessorEditor::layoutContent()
             auto inner = playbackCard.reduced (kPadding, kPadding - 4);
             inner.removeFromTop (kCaptionH);
 
-            // The two switches take the FULL card width, before the knob
-            // column is carved off. They used to share a narrow left column
-            // with the combos, which was fine for a 25px tick box - but a
-            // macOS switch is 38px wide, and the labels no longer fitted:
-            // they rendered as "Revers" and "Ping-P". A clipped word reads as
-            // a broken build.
-            const int btnH = juce::jlimit (18, 26, (inner.getHeight() - 24) / 4 - 2);
-            reverseButton.setBounds  (inner.removeFromTop (btnH));
-            inner.removeFromTop (2);
-            pingpongButton.setBounds (inner.removeFromTop (btnH));
-            inner.removeFromTop (3);
-
-            auto knobCol = inner.removeFromRight (juce::jmin (192, inner.getWidth() / 2));
+            // THREE COLUMNS, nothing stacked. Switches above fields above
+            // dials was three things sharing 89px: the dials came out 39px
+            // (mini rendering), the two fields 12px, and the switches were
+            // fine only because they are the shortest of the three. Across
+            // instead of down - this card is the widest in the row.
+            auto knobCol = inner.removeFromRight (
+                               juce::jlimit (108, 160, inner.getWidth() / 3));
+            inner.removeFromRight (kGap / 2);
             {
-                const int band = juce::jlimit (juce::jmin (48, knobCol.getHeight()),
-                                               juce::jmax (1, knobCol.getHeight()),
-                                               knobCol.getWidth() / 2 - 12 + 30);
-                knobCol = knobCol.withSizeKeepingCentre (knobCol.getWidth(), band);
+                const int kw = knobCol.getWidth() / 2;
+                if (grainMixKnob != nullptr)
+                    grainMixKnob->setBounds (knobCol.removeFromLeft (kw).reduced (4, 0));
+                if (outputGainKnob != nullptr)
+                    outputGainKnob->setBounds (knobCol.reduced (4, 0));
             }
-            const int kw = knobCol.getWidth() / 2;
-            if (grainMixKnob != nullptr)
-                grainMixKnob->setBounds (knobCol.removeFromLeft (kw).reduced (6, 0));
-            if (outputGainKnob != nullptr)
-                outputGainKnob->setBounds (knobCol.reduced (6, 0));
-            inner.removeFromRight (kGap);
+
+            // The switch column keeps room for the 38px macOS track PLUS the
+            // word beside it. Squeezed, the LookAndFeel does not wrap - it
+            // clips, and the last time this column was narrow the labels
+            // rendered as "Revers" and "Ping-P". A clipped word reads as a
+            // broken build.
+            auto switchCol = inner.removeFromLeft (
+                                 juce::jlimit (100, 136, inner.getWidth() * 45 / 100));
+            inner.removeFromLeft (kGap / 2);
+            {
+                const int btnH = juce::jlimit (20, 28, switchCol.getHeight() / 2 - 5);
+                auto s = switchCol.withSizeKeepingCentre (switchCol.getWidth(),
+                                                          btnH * 2 + 6);
+                reverseButton.setBounds  (s.removeFromTop (btnH));
+                s.removeFromTop (6);
+                pingpongButton.setBounds (s.removeFromTop (btnH));
+            }
 
             auto controlsCol = inner;
             // Split what is LEFT between the two fields rather than asking for
-            // btnH + 12 twice. On a short card those two requests overran the
-            // column and the second field was drawn over the first one's
-            // caption - "Keys" sitting on top of the Gate box.
-            const int fieldCell = juce::jmax (24, (controlsCol.getHeight() - 3) / 2);
-            const int fieldH    = juce::jmax (16, fieldCell - kCaptionH);
+            // a fixed height twice. Two fixed requests once overran the column
+            // and the second field was drawn over the first one's caption -
+            // "Keys" sitting on top of the Gate box.
+            const int fieldCell = juce::jmax (24, (controlsCol.getHeight() - 4) / 2);
+            const int fieldH    = juce::jmax (18, fieldCell - 16);
             playModeBox.setBounds (captioned (controlsCol.removeFromTop (fieldCell), "Keys")
                                        .withSizeKeepingCentre (
                                            juce::jmin (200, controlsCol.getWidth()), fieldH));
-            controlsCol.removeFromTop (3);
+            controlsCol.removeFromTop (4);
             delaySyncBox.setBounds (captioned (controlsCol.removeFromTop (fieldCell), "Delay sync")
                                         .withSizeKeepingCentre (
                                             juce::jmin (200, controlsCol.getWidth()), fieldH));
