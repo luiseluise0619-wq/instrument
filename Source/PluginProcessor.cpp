@@ -2502,6 +2502,30 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
         // where the ear is most sensitive. Percussion keeps its bite.
         if (! percussive && p.filterCutoff.load() > 2500.0f && p.filterQ.load() > 1.2f)
             p.filterQ = 1.2f;
+
+        // --- the 2-6 kHz band itself ---------------------------------------
+        //
+        // The ceiling above does not touch it, and could not: 2-6 kHz sits
+        // BELOW a 7 kHz low pass, so every one of these voices was passing the
+        // fatigue band untouched. That was a real hole in the previous pass.
+        //
+        // On a bell that band is not the fundamental, it is the metallic
+        // partials - inharmonicity and FM. So the fix is at the source: cap
+        // both for tuned metal, hard enough to take the edge off and not so
+        // hard that a bell stops being one. Percussion is exempt; a hat is
+        // supposed to live up there.
+        const bool tunedMetal = ! percussive
+                             && (cat == "BELL" || struckName
+                                 || name.contains ("Glass") || name.contains ("Ice")
+                                 || name.contains ("Chime") || name.contains ("Crystal")
+                                 || name.contains ("Digital") || name.contains ("Sync")
+                                 || name.contains ("Wire")  || name.contains ("Laser"));
+        if (tunedMetal)
+        {
+            if (p.inharmonic.load() > 0.26f) p.inharmonic = 0.26f;
+            if (p.fmAmount.load() > 0.45f)  p.fmAmount  = 0.45f;
+            if (p.filterCutoff.load() > 5600.0f) p.filterCutoff = 5600.0f;
+        }
     }
 
     p.chorusMix = chorus;

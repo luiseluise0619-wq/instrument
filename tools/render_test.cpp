@@ -587,8 +587,18 @@ int main (int argc, char** argv)
         std::vector<Row> rows;
         const auto cats = VocalChopAudioProcessor::getInstrumentCategories();
 
+        // THREE TAKES, MEDIAN. Voices start their unison bank at random phases
+        // on purpose, and this metric is a ratio of two energies, so a single
+        // take moves by several dB run to run. Identical builds measured 43,
+        // 47 and 48 instruments over the line - which means every "before and
+        // after" comparison made with a single take, including one I nearly
+        // reported, was reading noise.
+        constexpr int kTakes = 3;
         for (int idx = 0; idx < names.size(); ++idx)
         {
+            double ratioT[kTakes] {}, decayT[kTakes] {};
+            for (int take = 0; take < kTakes; ++take)
+            {
             proc.applyInstrument (idx);
             juce::AudioBuffer<float> buf (2, 64);
             juce::MidiBuffer midi;
@@ -624,9 +634,15 @@ int main (int argc, char** argv)
             size_t last = 0;
             for (size_t i = 0; i < mono.size(); ++i)
                 if (std::abs (mono[i]) > pk * 0.02f) last = i;
+            ratioT[take] = ratio;
+            decayT[take] = (double) last / 44100.0;
+            }
+
+            std::sort (ratioT, ratioT + kTakes);
+            std::sort (decayT, decayT + kTakes);
             rows.push_back ({ names[idx],
                               juce::isPositiveAndBelow (idx, cats.size()) ? cats[idx] : juce::String(),
-                              ratio, (double) last / 44100.0 });
+                              ratioT[kTakes / 2], decayT[kTakes / 2] });
         }
 
         std::sort (rows.begin(), rows.end(),
