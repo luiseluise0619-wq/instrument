@@ -13,6 +13,68 @@ int main (int argc, char** argv)
     VocalChopAudioProcessor proc;
     proc.prepareToPlay (44100.0, 512);
 
+    // "--vocals": load every built-in vocal and measure it. The table pairs a
+    // label with a BinaryData symbol by hand, 36 times; a mispaired row still
+    // compiles and still plays - it just plays the wrong sample under the
+    // wrong name, or silence. This is the only thing that catches that.
+    if (argc > 1 && juce::String (argv[1]) == "--vocals")
+    {
+        const auto names  = VocalChopAudioProcessor::getDemoSampleNames();
+        const auto groups = VocalChopAudioProcessor::getDemoSampleGroups();
+        const int  n      = VocalChopAudioProcessor::getNumDemoSamples();
+
+        printf ("%-18s %-17s %7s %7s %8s\n", "name", "group", "sec", "peak", "rms");
+        printf ("%-18s %-17s %7s %7s %8s\n", "----", "-----", "---", "----", "---");
+
+        int bad = 0;
+        std::set<juce::String> seen;   // identical digests = a duplicated row
+        for (int i = 0; i < n; ++i)
+        {
+            if (! proc.loadDemoSample (i))
+            {
+                printf ("%-18s %-17s   FAILED TO LOAD\n",
+                        names[i].toRawUTF8(), groups[i].toRawUTF8());
+                ++bad;
+                continue;
+            }
+
+            auto buf = proc.getLoadedSample();
+            if (buf == nullptr || buf->getNumSamples() == 0)
+            {
+                printf ("%-18s %-17s   EMPTY\n",
+                        names[i].toRawUTF8(), groups[i].toRawUTF8());
+                ++bad;
+                continue;
+            }
+
+            const int   len  = buf->getNumSamples();
+            const float peak = buf->getMagnitude (0, len);
+            const float rms  = buf->getRMSLevel (0, 0, len);
+
+            // Cheap content digest: coarse energy over 16 windows. Two rows
+            // pointing at the same wav come out identical here.
+            juce::String digest;
+            for (int w = 0; w < 16; ++w)
+            {
+                const int a = (int) ((juce::int64) w * len / 16);
+                const int b = (int) ((juce::int64) (w + 1) * len / 16);
+                digest << juce::String ((int) (buf->getRMSLevel (0, a, juce::jmax (1, b - a))
+                                               * 1000.0f)) << ",";
+            }
+
+            const bool dupe = ! seen.insert (digest).second;
+            printf ("%-18s %-17s %7.2f %7.3f %8.4f%s\n",
+                    names[i].toRawUTF8(), groups[i].toRawUTF8(),
+                    len / proc.getLoadedSampleRate(), peak, rms,
+                    dupe ? "   DUPLICATE CONTENT" : (peak < 0.05f ? "   NEARLY SILENT" : ""));
+            if (dupe || peak < 0.05f)
+                ++bad;
+        }
+
+        printf ("\n%d vocal(s), %d problem(s).\n", n, bad);
+        return bad == 0 ? 0 : 1;
+    }
+
     // "--contrast": every label colour against the surface it is drawn on, for
     // all 16 skins. Reported bugs about text being unreadable kept arriving one
     // theme at a time, and eyeballing 16 skins does not scale - a token can be

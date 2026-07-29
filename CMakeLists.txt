@@ -103,7 +103,35 @@ juce_add_binary_data(VocalChopData SOURCES
     examples/vox_choir.wav
     examples/vox_whisper.wav
     examples/vox_diva.wav
-    examples/vox_stabs.wav)
+    examples/vox_stabs.wav
+    # Second wave: twenty-six more, grouped in the picker by what you would
+    # reach for them FOR - chops, hooks, textures, percussion, characters.
+    examples/vox_triplet.wav
+    examples/vox_halftime.wav
+    examples/vox_garage.wav
+    examples/vox_amen.wav
+    examples/vox_stutter.wav
+    examples/vox_revchant.wav
+    examples/vox_topline.wav
+    examples/vox_trapmel.wav
+    examples/vox_afro.wav
+    examples/vox_drill.wav
+    examples/vox_ballad.wav
+    examples/vox_vowelpad.wav
+    examples/vox_nasal.wav
+    examples/vox_hum.wav
+    examples/vox_gospel.wav
+    examples/vox_vocoder.wav
+    examples/vox_mouthperc.wav
+    examples/vox_clicks.wav
+    examples/vox_breath.wav
+    examples/vox_gasp.wav
+    examples/vox_riser.wav
+    examples/vox_downlifter.wav
+    examples/vox_kids.wav
+    examples/vox_deep.wav
+    examples/vox_robot.wav
+    examples/vox_opera.wav)
 
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp

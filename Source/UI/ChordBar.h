@@ -1,5 +1,7 @@
 #pragma once
 
+#include <set>
+
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <array>
 #include <vector>
@@ -68,6 +70,9 @@ private:
 
     Progression current;
     int lastPick = -1;
+    // Pitch classes of the last progression handed out, so Generate can reject
+    // a repeat by CONTENT rather than only by list position.
+    std::set<int> lastFingerprint;
     juce::Random rng;
 
     std::array<float, 4> flashLevels {};   // per-chord-button neon flash (0..1)

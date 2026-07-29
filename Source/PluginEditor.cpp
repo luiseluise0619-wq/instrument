@@ -718,7 +718,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // "Demo" read as "demo version" to the first person who saw it. It loads a
     // built-in VOCAL, which is a different thing entirely, and it sits next to
     // "Load Sample" - so the pair now reads "ours" and "yours".
-    demoButton.setTooltip ("Loads one of 10 built-in vocals to chop - press again for the next");
+    demoButton.setTooltip ("Loads one of 36 built-in vocals to chop - press again for the next");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
     engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 403 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
@@ -793,13 +793,13 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // The primary action in this panel, and the control the first tester could
     // not find. Accent, per spec - this is an active affordance, not chrome.
     instBrowseButton.getProperties().set ("primaryAction", true);
-    instBrowseButton.setTooltip ("Chop / Melody: pick one of 10 built-in vocals, or load your own.\n"
+    instBrowseButton.setTooltip ("Chop / Melody: pick one of 36 built-in vocals, or load your own.\n"
                                  "Synth: browse 403 instruments by genre or category");
     instBrowseButton.onClick = [this]
     {
-        // Chop and Melody play the loaded sample, so Browse lists the ten
-        // vocals - and "Load your own file..." at the bottom, because the ten
-        // are a starting point rather than the product.
+        // Chop and Melody play the loaded sample, so Browse lists the built-in
+        // vocals - and "Load your own file..." at the bottom, because they are
+        // a starting point rather than the product.
         if (sampleHero())
         {
             showVocalMenu();
@@ -1449,7 +1449,7 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
 
     // In Chop and Melody this row is about the VOCAL. It used to show a greyed
     // synth instrument name with three dead controls under it, which described
-    // something the engine was not playing and offered no way to reach the ten
+    // something the engine was not playing and offered no way to reach the
     // built-in vocals except by pressing "Demo vocal" repeatedly and hoping.
     const bool vox = sampleHero();
 
@@ -1576,20 +1576,36 @@ void VocalChopAudioProcessorEditor::showVocalMenu()
     juce::PopupMenu menu;
     menu.setLookAndFeel (&appleLaf);
 
-    const auto names = VocalChopAudioProcessor::getDemoSampleNames();
-    const int  cur   = processor.getCurrentDemoIndex();
+    const auto names  = VocalChopAudioProcessor::getDemoSampleNames();
+    const auto groups = VocalChopAudioProcessor::getDemoSampleGroups();
+    const int  cur    = processor.getCurrentDemoIndex();
 
+    // Sectioned. A flat list of thirty-six is a scroll, not a choice, and the
+    // question people arrive with is "I need a rhythmic chop" or "I need a
+    // pad" - so the headers answer that before the names do.
+    juce::String lastGroup;
     for (int i = 0; i < names.size(); ++i)
+    {
+        const auto g = i < groups.size() ? groups[i] : juce::String();
+        if (g != lastGroup)
+        {
+            menu.addSectionHeader (g);
+            lastGroup = g;
+        }
         menu.addItem (i + 1, names[i], true, i == cur);
+    }
 
     menu.addSeparator();
-    // The ten are a starting point, not the product - someone who came here to
+    // These are a starting point, not the product - someone who came here to
     // chop their OWN vocal should not have to find a different button for it.
     menu.addItem (1000, "Load your own file...");
 
     menu.showMenuAsync (juce::PopupMenu::Options()
                             .withTargetComponent (&instBrowseButton)
-                            .withMinimumWidth (200),
+                            .withMinimumWidth (200)
+                            // Two columns: thirty-six entries plus five
+                            // headers is taller than the plugin window.
+                            .withMaximumNumColumns (2),
                         [this] (int id)
                         {
                             if (id == 0)
@@ -1767,7 +1783,7 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     synthWaveBox.setEnabled  (voice);
     instrumentBox.setEnabled (voice);
     // The step arrows follow the picker they step - the instrument list in the
-    // voice engines, the ten built-in vocals in Chop and Melody. An earlier
+    // voice engines, the built-in vocals in Chop and Melody. An earlier
     // version had them switch the engine to Synth so they always did something,
     // which quietly threw away a loaded chop.
     instPrevButton.setEnabled (voice || sampleHero());
@@ -2147,12 +2163,22 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     const auto& theme = ThemeManager::active();
     const float radius = theme.cornerRadius;
 
-    // Soft drop shadow — two cheap offset fills. (A gaussian DropShadow here
+    // Soft drop shadow — three cheap offset fills. (A gaussian DropShadow here
     // cost milliseconds PER CARD per paint and made the whole UI feel laggy.)
-    g.setColour (theme.shadow.withAlpha (0.16f));
+    // The light themes get a deeper cast: a pale card on a pale desk with a
+    // 16%-alpha shadow has nothing separating it from the ground, which is
+    // most of why the light skins read as flat next to the dark ones.
+    const float castA    = theme.dark ? 0.16f : 0.30f;
+    const float contactA = theme.dark ? 0.10f : 0.18f;
+
+    g.setColour (theme.shadow.withAlpha (castA));
     g.fillRoundedRectangle (bounds.translated (0.0f, 5.0f).expanded (2.0f), radius + 2.0f);
-    g.setColour (theme.shadow.withAlpha (0.10f));
+    g.setColour (theme.shadow.withAlpha (contactA));
     g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f).expanded (0.5f), radius + 1.0f);
+    // Tight contact line directly under the edge. Without it a card floats;
+    // with it, it sits ON the desk. One pixel of offset does the work.
+    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.14f : 0.22f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), radius);
 
     // Material fill. On the glow theme the panels are darker glass so the
     // scene shows through without fighting the controls.
@@ -2184,12 +2210,44 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
         g.fillRoundedRectangle (bounds, radius);
     }
 
-    // Hairline border + crisp 1px inner top highlight.
-    g.setColour (theme.separator);
-    g.drawRoundedRectangle (bounds.reduced (0.5f), radius, 1.0f);
-    g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.05f : 0.4f));
-    g.fillRect (bounds.getX() + radius, bounds.getY() + 1.0f,
-                bounds.getWidth() - radius * 2.0f, 1.0f);
+    // TWO-TONE RIM. This was one flat hairline of theme.separator all the way
+    // round, and a uniform outline is exactly what makes a panel look printed
+    // rather than made: a real edge catches light along its top and falls into
+    // shadow along its bottom. Same one stroke, just filled with a gradient.
+    {
+        const auto rimTop = theme.dark ? juce::Colours::white.withAlpha (0.14f)
+                                       : juce::Colours::white.withAlpha (0.92f);
+        const auto rimBot = theme.dark ? juce::Colours::black.withAlpha (0.34f)
+                                       : juce::Colours::black.withAlpha (0.14f);
+
+        juce::Path ring;
+        ring.addRoundedRectangle (bounds.reduced (0.5f), radius);
+
+        juce::ColourGradient rim (rimTop, bounds.getX(), bounds.getY(),
+                                  rimBot, bounds.getX(), bounds.getBottom(), false);
+        // The theme's own separator in the middle, so the rim still belongs to
+        // the palette instead of being a generic grey bevel.
+        rim.addColour (0.5, theme.separator);
+        g.setGradientFill (rim);
+        g.strokePath (ring, juce::PathStrokeType (1.0f));
+    }
+
+    // Inner lip, FOLLOWING the corner radius. The old highlight was a straight
+    // fillRect inset by the radius, so it stopped dead at the tangent points
+    // and left two visible stubs on every card - a bar lying on a panel, not
+    // an edge lit from above.
+    {
+        juce::Path inner;
+        inner.addRoundedRectangle (bounds.reduced (1.5f), juce::jmax (1.0f, radius - 1.0f));
+
+        juce::ColourGradient lip (
+            juce::Colours::white.withAlpha (theme.dark ? 0.075f : 0.60f),
+            bounds.getX(), bounds.getY() + 1.0f,
+            juce::Colours::transparentBlack,
+            bounds.getX(), bounds.getY() + bounds.getHeight() * 0.34f, false);
+        g.setGradientFill (lip);
+        g.strokePath (inner, juce::PathStrokeType (1.0f));
+    }
 }
 
 juce::Rectangle<int> VocalChopAudioProcessorEditor::captioned (juce::Rectangle<int> cell,

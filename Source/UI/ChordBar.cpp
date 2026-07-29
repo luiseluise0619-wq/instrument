@@ -49,6 +49,29 @@ const std::vector<ChordBar::Style>& ChordBar::styles()
     #define BDIM { "Bdim",   { 11, 14, 17 } }
     #define BM7b { "Bm7b5",  { 11, 14, 17, 21 } }
 
+    // Added for variety. The libraries below leaned hard on one diatonic
+    // region per style, so several "different" progressions were the same
+    // four chords in a different order - identical pitch content, and
+    // Generate sounded like it had done nothing. These open up the other
+    // regions and the sus / borrowed qualities.
+    #define D_   { "D",      { 2, 6, 9 } }
+    #define DS2  { "Dsus2",  { 2, 4, 9 } }
+    #define E_   { "E",      { 4, 8, 11 } }
+    #define FS2  { "Fsus2",  { 5, 7, 12 } }
+    #define FM9  { "Fmaj9",  { 5, 9, 12, 16, 19 } }
+    #define GMm  { "Gm",     { 7, 10, 14 } }
+    #define GM7m { "Gm7",    { 7, 10, 14, 17 } }
+    #define GS2  { "Gsus2",  { 7, 9, 14 } }
+    #define AS2  { "Asus2",  { 9, 11, 16 } }
+    #define AS4  { "Asus4",  { 9, 14, 16 } }
+    #define BM_  { "Bm",     { 11, 14, 18 } }
+    #define BM7  { "Bm7",    { 11, 14, 18, 21 } }
+    #define BBS2 { "Bbsus2", { 10, 12, 17 } }
+    #define DB_  { "Db",     { 1, 5, 8 } }
+    #define DBM7 { "Dbmaj7", { 1, 5, 8, 12 } }
+    #define EBMm { "Ebm",    { 3, 6, 10 } }
+    #define CM9  { "Cmaj9",  { 0, 4, 7, 11, 14 } }
+
     static const std::vector<Style> all = {
         { "K-Pop", {
             { F_,  G_,  EM_, AM_ },          // the royal road
@@ -60,15 +83,28 @@ const std::vector<ChordBar::Style>& ChordBar::styles()
             { AM_, F_,  G_,  EM_ },
             { CAD9, G_, AM7, FM7 },
         }},
+        // EDM had eight entries built from exactly TWO chord sets - Am F C G
+        // and Cm Ab Eb Bb - rotated. Every Generate returned the same pitches
+        // in a different order, which is why a tester said the EDM chords were
+        // always the same. They were. These sixteen span five tonal centres
+        // and lean on the sus voicings the genre actually uses.
         { "EDM", {
             { AM_, F_,  C_,  G_  },
-            { AM_, C_,  G_,  F_  },
-            { F_,  AM_, G_,  AM_ },
+            { CS2, GS4, AM7, FM7 },          // sus-stack: the festival sound
+            { FMm, DB_, AB_, EB_ },          // the minor anthem
+            { EM_, C_,  G_,  D_  },          // E-minor region
+            { DM_, BB_, F_,  C_  },          // D-minor region
+            { GMm, EB_, BB_, D_  },          // G-minor region
+            { BM7b, EM7, AM7, DM7 },         // descending fifths - trance
             { AM_, G_,  F_,  G_  },
-            { FMm, AB_, EB_, BB_ },          // minor, with the flat-VII lift
             { CM_, AB_, EB_, BB_ },
-            { AM_, F_,  G_,  C_  },
-            { FMm, CM_, AB_, EB_ },
+            { FM9, GS2, AM7, CM9 },          // wide 9ths, big-room breakdown
+            { AS2, F_,  CS2, GS4 },
+            { EBMm, DB_, AB_, BB_ },
+            { AM7, FM7, G7_, CM7 },
+            { D_,  BM_, GMm, A7_ },
+            { FMm, EB_, DB_, CM_ },          // the falling minor tetrachord
+            { CS2, AS2, FS2, GS2 },          // all-sus, no thirds at all
         }},
         { "Trap", {
             { CM_, AB_, EB_, BB_ },
@@ -282,11 +318,30 @@ void ChordBar::regenerate()
     const auto& style = styles()[(size_t) juce::jmax (0, styleBox.getSelectedId() - 1)];
     const int count = (int) style.progressions.size();
 
-    // Pick a progression different from the previous one when possible.
+    // Reject by CONTENT, not by index. A different entry that happens to be
+    // the same four chords in a different order is the same pitches, and to
+    // the ear Generate did nothing - which is exactly what a tester reported.
+    auto fingerprint = [] (const Progression& p)
+    {
+        std::set<int> pcs;
+        for (const auto& c : p)
+            for (int s : c.semis)
+                pcs.insert (((s % 12) + 12) % 12);
+        return pcs;
+    };
+
     int pick = rng.nextInt (count);
-    if (count > 1 && pick == lastPick)
-        pick = (pick + 1 + rng.nextInt (count - 1)) % count;
+    for (int tries = 0; tries < count && count > 1; ++tries)
+    {
+        const bool sameSlot  = (pick == lastPick);
+        const bool samePitch = (fingerprint (style.progressions[(size_t) pick])
+                                    == lastFingerprint);
+        if (! sameSlot && ! samePitch)
+            break;
+        pick = (pick + 1) % count;
+    }
     lastPick = pick;
+    lastFingerprint = fingerprint (style.progressions[(size_t) pick]);
 
     current = style.progressions[(size_t) pick];
     for (int i = 0; i < (int) chordButtons.size(); ++i)

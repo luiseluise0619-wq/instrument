@@ -1,5 +1,6 @@
 #pragma once
 
+#include <set>
 #include <limits>
 
 #include <JuceHeader.h>
@@ -60,12 +61,14 @@ public:
     bool loadDemoSample();            // next built-in vocal in the cycle
     bool loadDemoSample (int index);  // a specific one; wraps at either end
 
-    /** The ten built-in vocals, in menu order. */
+    /** The built-in vocals, in menu order, and the section each belongs to
+        (parallel arrays - index i of one matches index i of the other). */
     static juce::StringArray getDemoSampleNames();
+    static juce::StringArray getDemoSampleGroups();
     static int               getNumDemoSamples();
 
     /** Which built-in vocal is loaded, or -1 when the sample came from a file
-        of the user's own. The hero row needs this to say "3 of 10" and to know
+        of the user's own. The hero row needs this to say "3 of 36" and to know
         where stepping should go next. */
     int getCurrentDemoIndex() const { return currentDemo; }
 
@@ -243,6 +246,14 @@ public:
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
+
+    /** The output-FX ids that survive an instrument change once touched. */
+    static const juce::StringArray& ownableFx();
+
+    /** Hands the FX rack back to the instrument table. The editor calls this
+        from the FX card's reset, so "stop following me" is undoable. */
+    void releaseFxOwnership() { userOwnsFx.clear(); }
+    bool userOwnsAnyFx() const { return ! userOwnsFx.empty(); }
     void handleMidi (const juce::MidiBuffer& midi, int numSamples);
 
     /** Every note the plugin plays goes through here, whatever its source
@@ -399,6 +410,11 @@ private:
     // Which embedded demo vocal the Demo button loads next.
     int demoCycle  = 0;
     int currentDemo = -1;   // index into the built-in vocals, -1 for a user file
+
+    // Which output-FX knobs the user has taken over, and whether the change
+    // currently arriving is our own doing. See applyInstrument.
+    std::set<juce::String> userOwnsFx;
+    bool applyingPatch = false;
 
     // Engine-architecture half of an instrument (non-APVTS synth settings).
     void applyEnginePatch (int instrumentIndex);

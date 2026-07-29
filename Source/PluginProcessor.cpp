@@ -1104,19 +1104,58 @@ namespace
     //
     // Named for what you would HEAR, not for the file: "Whisper" and "Air" on
     // their own told nobody they were vocal takes.
-    struct DemoVocal { const void* data; int size; const char* label; };
+    // `group` is what the picker puts a header over. Thirty-six entries in one
+    // flat list is a scroll, not a choice - and the question someone actually
+    // arrives with is "I need a rhythmic chop" or "I need a pad", not "I need
+    // the fourteenth one".
+    struct DemoVocal { const void* data; int size; const char* label; const char* group; };
 
     const DemoVocal kDemoVocals[] = {
-        { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize, "Vocal Chop"   },
-        { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize,       "Chant Vox"    },
-        { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize,        "Sung Hook"    },
-        { BinaryData::vox_stabs_wav,       BinaryData::vox_stabs_wavSize,       "Stab Vox"     },
-        { BinaryData::vox_diva_wav,        BinaryData::vox_diva_wavSize,        "Diva Vox"     },
-        { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize,       "Choir Vox"    },
-        { BinaryData::vox_whisper_wav,     BinaryData::vox_whisper_wavSize,     "Whisper Vox"  },
-        { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize,         "Airy Vox"     },
-        { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize,        "Rage Shout"   },
-        { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize,     "Beatbox Loop" },
+        // --- Chops: rhythmic syllables, made to be sliced ------------------
+        { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize, "Vocal Chop",    "Chops" },
+        { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize,       "Chant Vox",     "Chops" },
+        { BinaryData::vox_stabs_wav,       BinaryData::vox_stabs_wavSize,       "Stab Vox",      "Chops" },
+        { BinaryData::vox_triplet_wav,     BinaryData::vox_triplet_wavSize,     "Triplet Chop",  "Chops" },
+        { BinaryData::vox_halftime_wav,    BinaryData::vox_halftime_wavSize,    "Half-Time Chop","Chops" },
+        { BinaryData::vox_garage_wav,      BinaryData::vox_garage_wavSize,      "Garage Chop",   "Chops" },
+        { BinaryData::vox_stutter_wav,     BinaryData::vox_stutter_wavSize,     "Stutter Vox",   "Chops" },
+        { BinaryData::vox_revchant_wav,    BinaryData::vox_revchant_wavSize,    "Reverse Chant", "Chops" },
+
+        // --- Hooks: sung phrases with a top line --------------------------
+        { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize,        "Sung Hook",     "Hooks" },
+        { BinaryData::vox_diva_wav,        BinaryData::vox_diva_wavSize,        "Diva Vox",      "Hooks" },
+        { BinaryData::vox_topline_wav,     BinaryData::vox_topline_wavSize,     "Pop Topline",   "Hooks" },
+        { BinaryData::vox_trapmel_wav,     BinaryData::vox_trapmel_wavSize,     "Trap Melody",   "Hooks" },
+        { BinaryData::vox_afro_wav,        BinaryData::vox_afro_wavSize,        "Afro Hook",     "Hooks" },
+        { BinaryData::vox_drill_wav,       BinaryData::vox_drill_wavSize,       "Drill Hook",    "Hooks" },
+        { BinaryData::vox_ballad_wav,      BinaryData::vox_ballad_wavSize,      "Ballad Line",   "Hooks" },
+
+        // --- Textures: held beds, for pads and granular -------------------
+        { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize,       "Choir Vox",     "Textures" },
+        { BinaryData::vox_whisper_wav,     BinaryData::vox_whisper_wavSize,     "Whisper Vox",   "Textures" },
+        { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize,         "Airy Vox",      "Textures" },
+        { BinaryData::vox_vowelpad_wav,    BinaryData::vox_vowelpad_wavSize,    "Vowel Pad",     "Textures" },
+        { BinaryData::vox_nasal_wav,       BinaryData::vox_nasal_wavSize,       "Nasal Pad",     "Textures" },
+        { BinaryData::vox_hum_wav,         BinaryData::vox_hum_wavSize,         "Hum Bed",       "Textures" },
+        { BinaryData::vox_gospel_wav,      BinaryData::vox_gospel_wavSize,      "Gospel Stack",  "Textures" },
+        { BinaryData::vox_vocoder_wav,     BinaryData::vox_vocoder_wavSize,     "Vocoder Bed",   "Textures" },
+
+        // --- Percussion & FX: mouth drums, breaths, transitions -----------
+        { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize,     "Beatbox Loop",  "Percussion & FX" },
+        { BinaryData::vox_amen_wav,        BinaryData::vox_amen_wavSize,        "Mouth Break",   "Percussion & FX" },
+        { BinaryData::vox_mouthperc_wav,   BinaryData::vox_mouthperc_wavSize,   "Mouth Kit",     "Percussion & FX" },
+        { BinaryData::vox_clicks_wav,      BinaryData::vox_clicks_wavSize,      "Tongue Clicks", "Percussion & FX" },
+        { BinaryData::vox_breath_wav,      BinaryData::vox_breath_wavSize,      "Breath Hits",   "Percussion & FX" },
+        { BinaryData::vox_gasp_wav,        BinaryData::vox_gasp_wavSize,        "Gasps",         "Percussion & FX" },
+        { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize,        "Rage Shout",    "Percussion & FX" },
+        { BinaryData::vox_riser_wav,       BinaryData::vox_riser_wavSize,       "Riser Vox",     "Percussion & FX" },
+        { BinaryData::vox_downlifter_wav,  BinaryData::vox_downlifter_wavSize,  "Downlifter",    "Percussion & FX" },
+
+        // --- Characters: a different voice, not a different phrase --------
+        { BinaryData::vox_kids_wav,        BinaryData::vox_kids_wavSize,        "Kids Vox",      "Characters" },
+        { BinaryData::vox_deep_wav,        BinaryData::vox_deep_wavSize,        "Deep Male",     "Characters" },
+        { BinaryData::vox_robot_wav,       BinaryData::vox_robot_wavSize,       "Robot Vox",     "Characters" },
+        { BinaryData::vox_opera_wav,       BinaryData::vox_opera_wavSize,       "Opera Vox",     "Characters" },
     };
 
     constexpr int kNumDemoVocals = (int) (sizeof (kDemoVocals) / sizeof (kDemoVocals[0]));
@@ -1133,6 +1172,14 @@ juce::StringArray VocalChopAudioProcessor::getDemoSampleNames()
 int VocalChopAudioProcessor::getNumDemoSamples()
 {
     return kNumDemoVocals;
+}
+
+juce::StringArray VocalChopAudioProcessor::getDemoSampleGroups()
+{
+    juce::StringArray groups;
+    for (const auto& d : kDemoVocals)
+        groups.add (d.group);
+    return groups;
 }
 
 bool VocalChopAudioProcessor::loadDemoSample (int index)
@@ -1275,6 +1322,24 @@ void VocalChopAudioProcessor::parameterChanged (const juce::String& id, float ne
 {
     if (id == "pitch")   pitchFormant.setPitch (newValue);
     if (id == "formant") pitchFormant.setFormant (newValue);
+
+    // A change that did NOT come from applyInstrument / applyPreset is the
+    // user's own. Remember it, so stepping to the next instrument stops
+    // wiping it out.
+    if (! applyingPatch && ownableFx().contains (id))
+        userOwnsFx.insert (id);
+}
+
+/** The OUTPUT FX. These are the mix, not the instrument: someone who has
+    turned the reverb down has said something about how loud the room should
+    be, and that answer does not change because they auditioned the next
+    lead. Everything else - the envelope, the oscillator, the filter - IS the
+    instrument and is meant to be replaced wholesale. */
+const juce::StringArray& VocalChopAudioProcessor::ownableFx()
+{
+    static const juce::StringArray ids { "drive", "reverb", "delay",
+                                         "pingpong", "width" };
+    return ids;
 }
 
 //==============================================================================
@@ -1323,6 +1388,13 @@ int VocalChopAudioProcessor::getNumChopPresets()
 
 void VocalChopAudioProcessor::applyPreset (int presetIndex)
 {
+    // A preset is an explicit "give me all of it", so it takes the FX back.
+    // Only instrument STEPPING preserves the user's mix; otherwise picking
+    // "Choir Pad" would land you with the previous patch's dry reverb and no
+    // way to get the preset's actual sound.
+    userOwnsFx.clear();
+    const juce::ScopedValueSetter<bool> patching (applyingPatch, true);
+
     auto set = [this] (const juce::String& id, float value)
     {
         if (auto* p = apvts.getParameter (id))
@@ -2602,8 +2674,16 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     applyEnginePatch (instrumentIndex);
     const auto& d = kInstruments[currentInstrument];
 
+    const juce::ScopedValueSetter<bool> patching (applyingPatch, true);
+
+    // Skips anything the user has taken over. Auditioning instruments used to
+    // reset the whole output FX rack on every step: turn the reverb down
+    // because it is too wet, press >, and it is back up - so the one thing a
+    // tester complained about could not be fixed from inside the plugin.
     auto set = [this] (const juce::String& id, float value)
     {
+        if (userOwnsFx.count (id) != 0)
+            return;
         if (auto* p = apvts.getParameter (id))
             p->setValueNotifyingHost (p->convertTo0to1 (value));
     };
