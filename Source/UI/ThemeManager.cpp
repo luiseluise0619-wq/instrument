@@ -265,21 +265,35 @@ namespace
         // The translucency model is untouched: cards are still white at 42%
         // over the desk, so the accent tint still arrives from underneath and
         // every theme still reads as its own room.
-        b.bg1    = 0xfffcfcfd;   // near-white, faint cool cast (spec #f6f3ef)
-        b.bg2    = 0xffeceef2;   // (spec #e7e2dc)
-        b.mat1   = 0x8cffffff;   // rgba(255,255,255,.55)
-        b.mat2   = 0x5cffffff;   // rgba(255,255,255,.36)
-        b.matA1  = 0x99ffffff;   // rgba(255,255,255,.60) [HTML only]
-        b.matA2  = 0x66ffffff;   // rgba(255,255,255,.40) [HTML only]
-        b.card   = 0x6bffffff;   // rgba(255,255,255,.42)
-        b.cardA  = 0x85ffffff;   // rgba(255,255,255,.52)
+        // THE DESK, and it is deliberately DARKER than the cards. The light
+        // skins read as cheap because everything was one value: a 42%-white
+        // card over a near-white desk comes out mid-grey, so the panels and
+        // the ground they sit on were the same colour and nothing had any
+        // hierarchy. A light instrument gets its quality from ONE clean
+        // elevation step - white panels, a grey room - not from five muddy
+        // ones. (Spec #f6f3ef / #e7e2dc: warm beige reads vintage, not
+        // premium, and it is the second deliberate deviation here.)
+        b.bg1    = 0xfff1f3f7;
+        b.bg2    = 0xffe2e6ee;
+        b.mat1   = 0xfaffffff;   // near-solid white: the raised panel
+        b.mat2   = 0xe8ffffff;
+        b.matA1  = 0xf2ffffff;
+        b.matA2  = 0xdeffffff;
+        // 92%, not 42%. This is the single change that makes the light skins
+        // look made rather than washed: the card is now WHITE against the
+        // grey desk instead of another shade of the desk.
+        b.card   = 0xebffffff;
+        b.cardA  = 0xf5ffffff;
         b.cardBd = 0x17000f1e;   // slightly deeper and cooler than rgba(0,0,0,.07)
         b.hi     = 0xd9ffffff;   // rgba(255,255,255,.85)
-        b.ctl    = 0x9effffff;   // rgba(255,255,255,.62)
+        b.ctl    = 0xf7ffffff;
         b.ctlBd  = 0x1a000000;   // rgba(0,0,0,.10)
-        b.well   = 0x0b000000;   // rgba(0,0,0,.045)
-        b.well2  = 0x0e000000;   // rgba(0,0,0,.055)      [HTML only]
-        b.well3  = 0x0f000000;   // rgba(0,0,0,.06)       [HTML only]
+        // Wells sit INSIDE a now-white card, so they need real depth to read
+        // as recessed at all - at 4.5% black on a 42% card they were visible
+        // only because the card was already grey.
+        b.well   = 0x14000814;
+        b.well2  = 0x1a000814;
+        b.well3  = 0x1f000814;
         b.wellT  = 0x9effffff;   // rgba(255,255,255,.62) [HTML only]
         b.sep    = 0x1f000c19;   // deeper than rgba(0,0,0,.10) - see bg1
         b.sep2   = 0x14000000;   // rgba(0,0,0,.08)       [HTML only]

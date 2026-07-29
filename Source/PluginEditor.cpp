@@ -2165,11 +2165,13 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
 
     // Soft drop shadow — three cheap offset fills. (A gaussian DropShadow here
     // cost milliseconds PER CARD per paint and made the whole UI feel laggy.)
-    // The light themes get a deeper cast: a pale card on a pale desk with a
-    // 16%-alpha shadow has nothing separating it from the ground, which is
-    // most of why the light skins read as flat next to the dark ones.
-    const float castA    = theme.dark ? 0.16f : 0.30f;
-    const float contactA = theme.dark ? 0.10f : 0.18f;
+    // Light gets a slightly stronger cast, NOT a heavy one. The first attempt
+    // here used 0.30 and it looked worse, not better: a big soft halo round
+    // every panel is a 2005 drop shadow. The separation on a light skin comes
+    // from the card being white against a grey desk (see makeLightBase); the
+    // shadow only has to say which one is on top.
+    const float castA    = theme.dark ? 0.16f : 0.20f;
+    const float contactA = theme.dark ? 0.10f : 0.12f;
 
     g.setColour (theme.shadow.withAlpha (castA));
     g.fillRoundedRectangle (bounds.translated (0.0f, 5.0f).expanded (2.0f), radius + 2.0f);
@@ -2177,7 +2179,7 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f).expanded (0.5f), radius + 1.0f);
     // Tight contact line directly under the edge. Without it a card floats;
     // with it, it sits ON the desk. One pixel of offset does the work.
-    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.14f : 0.22f));
+    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.14f : 0.15f));
     g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), radius);
 
     // Material fill. On the glow theme the panels are darker glass so the
@@ -2479,7 +2481,6 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     // strip, and its own card has rounded corners - drawing the ones beneath
     // left ghost outlines poking out of those corners.
     drawCard (g, sliceCardBounds.toFloat());
-    drawStripCaptions (g);
     if (! showLooper)
     {
         drawCard (g, engineCardBounds.toFloat());
@@ -2527,6 +2528,14 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
         drawCaption (g, "Scope",      scopeCardBounds);
 
     }
+
+    // AFTER every card, not before the first one. These sat above the field
+    // they label and INSIDE the Arp / Playback / Filter cards, so drawing them
+    // first meant each card painted straight over its own captions. They were
+    // visible at all only because the material was translucent - which is also
+    // why they read as washed out and got "fixed" once by making them bolder
+    // and brighter. They were never dim; they were underneath.
+    drawStripCaptions (g);
 
     // Footer, per spec 4.8. The key run used to be elided to "Z S X D C V ..."
     // which is the half that tells you nothing - the point of printing it is
