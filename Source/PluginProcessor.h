@@ -233,7 +233,8 @@ public:
     int  getDetectedKeyRoot() const  { return detectedKeyRoot.load(); }
     bool isDetectedKeyMinor() const  { return detectedKeyMinor.load(); }
 
-    /** Licensing: unlicensed = demo (output mutes 2 s every minute). */
+    /** Licensing: unlicensed = demo - mutes 2 s every 30 s, and refuses to
+        write session state, so a project using it cannot be finished. */
     bool isLicensed() const { return licensed.load(); }
     bool finalizeActivation (const juce::String& email, const juce::String& key)
     {

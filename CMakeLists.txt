@@ -192,10 +192,11 @@ target_link_libraries(VocalChopStudio
 
 # --- offline core for the developer tools ---------------------------------
 # The shipping library is compiled with SLYCE_DEMO_GATE=1, which mutes two
-# seconds every minute. The render tools bounce two-minute arrangements, so
-# linking the shipping library punched a hole in every track at 0:58. They get
-# their own copy of the sources with the gate compiled OUT - the product build
-# is untouched.
+# seconds every thirty AND refuses to write session state. The render tools
+# bounce multi-minute arrangements and --state round-trips the whole patch, so
+# linking the shipping library would punch a hole in every track and make the
+# state test vacuous. They get their own copy of the sources with the gate
+# compiled OUT - the product build is untouched.
 set(SLYCE_CORE_SOURCES
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp

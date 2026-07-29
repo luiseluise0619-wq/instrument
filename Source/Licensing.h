@@ -19,7 +19,8 @@
        offline against the public key below. No device counting.
 
     Until a key is entered the plugin runs as a DEMO: fully functional, but
-    the output mutes for two seconds every minute.
+    the output mutes for two seconds every thirty, and the
+    session state is never written, so a project cannot be reopened intact.
 
     Honest threat model: this stops casual file-sharing, not crackers. The
     local licence file is machine-bound and tamper-signed, but anyone

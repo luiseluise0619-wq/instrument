@@ -28,7 +28,7 @@ public:
         addAndMakeVisible (title);
 
         info.setText ("Paste the license key from your Gumroad receipt.\n"
-                      "Without one Slyce runs in demo: output mutes 2 s every minute.",
+                      "Demo: 2 s of silence every 30 s, and your session is not saved.",
                       juce::dontSendNotification);
         info.setFont (juce::Font (juce::FontOptions (13.0f)));
         info.setJustificationType (juce::Justification::centred);

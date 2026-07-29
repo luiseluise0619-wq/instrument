@@ -732,7 +732,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     sliceModeBox.setTooltip ("How the audio gets cut: at transients or on a beat grid");
     gridBox.setTooltip ("Grid density when slicing by beats");
     helpButton.setTooltip ("Show the quick-start guide again");
-    unlockButton.setTooltip ("Enter your license key (demo mutes 2 s every minute)");
+    unlockButton.setTooltip ("Enter your license key. The demo mutes 2 s every 30 s and does not save your session");
 
     demoButton.setTriggeredOnMouseDown (true);   // instant response
     demoButton.onClick = [this]
@@ -2654,7 +2654,7 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
     if (! processor.isLicensed())
     {
         g.setColour (juce::Colour (0xffff453a).withAlpha (0.85f));
-        g.drawText ("Demo - output mutes 2 s every minute",
+        g.drawText ("Demo - mutes 2 s every 30 s  -  your session is NOT saved",
                     juce::Rectangle<int> (kMargin + 104, kBaseH - 26, 300, 22),
                     juce::Justification::centredLeft);
     }

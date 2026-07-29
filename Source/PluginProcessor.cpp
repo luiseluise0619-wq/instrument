@@ -564,11 +564,18 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             pumpPhase = 0.0;
     }
 
-    // 10) Demo gate: without a license the output mutes for 2 s every
-    //     minute (short fades at the window edges so there is no click).
+    // 10) Demo gate: without a license the output mutes for 2 s every 30 s
+    //     (short fades at the window edges so there is no click).
+    //
+    //     The mute stays SHORT deliberately. Lengthening it makes the plugin
+    //     sound broken rather than limited, and the whole point of a demo is
+    //     that someone can judge how it sounds - a demo that sounds bad gets
+    //     judged as a bad plugin. The pressure to buy comes from
+    //     getStateInformation refusing to write instead: every voice is fully
+    //     auditionable, and no project can be finished.
     if (! licensed.load (std::memory_order_relaxed))
     {
-        const auto period  = (int64_t) (60.0 * currentSampleRate);
+        const auto period  = (int64_t) (30.0 * currentSampleRate);
         const auto muteLen = (int64_t) ( 2.0 * currentSampleRate);
         for (int n = 0; n < numSamples; ++n)
         {
@@ -2730,6 +2737,21 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 //==============================================================================
 void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    // DEMO: nothing is written, so nothing comes back. This is the limitation
+    // that actually bites - you can audition every voice and hear exactly what
+    // you would be buying, but a project that uses Slyce cannot be reopened
+    // with its patch intact, so it cannot be finished.
+    //
+    // It belongs here rather than in setStateInformation. Refusing to READ
+    // would still let a demo session write a full patch into someone's project
+    // file, and a licensed build months later would then silently restore work
+    // the user had been told was not saved.
+    if (! licensed.load (std::memory_order_relaxed))
+    {
+        destData.reset();
+        return;
+    }
+
     // Full session state: parameters + sample path + slicing + theme, so that
     // reopening the project restores everything, not just the knobs.
     juce::XmlElement root ("VocalChopState");
