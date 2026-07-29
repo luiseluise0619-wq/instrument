@@ -67,7 +67,9 @@ a { color: inherit; }
   --pulse: 0;                     /* JS writes the beat envelope here */
 
   --display: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display",
-             "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+             "Segoe UI", system-ui, "Helvetica Neue", Arial,
+             "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR",
+             "Pretendard", sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono",
           Menlo, Consolas, monospace;
 }
@@ -388,6 +390,19 @@ canvas { display: block; width: 100%; }
 .langsw button:hover { color: var(--text); }
 .langsw button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .langsw button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.langsw-nav { margin-top: 0; margin-left: .35rem; }
+.langsw-nav button { padding: .3rem .6rem; font-size: .72rem; }
+@media (max-width: 860px) { .langsw-nav { display: none; } }
+
+/* Korean sets differently: it breaks between words rather than inside them,
+   and the same sentence runs longer, so headings need tighter tracking and
+   body copy needs more leading. Scoped to the whole document now, not just
+   the affiliate block. */
+html[data-lang="ko"] { word-break: keep-all; }
+html[data-lang="ko"] h1, html[data-lang="ko"] h2,
+html[data-lang="ko"] h3, html[data-lang="ko"] h4 { letter-spacing: -.02em; }
+html[data-lang="ko"] p, html[data-lang="ko"] .lede,
+html[data-lang="ko"] li { line-height: 1.78; }
 
 .aff-h {
   margin: 3.2rem 0 .5rem; font-size: 1.28rem; letter-spacing: -.025em;
@@ -716,9 +731,9 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
   <div class="wrap nav-in">
     <span class="mark">slyce</span>
     <div class="nav-links">
-      <a href="#new">3.0</a><a href="#play">Play</a><a href="#path">Signal path</a>
-      <a href="#loop">Loop station</a><a href="#specs">Specs</a>
-      <a href="#affiliate">Affiliate</a>
+      <a href="#new">3.0</a><a href="#play" data-ko="연주">Play</a><a href="#path" data-ko="신호 흐름">Signal path</a>
+      <a href="#loop" data-ko="루프 스테이션">Loop station</a><a href="#specs" data-ko="사양">Specs</a>
+      <a href="#affiliate" data-ko="제휴">Affiliate</a>
     </div>
     <!-- The plugin ships sixteen themes; the page can at least offer its
          accent. Swatches rather than a menu of names - "Bone" and "Clay"
@@ -726,7 +741,8 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
          plugin's own theme menu now shows colours. -->
     <div class="skin" id="skin" role="group" aria-label="Accent colour"></div>
     <button class="skin-mode" id="skinMode" type="button" aria-label="Switch between light and dark">Dark</button>
-    <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce">Get Slyce</a>
+    <div class="langsw langsw-nav" role="group" aria-label="Language"><button type="button" data-lang-btn="en" aria-pressed="true">EN</button><button type="button" data-lang-btn="ko" aria-pressed="false">한국어</button></div>
+    <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce" data-ko="구매하기">Get Slyce</a>
   </div>
 </nav>
 
@@ -738,20 +754,20 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
   <div class="wrap hero-grid">
     <div>
       <canvas id="wordmark" aria-label="Slyce 3.0"></canvas>
-      <p class="hero-sub">Chop a vocal. Play <u>403 sounds</u>. Loop the whole thing.</p>
+      <p class="hero-sub" data-ko="보컬을 자르고, &lt;u&gt;403가지 소리&lt;/u&gt;로 연주하고, 통째로 루프.">Chop a vocal. Play <u>403 sounds</u>. Loop the whole thing.</p>
 
       <ul class="feat-list">
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h2.5l2-7 3 15 3-11 2.5 6 2-3H22"/></svg><span><b>Chop any sample</b> across the keys — transients or grid</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg><span><b>403 instruments</b>, picked for you by genre — EDM, Hip-hop, Pop</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.4 2"/></svg><span><b>Arp, pump and delay</b> locked to your DAW's tempo</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 11V9a3 3 0 0 1 3-3h14"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 13v2a3 3 0 0 1-3 3h-14"/></svg><span><b>6-track loop station</b> — build the beat without leaving</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 19h16"/></svg><span><b>Drag the loop</b> straight onto your DAW timeline</span></li>
-        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2 12 13.4l9-5.2"/><path d="M12 13.4V21"/></svg><span><b>VST3 · AU · Standalone</b> for Windows, macOS and Linux</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12h2.5l2-7 3 15 3-11 2.5 6 2-3H22"/></svg><span data-ko="&lt;b&gt;어떤 샘플이든 잘라서&lt;/b&gt; 건반 위에 — 트랜지언트 또는 그리드"><b>Chop any sample</b> across the keys — transients or grid</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg><span data-ko="&lt;b&gt;악기 403개&lt;/b&gt;, 장르별로 골라줍니다 — EDM · 힙합 · 팝"><b>403 instruments</b>, picked for you by genre — EDM, Hip-hop, Pop</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.4 2"/></svg><span data-ko="&lt;b&gt;아르페지오 · 펌프 · 딜레이&lt;/b&gt;가 DAW 템포에 물립니다"><b>Arp, pump and delay</b> locked to your DAW's tempo</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2.5 20.5 6 17 9.5"/><path d="M3.5 11V9a3 3 0 0 1 3-3h14"/><path d="M7 21.5 3.5 18 7 14.5"/><path d="M20.5 13v2a3 3 0 0 1-3 3h-14"/></svg><span data-ko="&lt;b&gt;6트랙 루프 스테이션&lt;/b&gt; — 나가지 않고 비트를 완성"><b>6-track loop station</b> — build the beat without leaving</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M4 19h16"/></svg><span data-ko="&lt;b&gt;루프를 드래그해&lt;/b&gt; DAW 타임라인에 바로"><b>Drag the loop</b> straight onto your DAW timeline</span></li>
+        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8.2 12 3 3 8.2v7.6L12 21l9-5.2z"/><path d="M3 8.2 12 13.4l9-5.2"/><path d="M12 13.4V21"/></svg><span data-ko="&lt;b&gt;VST3 · AU · 스탠드얼론&lt;/b&gt; — Windows · macOS · Linux"><b>VST3 · AU · Standalone</b> for Windows, macOS and Linux</span></li>
       </ul>
 
       <div class="hero-cta">
-        <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce — $15</a>
-        <a class="btn magnet" href="https://luiseluise.gumroad.com/l/slyce-demo">Try the free demo</a>
+        <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce" data-ko="&lt;svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.9&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M12 3v11&quot;/&gt;&lt;path d=&quot;M7.5 10 12 14.5 16.5 10&quot;/&gt;&lt;path d=&quot;M4 19.5h16&quot;/&gt;&lt;/svg&gt; 구매하기 — $15"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce — $15</a>
+        <a class="btn magnet" href="https://luiseluise.gumroad.com/l/slyce-demo" data-ko="무료 데모 받기">Try the free demo</a>
       </div>
 
       <!-- PLAYABLE. A page can say "it chops vocals" or it can hand you the
@@ -762,19 +778,19 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
       <div class="chop" id="chop">
         <div class="chop-head">
           <span class="hear-dot" aria-hidden="true"></span>
-          <b>Chop it yourself</b>
-          <span class="hear-sub">one vocal, 12 slices &mdash; tap a pad or press <kbd>1</kbd>&ndash;<kbd>9</kbd></span>
+          <b data-ko="직접 잘라보세요">Chop it yourself</b>
+          <span class="hear-sub" data-ko="보컬 하나, 슬라이스 12개 &amp;mdash; 패드를 누르거나 &lt;kbd&gt;1&lt;/kbd&gt;&amp;ndash;&lt;kbd&gt;9&lt;/kbd&gt;">one vocal, 12 slices &mdash; tap a pad or press <kbd>1</kbd>&ndash;<kbd>9</kbd></span>
         </div>
         <div class="pads" id="pads" role="group" aria-label="Vocal slice pads"></div>
         <div class="chop-foot">
-          <button class="chop-btn" id="chopPlay" type="button">Play the pattern</button>
-          <span class="chop-note" id="chopNote">click a pad to start</span>
+          <button class="chop-btn" id="chopPlay" type="button" data-ko="패턴 재생">Play the pattern</button>
+          <span class="chop-note" id="chopNote" data-ko="패드를 누르면 시작합니다">click a pad to start</span>
         </div>
       </div>
 
       <p class="clock">
         <span class="beat-dots" id="beats" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span>this page runs at <b>128.0&nbsp;BPM</b></span><span>·</span>
+        <span data-ko="이 페이지는 &lt;b&gt;128.0&amp;nbsp;BPM&lt;/b&gt;으로 돌아갑니다">this page runs at <b>128.0&nbsp;BPM</b></span><span>·</span>
         <span>bar <b id="barno">1</b> beat <b id="beatno">1</b></span>
       </p>
     </div>
@@ -795,7 +811,7 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
 <section style="padding: 1rem 0 4.5rem;">
   <div class="wrap">
     <div class="panel rise">
-      <div class="panel-bar"><span>Scope</span><span>·</span><span>16 slices</span><span class="sp">transient detect</span></div>
+      <div class="panel-bar"><span data-ko="스코프">Scope</span><span>·</span><span data-ko="슬라이스 16">16 slices</span><span class="sp" data-ko="트랜지언트 감지">transient detect</span></div>
       <canvas id="scope" aria-label="Animated waveform with slice markers and a playhead running at 128 BPM"></canvas>
     </div>
     <div class="ticker rise" style="--d:120ms" aria-hidden="true">
@@ -809,9 +825,9 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
   <div class="blob"></div>
   <div class="wrap">
     <div class="sec-head">
-      <span class="mono-label rise">New in 3.0</span>
-      <h2 class="chop">Three engines that lock to your tempo.</h2>
-      <p class="lede rise" style="--d:120ms">
+      <span class="mono-label rise" data-ko="3.0 새 기능">New in 3.0</span>
+      <h2 class="chop" data-ko="템포에 물리는 엔진 세 가지.">Three engines that lock to your tempo.</h2>
+      <p class="lede rise" style="--d:120ms" data-ko="&quot;대충 박자에 맞게&quot;가 아닙니다. 호스트 트랜스포트에서 위상을 그대로 가져오기 때문에, 재생을 언제 누르든 패턴의 첫 스텝이 마디의 첫 박입니다.">
         Not "roughly in time". They take their phase from the transport, so the
         first step of the pattern is the first beat of your bar — whenever you hit play.
       </p>
@@ -821,24 +837,24 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
       <article class="fcard tilt rise" style="--d:0ms">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg></div>
         <canvas class="mini" id="arpCanvas" height="112" aria-label="Arpeggiator grid stepping through a chord"></canvas>
-        <h3>Arpeggiator</h3>
-        <p>Hold a chord, pick Up / Down / Up&#8209;Down / Random. 1/4 down to 1/32
+        <h3 data-ko="아르페지에이터">Arpeggiator</h3>
+        <p data-ko="코드를 잡고 Up / Down / Up&amp;#8209;Down / Random 중에서 고르세요. 1/4부터 1/32까지, 셋잇단 포함, 1~3옥타브, 게이트 조절 가능. 각 음은 그 음을 누른 벨로시티를 그대로 유지합니다.">Hold a chord, pick Up / Down / Up&#8209;Down / Random. 1/4 down to 1/32
            with triplets, one to three octaves, adjustable gate. Every note keeps
            the velocity of the key that fed it.</p>
       </article>
       <article class="fcard tilt rise" style="--d:110ms">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 17c2.4 0 2.4-9 4.8-9s2.4 9 4.8 9 2.4-9 4.8-9S18.8 17 21.2 17"/></svg></div>
         <canvas class="mini" id="pumpCanvas" height="112" aria-label="Sidechain pump envelope ducking on every beat"></canvas>
-        <h3>Sidechain pump</h3>
-        <p>The duck every dance record is built on, with nothing to route. One dial,
+        <h3 data-ko="사이드체인 펌프">Sidechain pump</h3>
+        <p data-ko="댄스 음악이 기대고 있는 그 덕킹을, 라우팅 없이. 노브 하나에 4가지 속도 — 한 마디, 1/2, 1/4, 1/8. 플러그인을 켠 시점이 아니라 마디선에 고정됩니다.">The duck every dance record is built on, with nothing to route. One dial,
            four rates: a bar, a half, a quarter, an eighth. Anchored to the bar line,
            not to whenever the plugin loaded.</p>
       </article>
       <article class="fcard tilt rise" style="--d:220ms">
         <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19C9 19 8 5 21 5"/><circle cx="21" cy="5" r="1.8" fill="currentColor" stroke="none"/><circle cx="3" cy="19" r="1.8" fill="currentColor" stroke="none"/></svg></div>
         <canvas class="mini" id="glideCanvas" height="112" aria-label="Portamento pitch curve sliding between two notes"></canvas>
-        <h3>Glide</h3>
-        <p>Portamento on a dial. Notes slide in from the one before them — the 808
+        <h3 data-ko="글라이드">Glide</h3>
+        <p data-ko="포르타멘토를 노브 하나로. 앞 음에서 미끄러져 들어옵니다 — 808 슬라이드, 애시드 라인, 덥 사이렌. 드럼 킷 조각은 건드리지 않습니다. 드럼끼리 미끄러지는 건 아무도 원하지 않으니까요.">Portamento on a dial. Notes slide in from the one before them — the 808
            slide, the acid line, the dub siren. Drum kit pieces are left alone,
            because sliding between drums is never what you meant.</p>
       </article>
@@ -851,9 +867,9 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
   <div class="blob"></div>
   <div class="wrap">
     <div class="sec-head">
-      <span class="mono-label rise">Play it here</span>
-      <h2 class="chop">Turn the dials. It makes noise.</h2>
-      <p class="lede rise" style="--d:120ms">
+      <span class="mono-label rise" data-ko="여기서 연주해보세요">Play it here</span>
+      <h2 class="chop" data-ko="노브를 돌리면 소리가 납니다.">Turn the dials. It makes noise.</h2>
+      <p class="lede rise" style="--d:120ms" data-ko="브라우저 크기로 줄인 엔진 맛보기 — 디튠된 유니즌 뱅크가 레조넌트 필터로, 템포에 물린 덕킹과 싱크된 딜레이까지. 플러그인과 같은 구조, 같은 노브입니다. 건반을 누르고, 코드를 잡고, 아르페지오를 켜보세요.">
         A browser-sized taste of the engine — a detuned unison bank into a
         resonant filter, a tempo-locked duck, a synced delay. Same architecture
         as the plugin, same dials. Play the keys, hold a chord and switch the arp on.
@@ -873,7 +889,7 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
           <div style="display:grid; gap:.9rem;">
             <canvas id="pgScope" aria-label="Live output waveform"></canvas>
             <div class="seg-row">
-              <span class="lbl">Wave</span>
+              <span class="lbl" data-ko="파형">Wave</span>
               <div class="seg" id="waveSeg">
                 <button data-w="sawtooth" aria-pressed="true">Saw</button>
                 <button data-w="square" aria-pressed="false">Sqr</button>
@@ -891,13 +907,13 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
               </div>
             </div>
             <div class="seg-row">
-              <span class="lbl">Latch a chord</span>
+              <span class="lbl" data-ko="코드 유지">Latch a chord</span>
               <div class="seg" id="chordSeg">
                 <button data-c="0" aria-pressed="false">Fm</button>
                 <button data-c="1" aria-pressed="false">D&#9837;</button>
                 <button data-c="2" aria-pressed="false">A&#9837;</button>
                 <button data-c="3" aria-pressed="false">E&#9837;</button>
-                <button data-c="-1" aria-pressed="false">Clear</button>
+                <button data-c="-1" aria-pressed="false" data-ko="해제">Clear</button>
               </div>
             </div>
           </div>
@@ -906,18 +922,18 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
         <div class="keys" id="keys"></div>
 
         <div class="pg-bar">
-          <button class="btn" id="beatBtn" aria-pressed="false">▶ Play beat</button>
-          <button class="btn" id="panicBtn">All notes off</button>
-          <span class="pg-hint">drag the dials · click the keys · or type Z S X D C V G B H N J M</span>
+          <button class="btn" id="beatBtn" aria-pressed="false" data-ko="▶ 비트 재생">▶ Play beat</button>
+          <button class="btn" id="panicBtn" data-ko="전체 정지">All notes off</button>
+          <span class="pg-hint" data-ko="노브를 드래그 · 건반을 클릭 · 또는 Z S X D C V G B H N J M 입력">drag the dials · click the keys · or type Z S X D C V G B H N J M</span>
         </div>
       </div>
 
       <div id="audioGate">
         <div class="inner">
-          <h3>Click to make sound</h3>
-          <p>Browsers need one tap before any page is allowed to play audio.
+          <h3 data-ko="누르면 소리가 납니다">Click to make sound</h3>
+          <p data-ko="브라우저는 오디오를 재생하기 전에 한 번의 클릭을 요구합니다. 헤드폰이나 스피커를 켜주세요.">Browsers need one tap before any page is allowed to play audio.
              Headphones or speakers on.</p>
-          <span class="btn btn-primary">Start the engine</span>
+          <span class="btn btn-primary" data-ko="엔진 켜기">Start the engine</span>
         </div>
       </div>
     </div>
@@ -928,34 +944,34 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
 <section class="screen" id="path">
   <div class="wrap">
     <div class="sec-head">
-      <span class="mono-label rise">Signal path</span>
-      <h2 class="chop">One window, front to back.</h2>
+      <span class="mono-label rise" data-ko="신호 흐름">Signal path</span>
+      <h2 class="chop" data-ko="창 하나에, 처음부터 끝까지.">One window, front to back.</h2>
     </div>
     <div>
-      <div class="link rise" style="--d:0ms"><div class="n">01 / IN</div>
-        <div><h3>Load anything, or load nothing</h3>
-        <p>Drop a vocal, a break, a field recording. Or skip it and play the synth —
+      <div class="link rise" style="--d:0ms"><div class="n" data-ko="01 / 입력">01 / IN</div>
+        <div><h3 data-ko="무엇이든 넣거나, 아무것도 안 넣거나">Load anything, or load nothing</h3>
+        <p data-ko="보컬, 드럼 브레이크, 현장 녹음 — 뭐든 드롭하세요. 아니면 그냥 건너뛰고 신스를 연주해도 됩니다. 건반은 어느 쪽이든 소리를 냅니다.">Drop a vocal, a break, a field recording. Or skip it and play the synth —
            the keys are never silent, even on a fresh instance.</p></div></div>
-      <div class="link rise" style="--d:70ms"><div class="n">02 / SLICE</div>
-        <div><h3>Chop by transient or by grid</h3>
-        <p>Detect hits automatically with a sensitivity dial, or cut to 4, 8, 16 or 32
+      <div class="link rise" style="--d:70ms"><div class="n" data-ko="02 / 슬라이스">02 / SLICE</div>
+        <div><h3 data-ko="트랜지언트로 자르거나, 그리드로 자르거나">Chop by transient or by grid</h3>
+        <p data-ko="감도 노브로 타점을 자동 검출하거나, 4 · 8 · 16 · 32 등분으로 자르세요. 잘린 조각들은 건반에 하나씩 올라갑니다.">Detect hits automatically with a sensitivity dial, or cut to 4, 8, 16 or 32
            equal slices. The pieces land across the keyboard in the order they were
            cut, so a run up the keys is a run through the sample.</p></div></div>
-      <div class="link rise" style="--d:140ms"><div class="n">03 / ENGINE</div>
-        <div><h3>Four ways to play it</h3>
-        <p><b>Chop</b> triggers your slices. <b>Synth</b> plays 403 built-in voices.
+      <div class="link rise" style="--d:140ms"><div class="n" data-ko="03 / 엔진">03 / ENGINE</div>
+        <div><h3 data-ko="연주하는 네 가지 방법">Four ways to play it</h3>
+        <p data-ko="Chop은 슬라이스를 트리거합니다. Synth는 내장 음색 403개를 연주합니다. Sampled는 본인의 SFZ 멀티샘플 뱅크를 불러옵니다. Melody는 로드한 샘플을 음정으로 연주합니다."><b>Chop</b> triggers your slices. <b>Synth</b> plays 403 built-in voices.
            <b>Sampled</b> loads your own SFZ multisample banks. <b>Melody</b> plays the
            loaded sample chromatically across the keys. Switch mid-performance;
            nothing clicks.</p></div></div>
-      <div class="link rise" style="--d:210ms"><div class="n">04 / SHAPE</div>
-        <div><h3>A real synth underneath</h3>
-        <p>Seven-voice unison with spread and drift, sub and noise, FM, vibrato, a
+      <div class="link rise" style="--d:210ms"><div class="n" data-ko="04 / 셰이핑">04 / SHAPE</div>
+        <div><h3 data-ko="밑에는 진짜 신스가 있습니다">A real synth underneath</h3>
+        <p data-ko="스프레드와 드리프트가 들어간 7보이스 유니즌, 서브와 노이즈, FM, 비브라토, 레조넌트 필터와 ADSR — 슬라이스에도, 신스 음색에도 똑같이 걸립니다.">Seven-voice unison with spread and drift, sub and noise, FM, vibrato, a
            resonant filter with its own envelope and LFO, chorus, saturation, and a
            vowel formant bank that makes the vocal patches read as a voice. Three
            macros — HYPE, SPACE, DIRT — move the lot at once.</p></div></div>
-      <div class="link rise" style="--d:280ms"><div class="n">05 / OUT</div>
-        <div><h3>Pitch, texture, FX, limiter</h3>
-        <p>Formant-preserving pitch shift, granular texture, drive, reverb and a
+      <div class="link rise" style="--d:280ms"><div class="n" data-ko="05 / 출력">05 / OUT</div>
+        <div><h3 data-ko="피치, 텍스처, FX, 리미터">Pitch, texture, FX, limiter</h3>
+        <p data-ko="포먼트를 유지하는 피치 시프트, 그래뉼러 텍스처, 드라이브, 리버브, 그리고 템포에 물린 딜레이 — 룩어헤드 브릭월 리미터로 들어갑니다.">Formant-preserving pitch shift, granular texture, drive, reverb and a
            tempo-locked delay, into a look-ahead brick-wall limiter. True bypass on
            the pitch engine, so ordinary playing never pays for latency it isn't
            using.</p></div></div>
@@ -968,20 +984,20 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
   <div class="blob"></div>
   <div class="wrap split" style="align-items:center; gap:3rem;">
     <div>
-      <span class="mono-label rise">Loop station</span>
-      <h2 class="chop" style="margin:.9rem 0 1.1rem;">Build the whole beat without leaving the plugin.</h2>
-      <p class="lede rise" style="--d:100ms">
+      <span class="mono-label rise" data-ko="루프 스테이션">Loop station</span>
+      <h2 class="chop" style="margin:.9rem 0 1.1rem;" data-ko="플러그인을 나가지 않고 비트 전체를 만듭니다.">Build the whole beat without leaving the plugin.</h2>
+      <p class="lede rise" style="--d:100ms" data-ko="6개 트랙 각각에 어울리는 음색이 미리 잡혀 있어서, REC를 누르면 바로 연주로 들어갑니다. 음색을 고르는 데 시간을 쓰지 않아도 됩니다.">
         Six tracks, each with its own pre-picked sound, so a tap on REC drops you
         straight into the right instrument. Record, overdub, undo the last pass,
         reverse a track, pan it, mute it. Track one sets the length and everything
         after quantises to it.
       </p>
-      <p class="lede rise" style="--d:180ms">
+      <p class="lede rise" style="--d:180ms" data-ko="호스트 템포를 따라가거나 직접 탭하세요. 믹스를 WAV로 내보내거나 — DRAG를 누른 채로 DAW 타임라인에 바로 끌어다 놓을 수 있습니다.">
         Follow the host tempo or tap your own. Export the mix as a WAV — or hold
         DRAG and drop it straight onto your DAW's timeline.
       </p>
       <div class="panel rise" style="--d:260ms; margin-top:1.6rem;">
-        <div class="panel-bar"><span>Loop</span><span>·</span><span>4 tracks</span><span class="sp" id="loopReadout">bar 1</span></div>
+        <div class="panel-bar"><span data-ko="루프">Loop</span><span>·</span><span data-ko="4트랙">4 tracks</span><span class="sp" id="loopReadout">bar 1</span></div>
         <canvas id="loopCanvas" height="190" aria-label="Four loop track rings filling in time"></canvas>
       </div>
     </div>
@@ -997,10 +1013,10 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
 <section style="padding: 3rem 0;">
   <div class="wrap">
     <div class="stats">
-      <div class="stat rise" style="--d:0ms"><b class="count" data-to="403">0</b><span>Instruments</span></div>
-      <div class="stat rise" style="--d:90ms"><b class="count" data-to="4">0</b><span>Engines</span></div>
-      <div class="stat rise" style="--d:180ms"><b class="count" data-to="6">0</b><span>Loop tracks</span></div>
-      <div class="stat rise" style="--d:270ms"><b class="count" data-to="15">0</b><span>Themes</span></div>
+      <div class="stat rise" style="--d:0ms"><b class="count" data-to="403">0</b><span data-ko="악기">Instruments</span></div>
+      <div class="stat rise" style="--d:90ms"><b class="count" data-to="4">0</b><span data-ko="엔진">Engines</span></div>
+      <div class="stat rise" style="--d:180ms"><b class="count" data-to="6">0</b><span data-ko="루프 트랙">Loop tracks</span></div>
+      <div class="stat rise" style="--d:270ms"><b class="count" data-to="16">0</b><span data-ko="테마">Themes</span></div>
     </div>
   </div>
 </section>
@@ -1010,12 +1026,18 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
   <div class="blob"></div>
   <div class="wrap">
     <div class="sec-head">
-      <span class="mono-label rise">Specifications &amp; pricing</span>
-      <h2 class="chop">What you're installing.</h2>
+      <span class="mono-label rise" data-ko="사양 &amp;amp; 가격">Specifications &amp; pricing</span>
+      <h2 class="chop" data-ko="설치되는 것.">What you're installing.</h2>
     </div>
     <div class="split">
       <div class="specs rise">
-        <div class="specs-scroll"><table><tbody>
+        <div class="specs-scroll" data-ko="&lt;table&gt;&lt;tbody&gt;
+          &lt;tr&gt;&lt;th&gt;포맷&lt;/th&gt;&lt;td&gt;VST3, Audio Unit, 스탠드얼론 애플리케이션&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;th&gt;지원 OS&lt;/th&gt;&lt;td&gt;Windows 10 이상, macOS 10.13 이상, Linux&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;th&gt;종류&lt;/th&gt;&lt;td&gt;악기 — 믹서가 아니라 악기 트랙에 올립니다&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;th&gt;내장 악기&lt;/th&gt;&lt;td&gt;베이스 · 드럼 · 보컬 · 리드 · 신스 · 피아노 · 기타 · 패드 · 플럭 · 키 · 벨에 걸쳐 403개. EDM(150) · 힙합(150) · 팝(100) 뱅크로도 정리되어 있고, 트랙에서 맡는 역할별로 묶여 있습니다&lt;/td&gt;&lt;/tr&gt;
+          &lt;tr&gt;&lt;th&gt;샘플 불러오기&lt;/th&gt;&lt;td&gt;WAV, AIFF, MP3, FLAC, OGG · SFZ 멀티샘플 뱅크&lt;/td&gt;&lt;/tr&gt;
+        &lt;/tbody&gt;&lt;/table&gt;"><table><tbody>
           <tr><th>Formats</th><td>VST3, Audio Unit, Standalone application</td></tr>
           <tr><th>Systems</th><td>Windows 10+, macOS 10.13+, Linux</td></tr>
           <tr><th>Type</th><td>Instrument — loads on an instrument track, not the mixer</td></tr>
@@ -1029,16 +1051,16 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
       </div>
       <div class="price rise" style="--d:130ms">
         <div class="price-row"><span class="price-was">$29.99</span><span class="price-now">$15</span>
-          <span class="pill">launch price — 50% off</span></div>
+          <span class="pill" data-ko="런치 가격 — 50% 할인">launch price — 50% off</span></div>
         <ul class="incl">
-          <li>Windows, macOS and Linux — one purchase covers all three</li>
-          <li>Lifetime free updates, delivered to your library</li>
-          <li>Licence key for 3 machines</li>
-          <li>Free demo first — same plugin, output mutes briefly once a minute</li>
+          <li data-ko="Windows · macOS · Linux — 한 번 구매로 셋 다">Windows, macOS and Linux — one purchase covers all three</li>
+          <li data-ko="평생 무료 업데이트, 라이브러리로 바로 전달">Lifetime free updates, delivered to your library</li>
+          <li data-ko="기기 3대까지 쓸 수 있는 라이선스 키">Licence key for 3 machines</li>
+          <li data-ko="무료 데모 먼저 — 같은 플러그인이고, 1분에 한 번 잠깐 음소거됩니다">Free demo first — same plugin, output mutes briefly once a minute</li>
         </ul>
         <div class="hero-cta" style="margin:0;">
-          <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce</a>
-          <a class="btn magnet" href="https://luiseluise.gumroad.com/l/slyce-demo">Free demo</a>
+          <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce" data-ko="구매하기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M4 19.5h16"/></svg> Get Slyce</a>
+          <a class="btn magnet" href="https://luiseluise.gumroad.com/l/slyce-demo" data-ko="무료 데모">Free demo</a>
         </div>
       </div>
     </div>
@@ -1143,9 +1165,9 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
           <circle cx="17.6" cy="6.4" r="1.1" fill="currentColor" stroke="none"></circle>
         </svg>@jaddy_102
       </a>
-      <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce" style="margin-left:auto;">Get Slyce</a>
+      <a class="btn btn-primary magnet" href="https://luiseluise.gumroad.com/l/slyce" style="margin-left:auto;" data-ko="구매하기">Get Slyce</a>
     </div>
-    <p class="fine">
+    <p class="fine" data-ko="Slyce 3.0 · JUCE로 제작 · 피치 시프팅 Signalsmith Stretch&lt;br&gt;데모 트랙의 모든 소리는 Slyce만으로 만들었습니다 — 다른 악기는 쓰지 않았습니다.">
       Slyce 3.0 · Built with JUCE · Pitch shifting by Signalsmith Stretch<br>
       Every sound in the demo tracks was made with Slyce alone — no other instruments.
     </p>
@@ -2266,17 +2288,28 @@ const PG = (() => {
   buildTicker();
 
   const dmLayer = document.getElementById("danmaku");
-  const LINES = ["wait this is one plugin?","the 808 slide 🔥","arp locks to the grid perfectly",
+  // Two sets, because the comment overlay is the one place on the page where
+  // the writing is meant to sound like people talking - and a Korean reader
+  // getting English chatter over a Korean page reads as a half-finished
+  // translation, which is worse than no chatter at all.
+  const LINES_EN = ["wait this is one plugin?","the 808 slide 🔥","arp locks to the grid perfectly",
     "chopped my vocal in 10 seconds","403 sounds is insane","loop station is the whole point",
     "drag straight into the DAW??","sidechain with no routing","$15 is a steal","the pump is so clean",
     "made a whole beat on my laptop","formant knob is nasty","runs on my old machine fine"];
+  const LINES_KO = ["이거 플러그인 하나라고?","808 슬라이드 🔥","아르페지오가 그리드에 딱 물리네",
+    "보컬 10초 만에 다 잘랐음","소리 403개는 좀 미쳤다","루프 스테이션이 핵심이네",
+    "DAW로 바로 드래그된다고??","라우팅 없이 사이드체인","15달러면 거저다","펌프 진짜 깔끔하네",
+    "노트북으로 비트 하나 다 뽑음","포먼트 노브 미쳤다","구형 컴퓨터에서도 잘 돌아감"];
+  const LINES = LINES_EN;
   const HUES = ["#bf5af2","#ff9f0a","#5ac8fa","#f2f2f7","#ff6482","#64d2a0"];
   let dmIdx = 0;
   function emitComment() {
     if (reduce || document.hidden) return;
+    const pool = document.documentElement.getAttribute("data-lang") === "ko"
+                   ? LINES_KO : LINES_EN;
     const el = document.createElement("span");
     el.className = "dm";
-    el.textContent = LINES[dmIdx++ % LINES.length];
+    el.textContent = pool[dmIdx++ % LINES.length];
     el.style.color = HUES[Math.floor(Math.random() * HUES.length)];
     el.style.fontSize = (13 + Math.random() * 8).toFixed(0) + "px";
     el.style.top = (6 + Math.random() * 78) + "%";
@@ -2711,5 +2744,52 @@ const PG = (() => {
 })();
 </script>
 
+
+<script>
+/* ============================================================
+   PAGE-WIDE KOREAN
+   The affiliate section shipped with its own EN/KO dictionary and its own
+   toggle. Rather than move that copy into a second dictionary, this layer
+   reads the Korean out of a data-ko attribute sitting on the element it
+   replaces - the string and its translation stay next to each other, and
+   the English is simply whatever the HTML already says, so with scripting
+   off the page is a complete English page rather than an empty one.
+   ============================================================ */
+(() => {
+  const KEY = "slyce-lang";
+  const els = Array.prototype.slice.call(document.querySelectorAll("[data-ko]"));
+  for (const el of els) el.setAttribute("data-en", el.innerHTML);
+
+  let busy = false;
+  function apply (lang) {
+    if (busy) return;
+    busy = true;
+    document.documentElement.setAttribute("lang", lang);
+    document.documentElement.setAttribute("data-lang", lang);
+    for (const el of els)
+      el.innerHTML = el.getAttribute(lang === "ko" ? "data-ko" : "data-en");
+    for (const b of document.querySelectorAll("[data-lang-btn]"))
+      b.setAttribute("aria-pressed", String(b.dataset.langBtn === lang));
+    // Drive the affiliate module through its OWN button, so its dictionary
+    // stays the single owner of that section's copy. Its handler re-enters
+    // this function; `busy` is what stops the loop.
+    const aff = document.querySelector('#aff [data-lang-btn="' + lang + '"]');
+    if (aff) aff.click();
+    try { localStorage.setItem(KEY, lang); } catch (e) {}
+    busy = false;
+  }
+
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-lang-btn]");
+    if (b) apply(b.dataset.langBtn);
+  });
+
+  let start = null;
+  try { start = localStorage.getItem(KEY); } catch (e) {}
+  if (start !== "ko" && start !== "en")
+    start = (navigator.language || "").toLowerCase().indexOf("ko") === 0 ? "ko" : "en";
+  apply(start);
+})();
+</script>
 </body>
 </html>
