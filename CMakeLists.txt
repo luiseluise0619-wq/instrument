@@ -131,7 +131,26 @@ juce_add_binary_data(VocalChopData SOURCES
     examples/vox_kids.wav
     examples/vox_deep.wav
     examples/vox_robot.wav
-    examples/vox_opera.wav)
+    examples/vox_opera.wav
+    # Third wave: the gaps the first thirty-six left - consonant-led
+    # syllables, a minor register, beds long enough to sit under a
+    # section, and sources that are already wet.
+    examples/vox_word.wav
+    examples/vox_hardcons.wav
+    examples/vox_whispchop.wav
+    examples/vox_minor.wav
+    examples/vox_sadpad.wav
+    examples/vox_lament.wav
+    examples/vox_sustain.wav
+    examples/vox_swell.wav
+    examples/vox_ambient.wav
+    examples/vox_cathedral.wav
+    examples/vox_ghost.wav
+    examples/vox_dembow.wav
+    examples/vox_swung.wav
+    examples/vox_onebar.wav
+    examples/vox_talkbox.wav
+    examples/vox_shout.wav)
 
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp

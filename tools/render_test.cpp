@@ -1,9 +1,11 @@
 // Offline render harness: load each named instrument, play a note, measure.
 #include <algorithm>
 #include "PluginProcessor.h"
+#include "Licensing.h"
 #include "UI/ThemeManager.h"
 #include "UI/TypingKeymap.h"
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <set>
 #include <vector>
@@ -185,6 +187,366 @@ int main (int argc, char** argv)
         printf ("\n%d failing pair(s) across %d themes.\n",
                 failures, ThemeManager::kNumThemes);
         return failures == 0 ? 0 : 1;
+    }
+
+    // "--chop": drive the slice sampler over every built-in vocal, in both
+    // slicing modes, triggering every slice - and then the inputs that are
+    // meant never to happen. A sampler fails at its EDGES: slice zero, the
+    // last slice, an index past the end, a trigger with nothing loaded, a
+    // re-slice underneath a sounding voice. None of that was covered.
+    if (argc > 1 && juce::String (argv[1]) == "--chop")
+    {
+        int problems = 0;
+        auto bad = [&problems] (const juce::String& what)
+        {
+            printf ("   PROBLEM: %s\n", what.toRawUTF8());
+            ++problems;
+        };
+
+        juce::AudioBuffer<float> buf (2, 512);
+        auto& slicer = proc.getSliceEngine();
+
+        // Renders `blocks` blocks and reports what came out.
+        struct Out { float peak; bool nan; };
+        auto render = [&proc, &buf] (int blocks)
+        {
+            Out o { 0.0f, false };
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::MidiBuffer midi;
+                buf.clear();
+                proc.processBlock (buf, midi);
+                for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+                    for (int n = 0; n < buf.getNumSamples(); ++n)
+                    {
+                        const float v = buf.getSample (ch, n);
+                        if (! std::isfinite (v)) o.nan = true;
+                        o.peak = juce::jmax (o.peak, std::abs (v));
+                    }
+            }
+            return o;
+        };
+
+        const auto names = VocalChopAudioProcessor::getDemoSampleNames();
+        const int  nVox  = VocalChopAudioProcessor::getNumDemoSamples();
+
+        printf ("%-16s %-10s %6s %6s %7s %6s\n",
+                "vocal", "mode", "slices", "silent", "wrongPos", "nan");
+        printf ("%-16s %-10s %6s %6s %7s %6s\n",
+                "-----", "----", "------", "------", "--------", "---");
+
+        for (int v = 0; v < nVox; ++v)
+        {
+            if (! proc.loadDemoSample (v))
+            {
+                bad ("vocal " + names[v] + " failed to load");
+                continue;
+            }
+
+            for (int m = 0; m < 2; ++m)
+            {
+                slicer.setMode (m == 0 ? SliceEngine::Transient : SliceEngine::Grid);
+                if (m == 1) slicer.setGridDivision (16);
+                slicer.rebuildSlices();
+
+                const int n = slicer.getNumSlices();
+                if (n <= 0) { bad (names[v] + ": no slices at all"); continue; }
+
+                int silent = 0, wrongPos = 0, nan = 0;
+                for (int i = 0; i < n; ++i)
+                {
+                    proc.lastVoiceStartSample.store (-1);
+                    render (2);                       // flush the previous tail
+                    proc.triggerSlicePad (i, 0.95f);
+                    const auto o = render (6);
+
+                    if (o.nan)          ++nan;
+                    if (o.peak < 1.0e-4f) ++silent;
+
+                    // triggerSlicePad takes a KEY index, not a slice index -
+                    // it runs through the same diatonic mapping MIDI does, so
+                    // key i plays slice diatonicSliceIndex(i) wrapped by the
+                    // count. Checking it against slice i said 15 of 16 were
+                    // wrong on every single vocal, which is what a broken
+                    // EXPECTATION looks like: a real fault does not miss
+                    // everything except one.
+                    //
+                    // Two things are worth asserting, so assert both: that the
+                    // key landed on the slice the mapping promises, and that
+                    // the voice then began reading at that slice's own offset.
+                    const int wantSlice =
+                        ((VocalChopAudioProcessor::diatonicSliceIndex (i) % n) + n) % n;
+                    const int gotSlice = proc.lastVoiceSlice.load();
+                    const auto sl = slicer.getSlice (gotSlice);
+                    const int  got = proc.lastVoiceStartSample.load();
+
+                    if (gotSlice >= 0 && gotSlice != wantSlice)
+                        ++wrongPos;
+                    else if (sl.has_value() && got >= 0 && got != sl->startSample)
+                        ++wrongPos;
+                }
+
+                printf ("%-16s %-10s %6d %6d %7d %6d%s\n",
+                        names[v].toRawUTF8(), m == 0 ? "transient" : "grid",
+                        n, silent, wrongPos, nan,
+                        (silent || wrongPos || nan) ? "   <-- " : "");
+                problems += (silent > 0) + (wrongPos > 0) + (nan > 0);
+            }
+        }
+
+        printf ("\n-- edges ---------------------------------------------------\n");
+        proc.loadDemoSample (0);
+        slicer.setMode (SliceEngine::Grid);
+        slicer.setGridDivision (8);
+        slicer.rebuildSlices();
+        const int n0 = slicer.getNumSlices();
+
+        // Out of range in both directions. The audio thread wraps with the
+        // atomic count, so these must land on a real slice or be dropped -
+        // never read outside the buffer.
+        for (int idx : { -1, -1000, n0, n0 + 1, 100000 })
+        {
+            proc.triggerSlicePad (idx, 0.9f);
+            const auto o = render (6);
+            if (o.nan)
+                bad ("index " + juce::String (idx) + " produced NaN");
+            printf ("   index %-7d peak %.4f%s\n", idx, o.peak, o.nan ? "  NaN" : "");
+        }
+
+        // Triggering with nothing loaded at all.
+        {
+            proc.loadSampleFromMemory (nullptr, 0);   // leaves the old sample
+            VocalChopAudioProcessor fresh;
+            fresh.prepareToPlay (44100.0, 512);
+            juce::AudioBuffer<float> fb (2, 512);
+            fresh.triggerSlicePad (0, 0.9f);
+            fresh.triggerSlicePad (5, 0.9f);
+            bool nan = false; float peak = 0.0f;
+            for (int b = 0; b < 8; ++b)
+            {
+                juce::MidiBuffer midi; fb.clear();
+                fresh.processBlock (fb, midi);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < 512; ++i)
+                    {
+                        const float x = fb.getSample (ch, i);
+                        if (! std::isfinite (x)) nan = true;
+                        peak = juce::jmax (peak, std::abs (x));
+                    }
+            }
+            if (nan) bad ("triggering with no sample loaded produced NaN");
+            // Sound here is CORRECT, not a leak: with nothing loaded the keys
+            // fall through to the synth rather than going dead. Only NaN and a
+            // crash would be faults.
+            printf ("   no sample loaded    peak %.4f%s  (synth fallback)\n",
+                    peak, nan ? "  NaN" : "");
+        }
+
+        // Re-slicing while a voice is sounding: the slice list is republished
+        // under the spin lock the audio thread try-locks.
+        {
+            proc.loadDemoSample (1);
+            slicer.setMode (SliceEngine::Transient);
+            slicer.rebuildSlices();
+            proc.triggerSlicePad (0, 0.95f);
+            render (1);
+            bool nan = false;
+            for (int d = 4; d <= 32; d *= 2)
+            {
+                slicer.setMode (SliceEngine::Grid);
+                slicer.setGridDivision (d);
+                slicer.rebuildSlices();          // message thread, mid-voice
+                const auto o = render (3);
+                nan = nan || o.nan;
+            }
+            if (nan) bad ("re-slicing under a sounding voice produced NaN");
+            printf ("   re-slice mid-voice  %s\n", nan ? "NaN" : "clean");
+        }
+
+        // Every key at once, then choke them all.
+        {
+            proc.loadDemoSample (3);
+            slicer.rebuildSlices();
+            for (int i = 0; i < slicer.getNumSlices(); ++i)
+                proc.pressSlicePad (i, 0.9f);
+            const auto onAll = render (10);
+            for (int i = 0; i < slicer.getNumSlices(); ++i)
+                proc.chokeSlicePad (i);
+            // Settle FIRST, then measure. Peaking across the whole window
+            // after the choke includes the audio from before it landed - the
+            // events are queued and applied at the top of the next block - so
+            // the first version of this reported 0.84 and called it a leak.
+            render (6);                       // the events land next block
+            const auto justAfter = render (24);          // ~0.28 s
+            render (126);                                // run out to ~1.7 s...
+            const auto settled   = render (24);          // ...and measure THERE
+
+            // render() reports the peak across its whole window, so measuring
+            // "2 s after the choke" with one long render returns the loudest
+            // moment of the tail rather than its end. That is the same error
+            // as measuring across the choke itself, one level down.
+
+            // What a choke owes you is that the VOICES stop, not that the room
+            // goes with them. This plugin declares a 2 s tail and has a reverb
+            // and a synced delay on the master, so demanding silence 0.3 s
+            // after the last note is asking the FX to be broken - the first
+            // version of this check did exactly that and called an ordinary
+            // reverb tail a stuck voice.
+            //
+            // A stuck voice and a tail are told apart by their shape: a tail
+            // falls, a held voice does not.
+            if (onAll.nan || justAfter.nan || settled.nan)
+                bad ("all-keys-down produced NaN");
+            if (settled.peak > justAfter.peak * 0.5f)
+                bad ("audio after the choke is not decaying - a voice is stuck");
+            if (settled.peak > 0.05f)
+                bad ("still audible 2 s after the choke");
+
+            printf ("   all keys down       peak %.4f\n", onAll.peak);
+            printf ("   after choke         0.3s %.4f -> 2s %.4f   %s\n",
+                    justAfter.peak, settled.peak,
+                    settled.peak <= justAfter.peak * 0.5f ? "decaying (tail)"
+                                                          : "SUSTAINING");
+        }
+
+        printf ("\n%d problem(s).\n", problems);
+        return problems == 0 ? 0 : 1;
+    }
+
+    // "--licence [pair-file]": everything between a buyer pasting a key and the
+    // plugin unlocking. This is the most expensive class of bug in the product
+    // - a key that does not work costs a refund AND the customer - and none of
+    // it was covered.
+    //
+    // The POSITIVE cases need a real key, and a real key committed to a public
+    // repository would be a published bypass for whatever e-mail it was issued
+    // to. So they are read from a file (two lines: e-mail, then key) given on
+    // the command line or in SLYCE_TEST_LICENCE, and skipped when it is absent.
+    // Every REJECTION case runs unconditionally - those need no secret.
+    if (argc > 1 && juce::String (argv[1]) == "--licence")
+    {
+        using L = vcs::Licensing;
+        int fail = 0;
+        auto check = [&fail] (const char* what, bool got, bool want)
+        {
+            const bool ok = (got == want);
+            if (! ok) ++fail;
+            printf ("%-4s %-52s got %-5s want %s\n", ok ? "ok" : "FAIL", what,
+                    got ? "true" : "false", want ? "true" : "false");
+        };
+
+        juce::String email, key;
+        {
+            juce::File pf;
+            if (argc > 2)
+                pf = juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]);
+            else if (auto env = std::getenv ("SLYCE_TEST_LICENCE"))
+                pf = juce::File::getCurrentWorkingDirectory().getChildFile (env);
+
+            if (pf.existsAsFile())
+            {
+                auto lines = juce::StringArray::fromLines (pf.loadFileAsString());
+                lines.removeEmptyStrings();
+                if (lines.size() >= 2) { email = lines[0].trim(); key = lines[1].trim(); }
+            }
+        }
+
+        if (key.isNotEmpty())
+        {
+            printf ("-- accepting a good key ------------------------------------\n");
+            check ("exact e-mail and key",            L::verifyOfflineKey (email, key), true);
+            check ("e-mail uppercased",               L::verifyOfflineKey (email.toUpperCase(), key), true);
+            check ("e-mail with spaces around it",    L::verifyOfflineKey ("  " + email + "  ", key), true);
+            check ("key with spaces around it",       L::verifyOfflineKey (email, "  " + key + "  "), true);
+            check ("key with a trailing newline",     L::verifyOfflineKey (email, key + "\n"), true);
+            check ("key wrapped over three lines",    L::verifyOfflineKey (email,
+                       key.substring (0, 40) + "\n" + key.substring (40, 90) + "\r\n"
+                       + key.substring (90)), true);
+            check ("key with the dashes removed",     L::verifyOfflineKey (email,
+                       key.removeCharacters ("-")), true);
+            check ("key with extra dashes",           L::verifyOfflineKey (email,
+                       key.replace ("-", "--")), true);
+            check ("key in lower case",               L::verifyOfflineKey (email, key.toLowerCase()), true);
+            check ("key in UPPER case",               L::verifyOfflineKey (email, key.toUpperCase()), true);
+            // Pasting out of a web page or a chat client is how most people
+            // move a key, and both hand over U+00A0 rather than a plain space.
+            check ("key with non-breaking spaces",    L::verifyOfflineKey (email,
+                       juce::String::fromUTF8 ("\xc2\xa0") + key
+                       + juce::String::fromUTF8 ("\xc2\xa0")), true);
+            check ("key with a zero-width space",     L::verifyOfflineKey (email,
+                       key + juce::String::fromUTF8 ("\xe2\x80\x8b")), true);
+            check ("no VCS- prefix at all",           L::verifyOfflineKey (email,
+                       key.fromFirstOccurrenceOf ("-", false, false)), true);
+
+            printf ("-- routing: which path does the panel send it down? -------\n");
+            check ("VCS- key recognised as offline",  L::looksLikeOfflineKey (key), true);
+            check ("  ...with leading whitespace",    L::looksLikeOfflineKey ("  " + key), true);
+            check ("  ...with a leading NBSP",        L::looksLikeOfflineKey (
+                       juce::String::fromUTF8 ("\xc2\xa0") + key), true);
+            check ("  ...in lower case",              L::looksLikeOfflineKey (key.toLowerCase()), true);
+
+            printf ("-- rejecting a bad key -------------------------------------\n");
+            check ("a different e-mail",              L::verifyOfflineKey ("someone@else.com", key), false);
+            check ("e-mail with one letter changed",  L::verifyOfflineKey (
+                       "x" + email.substring (1), key), false);
+            check ("key with one digit changed",      L::verifyOfflineKey (email,
+                       key.replaceSection (10, 1, key[10] == '0' ? "1" : "0")), false);
+            check ("key truncated by one character",  L::verifyOfflineKey (email,
+                       key.dropLastCharacters (1)), false);
+            check ("key with a character appended",   L::verifyOfflineKey (email, key + "a"), false);
+
+            printf ("-- the licence file ----------------------------------------\n");
+            const auto backup = L::licenseFile().getSiblingFile ("license.test-backup");
+            const bool had = L::licenseFile().existsAsFile();
+            if (had) L::licenseFile().copyFileTo (backup);
+
+            check ("saveActivation writes",           L::saveActivation (email, key), true);
+            check ("loadActivation accepts it",       L::loadActivation(), true);
+            {
+                auto xml = juce::parseXML (L::licenseFile());
+                if (xml != nullptr)
+                {
+                    const auto good = xml->getStringAttribute ("sig");
+                    xml->setAttribute ("sig", good.replaceSection (4, 1,
+                                                    good[4] == '0' ? "1" : "0"));
+                    xml->writeTo (L::licenseFile());
+                    check ("tampered signature rejected", L::loadActivation(), false);
+
+                    xml->setAttribute ("sig", good);
+                    xml->setAttribute ("machine", "some-other-machine");
+                    xml->writeTo (L::licenseFile());
+                    check ("another machine's file rejected", L::loadActivation(), false);
+                }
+            }
+            L::licenseFile().deleteFile();
+            check ("no file means no licence",        L::loadActivation(), false);
+            if (had) backup.copyFileTo (L::licenseFile());
+            backup.deleteFile();
+        }
+        else
+        {
+            printf ("(no key pair given - positive cases skipped. Pass a file whose\n"
+                    " first line is the e-mail and second is the key, or set\n"
+                    " SLYCE_TEST_LICENCE.)\n\n");
+        }
+
+        printf ("-- rejections that need no secret --------------------------\n");
+        check ("empty e-mail and key",          L::verifyOfflineKey ("", ""), false);
+        check ("empty e-mail, plausible key",   L::verifyOfflineKey ("",
+                   juce::String::repeatedString ("ab", 140)), false);
+        check ("e-mail but no key",             L::verifyOfflineKey ("a@b.com", ""), false);
+        check ("key of the right length, wrong value", L::verifyOfflineKey ("a@b.com",
+                   "VCS-" + juce::String::repeatedString ("de", 140)), false);
+        check ("all zeroes",                    L::verifyOfflineKey ("a@b.com",
+                   "VCS-" + juce::String::repeatedString ("00", 140)), false);
+        check ("non-hex characters",            L::verifyOfflineKey ("a@b.com",
+                   "VCS-" + juce::String::repeatedString ("zz", 140)), false);
+        check ("too short to be a signature",   L::verifyOfflineKey ("a@b.com", "VCS-dead"), false);
+        check ("a Gumroad-shaped key is not offline",
+               L::looksLikeOfflineKey ("A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6"), false);
+
+        printf ("\n%d failing case(s).\n", fail);
+        return fail == 0 ? 0 : 1;
     }
 
     const auto names = VocalChopAudioProcessor::getInstrumentNames();

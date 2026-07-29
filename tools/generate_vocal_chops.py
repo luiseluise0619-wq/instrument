@@ -725,11 +725,299 @@ SECOND_WAVE = [
 ]
 
 
+# ==========================================================================
+# THIRD WAVE. Sixteen more, aimed at the gaps the first thirty-six left:
+# nothing in a minor/sad register, nothing you could lay under a whole
+# section, no consonant-led syllables (which is what actually makes a chop
+# sound like WORDS rather than like a vowel), and nothing wet enough to sit
+# at the back of a mix without further processing.
+# ==========================================================================
+
+def _cons(n, kind, level=0.8):
+    """A consonant burst to put in FRONT of a vowel. A chop reads as speech
+    because of its onsets - pure vowels chop into something closer to a pad."""
+    band = {"t": (2600, 9000, 0.9), "k": (1500, 5200, 0.8),
+            "s": (3800, 11000, 1.3), "sh": (2000, 6800, 1.0),
+            "f": (1700, 6000, 0.9), "ch": (2400, 8200, 1.1)}[kind]
+    seg = _noise(n, band[0], band[1], band[2])
+    e = env(n, 0.0015, (n / SR) * 0.75)
+    return [seg[i] * e[i] * level for i in range(n)]
+
+
+def _word(midi, vowel, dur, cons=None, q=11.0, breath=0.04, vib=(5.4, 0.016)):
+    """consonant + vowel, concatenated - one syllable that starts with a hit."""
+    out = []
+    if cons is not None:
+        cn = int(min(0.055, dur * 0.28) * SR)
+        out += _cons(cn, cons)
+    vn = int(dur * SR)
+    out += _syl(vn, midi, vowel, q=q, breath=breath, vib=vib, atk=0.006)
+    return out
+
+
+# --- consonant-led chops --------------------------------------------------
+def word_chop():
+    """Consonant-led syllables - the closest this gets to actual words."""
+    random.seed(301)
+    sixteenth = 60.0 / 124 / 4
+    buf = blank(sixteenth * 56 + 0.8)
+    cons = ["t", "k", "sh", "ch", "s", "f"]
+    notes = [72, 74, 76, 72, 69, 74]
+    k = 0
+    for step in range(56):
+        if step % 4 == 3:
+            continue
+        seg = _word(notes[k % 6], "aeiou"[k % 5], sixteenth * 1.05,
+                    cons[k % 6], q=13.0)
+        place(buf, int(step * sixteenth * SR), seg, 0.92, (k % 3 - 1) * 0.28)
+        k += 1
+    return buf
+
+
+def hard_consonant():
+    """Ts and Ks with almost no vowel - percussive, cuts through a busy mix."""
+    random.seed(302)
+    sixteenth = 60.0 / 140 / 4
+    buf = blank(sixteenth * 64 + 0.5)
+    for k in range(64):
+        if k % 8 in (2, 5):
+            continue
+        seg = _word(79, "i", sixteenth * 0.35, ["t", "k", "ch", "s"][k % 4], q=18.0)
+        place(buf, int(k * sixteenth * SR), seg, 0.9, (k % 5 - 2) * 0.22)
+    return buf
+
+
+def whisper_chop():
+    """Breathy consonant-led syllables, almost unvoiced - a texture chop."""
+    random.seed(303)
+    eighth = 60.0 / 96 / 2
+    buf = blank(eighth * 32 + 0.9)
+    for k in range(32):
+        seg = _word([67, 69, 71, 72][k % 4], "uoae"[k % 4], eighth * 0.9,
+                    ["f", "sh", "s"][k % 3], q=6.0, breath=0.55, vib=(4.0, 0.01))
+        place(buf, int(k * eighth * SR), seg, 0.85, random.uniform(-0.6, 0.6))
+    return buf
+
+
+# --- minor / sad register -------------------------------------------------
+def minor_hook():
+    """A natural-minor phrase - the first thirty-six leant major."""
+    random.seed(311)
+    buf = blank(8.5)
+    for t, m, d in [(0.0, 69, 0.7), (0.8, 72, 0.5), (1.4, 71, 0.5),
+                    (2.0, 69, 1.1), (3.3, 67, 0.6), (4.0, 69, 0.5),
+                    (4.6, 71, 0.9), (5.7, 69, 0.6), (6.4, 65, 1.7)]:
+        n = int(d * SR)
+        place(buf, int(t * SR),
+              _syl(n, m, "aoe"[int(t * 2) % 3], q=10.0, breath=0.045,
+                   vib=(5.4, 0.022), atk=0.016), 0.94)
+    return buf
+
+
+def sad_pad():
+    """A held minor stack - the bed under a sad section."""
+    random.seed(312)
+    buf = blank(9.5)
+    for i, m in enumerate([57, 60, 64, 67, 72]):
+        n = int(9.0 * SR)
+        seg = say(n, hz(m - 12), "ou"[i % 2], q=6.5, breath=0.05, vib=(3.2, 0.011))
+        e = env(n, 1.6, 2.6)
+        seg = [seg[j] * e[j] for j in range(n)]
+        place(buf, int(0.2 * SR), seg, 0.36, (i - 2) * 0.42)
+    return buf
+
+
+def lament():
+    """Descending sighs with a heavy vibrato tail."""
+    random.seed(313)
+    buf = blank(9.0)
+    t = 0.0
+    for m in (76, 74, 72, 71, 69, 67):
+        d = random.uniform(1.0, 1.6)
+        n = int(d * SR)
+        place(buf, int(t * SR),
+              _syl(n, m, "ao"[int(t) % 2], q=8.5, breath=0.06,
+                   vib=(5.0, 0.038), atk=0.05), 0.93)
+        t += d * 0.78
+    return buf
+
+
+# --- long beds ------------------------------------------------------------
+def sustain_bed():
+    """Twelve seconds of one held chord - long enough to sit under a section
+    without looping, which nothing in the first two waves was."""
+    random.seed(321)
+    buf = blank(12.5)
+    for i, m in enumerate([48, 55, 60, 64]):
+        n = int(12.0 * SR)
+        seg = say(n, hz(m - 12), "uoa"[i % 3], q=5.0, breath=0.04, vib=(2.6, 0.008))
+        e = env(n, 2.2, 3.4)
+        seg = [seg[j] * e[j] for j in range(n)]
+        place(buf, int(0.2 * SR), seg, 0.42, (i - 1.5) * 0.5)
+    return buf
+
+
+def swell_bed():
+    """Slow swells in and out - built to be chopped ACROSS rather than at."""
+    random.seed(322)
+    buf = blank(11.0)
+    t = 0.0
+    i = 0
+    while t < 10.0:
+        d = random.uniform(1.8, 2.8)
+        n = int(d * SR)
+        seg = say(n, hz([60, 64, 67, 71][i % 4] - 12), "aeou"[i % 4],
+                  q=7.0, breath=0.05, vib=(3.6, 0.012))
+        e = env(n, d * 0.45, d * 0.5)
+        seg = [seg[j] * e[j] for j in range(n)]
+        place(buf, int(t * SR), seg, 0.7, (i % 3 - 1) * 0.45)
+        t += d * 0.62
+        i += 1
+    return buf
+
+
+# --- wet / ambient --------------------------------------------------------
+def _tail(buf, decay=2.4, taps=26):
+    """A cheap dense reverb tail: many decaying, slightly detuned delays."""
+    out = [list(ch) for ch in buf]
+    n = len(out[0])
+    random.seed(999)
+    for t in range(taps):
+        d = int(random.uniform(0.013, decay * 0.45) * SR)
+        g = (1.0 - t / taps) ** 2.1 * 0.34
+        pan = random.uniform(-0.9, 0.9)
+        l = math.cos((pan + 1) * math.pi / 4)
+        r = math.sin((pan + 1) * math.pi / 4)
+        for i in range(n - d):
+            v = (buf[0][i] + buf[1][i]) * 0.5 * g
+            out[0][i + d] += v * l
+            out[1][i + d] += v * r
+    return out
+
+
+def ambient_vox():
+    """Wet from the source - sits at the back of a mix with nothing added."""
+    return _tail(minor_hook(), decay=3.0, taps=32)
+
+
+def cathedral():
+    """The choir, drowned. Long enough that a slice IS the reverb."""
+    random.seed(331)
+    buf = blank(10.0)
+    for t, chord in [(0.0, [60, 64, 67]), (3.2, [57, 60, 65]), (6.4, [55, 59, 62])]:
+        for i, m in enumerate(chord):
+            n = int(2.6 * SR)
+            seg = say(n, hz(m - 12), "ao"[i % 2], q=7.0, breath=0.04, vib=(4.4, 0.014))
+            e = env(n, 0.35, 1.6)
+            seg = [seg[j] * e[j] for j in range(n)]
+            place(buf, int(t * SR), seg, 0.5, (i - 1) * 0.55)
+    return _tail(buf, decay=3.6, taps=38)
+
+
+def ghost_vox():
+    """Reversed swells with a wet tail - the transition texture."""
+    return _tail(_rev(swell_bed()), decay=2.2, taps=24)
+
+
+# --- rhythm / utility -----------------------------------------------------
+def dembow():
+    """Syllables on the dembow pattern - reggaeton and afro sit on this."""
+    random.seed(341)
+    sixteenth = 60.0 / 96 / 4
+    buf = blank(sixteenth * 64 + 0.7)
+    hits = [0, 3, 6, 8, 11, 14]
+    for bar in range(4):
+        for j, h in enumerate(hits):
+            k = bar * 16 + h
+            seg = _word([72, 69, 74, 72][j % 4], "aoe"[j % 3], sixteenth * 1.3,
+                        "k" if j % 2 == 0 else None, q=12.0)
+            place(buf, int(k * sixteenth * SR), seg, 0.92, (j % 3 - 1) * 0.3)
+    return buf
+
+
+def swung_chop():
+    """A hard triplet swing - the pocket the straight-grid chops cannot make."""
+    random.seed(342)
+    beat = 60.0 / 92
+    buf = blank(beat * 10 + 0.8)
+    for b in range(10):
+        for off, m in ((0.0, 72), (0.66, 76), (0.5, 69)):
+            d = beat * 0.3
+            n = int(d * SR)
+            place(buf, int((b + off) * beat * SR),
+                  _syl(n, m, "aei"[b % 3], q=13.0, breath=0.03, atk=0.004),
+                  0.9, (off - 0.33) * 1.4)
+    return buf
+
+
+def onebar_loop():
+    """Exactly one bar at 120, so the grid slicer lands on clean sixteenths."""
+    random.seed(343)
+    sixteenth = 60.0 / 120 / 4
+    buf = blank(sixteenth * 16)
+    pattern = [1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1]
+    for k in range(16):
+        if not pattern[k]:
+            continue
+        seg = _word([72, 74, 76, 79][k % 4], "aeio"[k % 4], sixteenth * 0.78,
+                    ["t", "k", None, "sh"][k % 4], q=14.0)
+        place(buf, int(k * sixteenth * SR), seg, 0.93, (k % 4 - 1.5) * 0.3)
+    return buf
+
+
+def talkbox():
+    """Vowel sweeps on a fixed pitch - the talkbox / vocoder lead source."""
+    random.seed(344)
+    buf = blank(8.0)
+    t = 0.0
+    i = 0
+    while t < 7.4:
+        d = random.uniform(0.30, 0.75)
+        n = int(d * SR)
+        # Slide the formant by crossfading two vowels across the segment.
+        a = say(n, hz(69 - 12), "aeiou"[i % 5], q=15.0, breath=0.02, vib=(0.0, 0.0))
+        b = say(n, hz(69 - 12), "aeiou"[(i + 2) % 5], q=15.0, breath=0.02, vib=(0.0, 0.0))
+        e = env(n, 0.01, d * 0.4)
+        seg = [(a[j] * (1 - j / n) + b[j] * (j / n)) * e[j] for j in range(n)]
+        place(buf, int(t * SR), seg, 0.92)
+        t += d * 0.95
+        i += 1
+    return buf
+
+
+def shout_stack():
+    """A crowd shout - many detuned voices on one syllable. Drop material."""
+    random.seed(345)
+    buf = blank(6.0)
+    for t in (0.15, 1.7, 3.2, 4.7):
+        for v in range(7):
+            d = random.uniform(0.45, 0.7)
+            n = int(d * SR)
+            seg = _syl(n, 69 + random.choice([-12, 0, 0, 12]),
+                       "ae"[v % 2], q=7.0, breath=0.14,
+                       vib=(6.0 + v * 0.3, 0.02), atk=0.008)
+            place(buf, int((t + random.uniform(-0.02, 0.02)) * SR), seg,
+                  0.34, random.uniform(-0.85, 0.85))
+    return buf
+
+
+THIRD_WAVE = [
+    ("vox_word",      word_chop),      ("vox_hardcons",  hard_consonant),
+    ("vox_whispchop", whisper_chop),   ("vox_minor",     minor_hook),
+    ("vox_sadpad",    sad_pad),        ("vox_lament",    lament),
+    ("vox_sustain",   sustain_bed),    ("vox_swell",     swell_bed),
+    ("vox_ambient",   ambient_vox),    ("vox_cathedral", cathedral),
+    ("vox_ghost",     ghost_vox),      ("vox_dembow",    dembow),
+    ("vox_swung",     swung_chop),     ("vox_onebar",    onebar_loop),
+    ("vox_talkbox",   talkbox),        ("vox_shout",     shout_stack),
+]
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     print("generating vocal chop sources…")
     for name, fn in [("vox_chant", chant), ("vox_hook", hook),
                      ("vox_choir", choir), ("vox_whisper", whisper),
-                     ("vox_diva", diva), ("vox_stabs", stabs)] + SECOND_WAVE:
+                     ("vox_diva", diva), ("vox_stabs", stabs)] + SECOND_WAVE + THIRD_WAVE:
         write(os.path.join(OUT, name + ".wav"), fn())
     print("done.")

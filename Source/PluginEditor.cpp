@@ -718,7 +718,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // "Demo" read as "demo version" to the first person who saw it. It loads a
     // built-in VOCAL, which is a different thing entirely, and it sits next to
     // "Load Sample" - so the pair now reads "ours" and "yours".
-    demoButton.setTooltip ("Loads one of 36 built-in vocals to chop - press again for the next");
+    demoButton.setTooltip ("Loads one of 52 built-in vocals to chop - press again for the next");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
     engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 403 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
@@ -793,7 +793,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // The primary action in this panel, and the control the first tester could
     // not find. Accent, per spec - this is an active affordance, not chrome.
     instBrowseButton.getProperties().set ("primaryAction", true);
-    instBrowseButton.setTooltip ("Chop / Melody: pick one of 36 built-in vocals, or load your own.\n"
+    instBrowseButton.setTooltip ("Chop / Melody: pick one of 52 built-in vocals, or load your own.\n"
                                  "Synth: browse 403 instruments by genre or category");
     instBrowseButton.onClick = [this]
     {

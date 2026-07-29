@@ -68,7 +68,7 @@ public:
     static int               getNumDemoSamples();
 
     /** Which built-in vocal is loaded, or -1 when the sample came from a file
-        of the user's own. The hero row needs this to say "3 of 36" and to know
+        of the user's own. The hero row needs this to say "3 of 52" and to know
         where stepping should go next. */
     int getCurrentDemoIndex() const { return currentDemo; }
 

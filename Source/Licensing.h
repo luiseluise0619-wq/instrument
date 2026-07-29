@@ -48,16 +48,37 @@ struct Licensing
     {
         return e.trim().toLowerCase();
     }
+    /** Keeps letters and digits, drops everything else.
+
+        This used to remove only " \t\r\n-", which is the ASCII half of the
+        problem. A licence key reaches the plugin by being copied out of a web
+        page, an e-mail or a chat window, and all three routinely hand over
+        U+00A0 (non-breaking space) or U+200B (zero-width space) instead of, or
+        as well as, a plain space. Those characters survived the old filter, so
+        the key failed to parse and the buyer was told their key was not
+        recognised - with nothing on screen to suggest that an invisible
+        character was the reason.
+
+        Keeping only alphanumerics is right for both formats: ours is hex with
+        dashes, Gumroad's is alphanumeric groups with dashes. */
     static juce::String normKey (const juce::String& k)
     {
-        return k.removeCharacters (" \t\r\n-").trim();
+        juce::String out;
+        for (auto c : k)
+            if (juce::CharacterFunctions::isLetterOrDigit (c))
+                out += juce::String::charToString (c);
+        return out;
     }
 
-    /** True for our offline VIP keys ("VCS-...."). Call BEFORE normKey
-        (normKey strips the dashes). */
+    /** True for our offline VIP keys ("VCS-....").
+
+        Normalises FIRST. Testing raw.trim() meant a key that began with a
+        non-breaking space was not recognised as one of ours and was sent to
+        Gumroad's server instead, which of course rejected it - the same
+        invisible character, failing a second way. */
     static bool looksLikeOfflineKey (const juce::String& raw)
     {
-        return raw.trim().startsWithIgnoreCase ("VCS");
+        return normKey (raw).startsWithIgnoreCase ("VCS");
     }
 
     //==========================================================================
@@ -65,7 +86,7 @@ struct Licensing
     static bool verifyOfflineKey (const juce::String& emailIn, const juce::String& keyIn)
     {
         const auto email = normEmail (emailIn);
-        auto key = normKey (keyIn);
+        auto key = normKey (keyIn);          // invisible characters gone
         if (key.startsWithIgnoreCase ("VCS"))
             key = key.substring (3);
         if (email.isEmpty() || key.length() < 64)

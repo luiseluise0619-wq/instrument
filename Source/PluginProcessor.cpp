@@ -1127,6 +1127,12 @@ namespace
         { BinaryData::vox_garage_wav,      BinaryData::vox_garage_wavSize,      "Garage Chop",   "Chops" },
         { BinaryData::vox_stutter_wav,     BinaryData::vox_stutter_wavSize,     "Stutter Vox",   "Chops" },
         { BinaryData::vox_revchant_wav,    BinaryData::vox_revchant_wavSize,    "Reverse Chant", "Chops" },
+        { BinaryData::vox_word_wav,               BinaryData::vox_word_wavSize,           "Word Chop",        "Chops" },
+        { BinaryData::vox_hardcons_wav,           BinaryData::vox_hardcons_wavSize,       "Hard Consonant",   "Chops" },
+        { BinaryData::vox_whispchop_wav,          BinaryData::vox_whispchop_wavSize,      "Whisper Chop",     "Chops" },
+        { BinaryData::vox_onebar_wav,             BinaryData::vox_onebar_wavSize,         "One-Bar Loop",     "Chops" },
+        { BinaryData::vox_swung_wav,              BinaryData::vox_swung_wavSize,          "Swung Chop",       "Chops" },
+        { BinaryData::vox_dembow_wav,             BinaryData::vox_dembow_wavSize,         "Dembow Vox",       "Chops" },
 
         // --- Hooks: sung phrases with a top line --------------------------
         { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize,        "Sung Hook",     "Hooks" },
@@ -1136,6 +1142,9 @@ namespace
         { BinaryData::vox_afro_wav,        BinaryData::vox_afro_wavSize,        "Afro Hook",     "Hooks" },
         { BinaryData::vox_drill_wav,       BinaryData::vox_drill_wavSize,       "Drill Hook",    "Hooks" },
         { BinaryData::vox_ballad_wav,      BinaryData::vox_ballad_wavSize,      "Ballad Line",   "Hooks" },
+        { BinaryData::vox_minor_wav,              BinaryData::vox_minor_wavSize,          "Minor Hook",       "Hooks" },
+        { BinaryData::vox_lament_wav,             BinaryData::vox_lament_wavSize,         "Lament",           "Hooks" },
+        { BinaryData::vox_talkbox_wav,            BinaryData::vox_talkbox_wavSize,        "Talkbox Lead",     "Hooks" },
 
         // --- Textures: held beds, for pads and granular -------------------
         { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize,       "Choir Vox",     "Textures" },
@@ -1146,6 +1155,12 @@ namespace
         { BinaryData::vox_hum_wav,         BinaryData::vox_hum_wavSize,         "Hum Bed",       "Textures" },
         { BinaryData::vox_gospel_wav,      BinaryData::vox_gospel_wavSize,      "Gospel Stack",  "Textures" },
         { BinaryData::vox_vocoder_wav,     BinaryData::vox_vocoder_wavSize,     "Vocoder Bed",   "Textures" },
+        { BinaryData::vox_sadpad_wav,             BinaryData::vox_sadpad_wavSize,         "Sad Pad",          "Textures" },
+        { BinaryData::vox_sustain_wav,            BinaryData::vox_sustain_wavSize,        "Sustain Bed",      "Textures" },
+        { BinaryData::vox_swell_wav,              BinaryData::vox_swell_wavSize,          "Swell Bed",        "Textures" },
+        { BinaryData::vox_ambient_wav,            BinaryData::vox_ambient_wavSize,        "Ambient Vox",      "Textures" },
+        { BinaryData::vox_cathedral_wav,          BinaryData::vox_cathedral_wavSize,      "Cathedral",        "Textures" },
+        { BinaryData::vox_ghost_wav,              BinaryData::vox_ghost_wavSize,          "Ghost Vox",        "Textures" },
 
         // --- Percussion & FX: mouth drums, breaths, transitions -----------
         { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize,     "Beatbox Loop",  "Percussion & FX" },
@@ -1157,6 +1172,7 @@ namespace
         { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize,        "Rage Shout",    "Percussion & FX" },
         { BinaryData::vox_riser_wav,       BinaryData::vox_riser_wavSize,       "Riser Vox",     "Percussion & FX" },
         { BinaryData::vox_downlifter_wav,  BinaryData::vox_downlifter_wavSize,  "Downlifter",    "Percussion & FX" },
+        { BinaryData::vox_shout_wav,              BinaryData::vox_shout_wavSize,          "Crowd Shout",      "Percussion & FX" },
 
         // --- Characters: a different voice, not a different phrase --------
         { BinaryData::vox_kids_wav,        BinaryData::vox_kids_wavSize,        "Kids Vox",      "Characters" },
