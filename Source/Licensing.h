@@ -48,6 +48,35 @@ struct Licensing
     {
         return e.trim().toLowerCase();
     }
+    /** Removes what a PASTE adds, and nothing else.
+
+        Whitespace of every kind, plus the zero-width and directional marks
+        that web pages, e-mail clients and chat apps slip into copied text:
+        U+00A0, U+200B-U+200F, U+2028/29, the en/em/thin spaces, the word
+        joiner and a leading BOM. Everything printable survives - crucially
+        the DASHES, because a Gumroad key is sent back to Gumroad with its
+        dashes intact and normKey (which strips them) would corrupt it. */
+    static juce::String stripInvisible (const juce::String& k)
+    {
+        juce::String out;
+        for (auto c : k)
+        {
+            const bool drop =
+                   c <= 0x20                       // space and the C0 controls
+                || c == 0x7f                       // DEL
+                || (c >= 0x80 && c <= 0x9f)        // C1 controls
+                || c == 0xa0                       // NO-BREAK SPACE
+                || (c >= 0x2000 && c <= 0x200f)    // en/em/thin spaces, ZWSP, LRM/RLM
+                || (c >= 0x2028 && c <= 0x202e)    // line/para separators, bidi embeds
+                || c == 0x205f || c == 0x2060      // medium math space, word joiner
+                || c == 0x3000                     // ideographic space
+                || c == 0xfeff;                    // BOM / zero-width no-break space
+            if (! drop)
+                out += juce::String::charToString (c);
+        }
+        return out;
+    }
+
     /** Keeps letters and digits, drops everything else.
 
         This used to remove only " \t\r\n-", which is the ASCII half of the
@@ -64,7 +93,7 @@ struct Licensing
     static juce::String normKey (const juce::String& k)
     {
         juce::String out;
-        for (auto c : k)
+        for (auto c : stripInvisible (k))
             if (juce::CharacterFunctions::isLetterOrDigit (c))
                 out += juce::String::charToString (c);
         return out;
@@ -123,7 +152,14 @@ struct Licensing
                                         std::atomic<bool>* cancelFlag = nullptr)
     {
         OnlineResult r;
-        const auto key = keyIn.trim();
+        // stripInvisible, NOT trim. trim() only removes characters at or below
+        // ' ', so a key pasted out of a receipt page or a chat window carries
+        // its U+00A0 all the way into the POST body, where Gumroad compares it
+        // against the real key and says no. That is a PAYING customer being
+        // told their key is invalid, and the first fix for this missed it -
+        // normKey cannot be used here because it strips the dashes Gumroad
+        // needs, so the two normalisations have to stay separate.
+        const auto key = stripInvisible (keyIn);
 
         juce::URL url ("https://api.gumroad.com/v2/licenses/verify");
         url = url.withPOSTData ("product_id=" + juce::URL::addEscapeChars (kGumroadProductId, true)

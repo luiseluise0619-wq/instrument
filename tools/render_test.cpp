@@ -530,6 +530,35 @@ int main (int argc, char** argv)
                     " SLYCE_TEST_LICENCE.)\n\n");
         }
 
+        // The GUMROAD path. Its key never goes through normKey - it is posted
+        // back to Gumroad, dashes and all - so it needs its own normalisation
+        // and its own check. The first fix for the invisible-character bug
+        // changed only the offline path and left every PAYING customer still
+        // exposed; this is the case that would have caught that.
+        printf ("-- gumroad keys: what actually reaches the server ----------\n");
+        {
+            const juce::String gum ("A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6");
+            const auto nbsp = juce::String::fromUTF8 ("\xc2\xa0");
+            const auto zwsp = juce::String::fromUTF8 ("\xe2\x80\x8b");
+
+            auto same = [&gum] (const char* what, const juce::String& in)
+            {
+                const auto out = L::stripInvisible (in);
+                const bool ok = (out == gum);
+                printf ("%-4s %-52s %s\n", ok ? "ok" : "FAIL", what,
+                        ok ? "" : ("-> \"" + out + "\"").toRawUTF8());
+                return ok;
+            };
+            if (! same ("plain key survives untouched",        gum)) ++fail;
+            if (! same ("dashes are kept",                      gum)) ++fail;
+            if (! same ("leading/trailing spaces removed",      "  " + gum + "  ")) ++fail;
+            if (! same ("non-breaking spaces removed",          nbsp + gum + nbsp)) ++fail;
+            if (! same ("zero-width space removed",             gum + zwsp)) ++fail;
+            if (! same ("newline from a wrapped paste removed", gum + "\n")) ++fail;
+            if (! same ("BOM from a copied cell removed",
+                        juce::String::fromUTF8 ("\xef\xbb\xbf") + gum)) ++fail;
+        }
+
         printf ("-- rejections that need no secret --------------------------\n");
         check ("empty e-mail and key",          L::verifyOfflineKey ("", ""), false);
         check ("empty e-mail, plausible key",   L::verifyOfflineKey ("",
