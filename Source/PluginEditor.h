@@ -66,6 +66,7 @@ private:
     void layoutContent();
     void paintContent (juce::Graphics&);
     void paintOverContent (juce::Graphics&);   // drawn on top of the controls
+    void drawWindowFrame (juce::Graphics&) const;   // the chassis around it all
 
     // Draws a rounded "material" card with hairline border and soft shadow.
     void drawCard (juce::Graphics&, juce::Rectangle<float> bounds) const;

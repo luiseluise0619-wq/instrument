@@ -2341,8 +2341,63 @@ void VocalChopAudioProcessorEditor::drawCaption (juce::Graphics& g,
     g.drawText (text, textArea, juce::Justification::centredLeft);
 }
 
+void VocalChopAudioProcessorEditor::drawWindowFrame (juce::Graphics& g) const
+{
+    const auto& theme = ThemeManager::active();
+    const auto  r = juce::Rectangle<float> (0.0f, 0.0f, (float) kBaseW, (float) kBaseH);
+
+    // The window had no edge at all - the backdrop simply stopped where the
+    // pixels ran out, which is what makes a plugin look like a web page in a
+    // box rather than a piece of equipment. This is a chassis: a machined
+    // bevel catching light along the top, falling into shadow at the bottom,
+    // inside a dark outer line that separates it from whatever host window it
+    // is sitting in.
+
+    // (1) Outer line. Always dark, on every skin: this is the edge of the
+    //     object, and it has to hold against a light host as well as a dark
+    //     one.
+    g.setColour (juce::Colours::black.withAlpha (theme.dark ? 0.55f : 0.28f));
+    g.drawRect (r, 1.0f);
+
+    // (2) The bevel, one pixel in. Vertical gradient so the top edge is lit
+    //     and the bottom edge is not - the same light the cards use, applied
+    //     to the case that holds them.
+    {
+        juce::Path bevel;
+        bevel.addRectangle (r.reduced (1.5f));
+
+        juce::ColourGradient grad (
+            juce::Colours::white.withAlpha (theme.dark ? 0.22f : 0.92f), 0.0f, 1.0f,
+            juce::Colours::black.withAlpha (theme.dark ? 0.42f : 0.18f), 0.0f, r.getBottom(),
+            false);
+        grad.addColour (0.35, theme.separator);
+        g.setGradientFill (grad);
+        // 1.6px, not 1: the window is authored at 1080 wide and usually drawn
+        // smaller, and a 1px bevel resamples to nothing at 0.7 scale.
+        g.strokePath (bevel, juce::PathStrokeType (1.6f));
+    }
+
+    // (3) A single accent thread along the very top. One line, at low alpha -
+    //     enough that the instrument has a colour before you read a word of
+    //     it, not enough to be a stripe.
+    {
+        juce::ColourGradient thread (
+            theme.accent.withAlpha (0.0f), 0.0f, 0.0f,
+            theme.accent.withAlpha (0.0f), r.getRight(), 0.0f, false);
+        thread.addColour (0.22, theme.accent.withAlpha (theme.glow >= 0.9f ? 0.40f : 0.24f));
+        thread.addColour (0.5,  theme.accent.withAlpha (theme.glow >= 0.9f ? 0.70f : 0.46f));
+        thread.addColour (0.78, theme.accent.withAlpha (theme.glow >= 0.9f ? 0.40f : 0.24f));
+        g.setGradientFill (thread);
+        g.fillRect (1.0f, 1.0f, r.getWidth() - 2.0f, 1.6f);
+    }
+}
+
 void VocalChopAudioProcessorEditor::paintOverContent (juce::Graphics& g)
 {
+    // The frame is the EDGE OF THE OBJECT, so it is drawn whatever is on
+    // screen - an overlay sheet covers the panel, not the case around it.
+    drawWindowFrame (g);
+
     // Every full-window overlay, not just some of them. This paints from
     // paintOverChildren, i.e. AFTER the overlay itself, so anything missing
     // from this list gets drawn on top of the sheet covering it - and the
@@ -2398,6 +2453,35 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
             paintOceanScene (ig, kBaseW, kBaseH);      // the neon scene skin
         else
             paintStudioBackdrop (ig, kBaseW, kBaseH, theme);
+
+        // VIGNETTE. The desk falls off toward the four edges, so the window
+        // reads as a lit surface rather than a flat rectangle of colour that
+        // happens to stop. Baked into the cached backdrop, so it is free at
+        // paint time - four gradients per THEME CHANGE, not per frame.
+        {
+            const float band = (float) kBaseW * 0.22f;
+            const auto  edge = juce::Colours::black.withAlpha (theme.dark ? 0.30f : 0.085f);
+            const auto  none = juce::Colours::transparentBlack;
+
+            struct Side { float x1, y1, x2, y2, w, h; };
+            const Side sides[] = {
+                { 0.0f, 0.0f, band, 0.0f, band, (float) kBaseH },                      // left
+                { (float) kBaseW, 0.0f, (float) kBaseW - band, 0.0f,
+                  band, (float) kBaseH },                                              // right
+                { 0.0f, 0.0f, 0.0f, band * 0.7f, (float) kBaseW, band * 0.7f },        // top
+                { 0.0f, (float) kBaseH, 0.0f, (float) kBaseH - band * 0.7f,
+                  (float) kBaseW, band * 0.7f },                                       // bottom
+            };
+            for (int s = 0; s < 4; ++s)
+            {
+                const auto& v = sides[s];
+                juce::ColourGradient grad (edge, v.x1, v.y1, none, v.x2, v.y2, false);
+                ig.setGradientFill (grad);
+                ig.fillRect (juce::Rectangle<float> (juce::jmin (v.x1, v.x2),
+                                                     s < 2 ? 0.0f : juce::jmin (v.y1, v.y2),
+                                                     v.w, v.h));
+            }
+        }
 
         backdropTheme = ThemeManager::current();
     }
