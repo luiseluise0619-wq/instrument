@@ -1,0 +1,178 @@
+name: Unlocked build (gift copies)
+
+# A build with the demo gate compiled OUT — no key, no periodic mute, and
+# session state saves normally. For giving a copy to a friend, a tester, or
+# press.
+#
+# TWO THINGS MAKE THIS SAFE TO HAVE IN THE REPO:
+#
+#   1. workflow_dispatch ONLY. It never fires on a push or a tag, so it
+#      cannot go off by accident alongside a real release.
+#   2. It uploads ARTIFACTS and never creates a GitHub Release. A release is
+#      a public, indexed, permanent download page — publishing an unlocked
+#      build of the paid product there would put a free full version on the
+#      internet under the product's own name. Artifacts are attached to the
+#      run, expire, and are not advertised anywhere.
+#
+# The zips are named ...-UNLOCKED-... deliberately. The sale build and this
+# one are otherwise identical files of near-identical size, and uploading
+# the wrong one to Gumroad would hand every future buyer a free unlocked
+# copy. The name is the only thing standing between those two outcomes, so
+# do not "tidy" it away.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Which platforms to build"
+        required: true
+        default: "Windows,macOS"
+        type: choice
+        options:
+          - "Windows,macOS"
+          - "Windows,macOS,Linux"
+          - "Windows"
+          - "macOS"
+          - "Linux"
+      note:
+        description: "Who is this for? (recorded in the run name only)"
+        required: false
+        default: ""
+
+run-name: "Unlocked build — ${{ inputs.platforms }} ${{ inputs.note && format('({0})', inputs.note) || '' }}"
+
+permissions:
+  contents: read          # deliberately NOT contents:write - it cannot publish
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows, os: windows-latest }
+          - { name: macOS,   os: macos-latest }
+          - { name: Linux,   os: ubuntu-latest }
+
+    steps:
+      - name: Skip platforms that were not asked for
+        id: want
+        shell: bash
+        run: |
+          if [[ ",${{ inputs.platforms }}," == *",${{ matrix.name }},"* ]]; then
+            echo "build=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=no" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.name }} not requested - skipping."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.want.outputs.build == 'yes'
+
+      - name: Install Linux dependencies
+        if: steps.want.outputs.build == 'yes' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev ladspa-sdk \
+            libcurl4-openssl-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev
+
+      # The gate is a compile-time define on the plugin target, so it is
+      # turned off by editing that one line rather than by passing a cache
+      # variable the target does not read.
+      - name: Compile the demo gate OUT
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        run: |
+          set -e
+          before=$(grep -c 'SLYCE_DEMO_GATE=1' CMakeLists.txt || true)
+          if [ "$before" != "1" ]; then
+            echo "::error::expected exactly one SLYCE_DEMO_GATE=1 in CMakeLists.txt, found $before"
+            exit 1
+          fi
+          sed -i.bak 's/SLYCE_DEMO_GATE=1/SLYCE_DEMO_GATE=0/' CMakeLists.txt
+          rm -f CMakeLists.txt.bak
+          grep -n 'SLYCE_DEMO_GATE' CMakeLists.txt
+
+      - name: Configure
+        if: steps.want.outputs.build == 'yes'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        if: steps.want.outputs.build == 'yes'
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Package
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        run: |
+          set -e
+          ART="build/VocalChopStudio_artefacts/Release"
+          mkdir -p dist
+          cp -r "$ART"/VST3/*.vst3 dist/
+          if [ -d "$ART/Standalone" ]; then cp -r "$ART/Standalone/." dist/; fi
+          if [ -d "$ART/AU" ]; then cp -r "$ART/AU/." dist/; fi
+          curl -sL https://www.gnu.org/licenses/gpl-3.0.txt -o dist/COPYING \
+            || echo "See https://www.gnu.org/licenses/gpl-3.0.txt" > dist/COPYING
+          cp README.md LICENSE.md dist/
+          case "${RUNNER_OS}" in
+            Windows) cp packaging/install-windows.bat dist/"Install Slyce.bat" ;;
+            macOS)   cp packaging/install-macos.command dist/"Install Slyce.command"
+                     cp packaging/slyce-install-common.sh dist/
+                     chmod +x dist/"Install Slyce.command" ;;
+            Linux)   cp packaging/install-linux.sh dist/install-slyce.sh
+                     cp packaging/slyce-install-common.sh dist/
+                     chmod +x dist/install-slyce.sh ;;
+          esac
+          cat > dist/READ-ME-FIRST.txt <<'EOF'
+          SLYCE - UNLOCKED COPY
+          =====================
+
+          This copy has no licence check. There is no key to enter, the
+          output never mutes, and your sessions save normally.
+
+          TO INSTALL: run the installer in this folder.
+            Windows   double-click "Install Slyce.bat"
+            macOS     double-click "Install Slyce.command"
+                      If macOS refuses to open it, right-click it, choose
+                      Open, then Open again. This build is not signed by
+                      Apple, so Gatekeeper blocks it until you say otherwise.
+            Linux     ./install-slyce.sh
+
+          Then reopen your DAW and rescan plugins. Slyce is an INSTRUMENT -
+          in FL Studio it appears under Generators, so put it in the Channel
+          Rack rather than the mixer.
+
+          Slyce is GPL-3.0. The full source and licence text are included.
+          EOF
+          VER=$(grep -m1 -o 'VERSION [0-9]\+\.[0-9]\+\.[0-9]\+' CMakeLists.txt | awk '{print $2}')
+          echo "zip=Slyce-v${VER}-UNLOCKED-${{ matrix.name }}.zip" >> "$GITHUB_ENV"
+
+      - name: Zip
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        run: |
+          set -e
+          cd dist
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            powershell -Command "Compress-Archive -Path * -DestinationPath ../$env:zip"
+          else
+            zip -qry "../$zip" .
+          fi
+          cd ..
+          ls -lh "$zip"
+
+      - name: Upload (artifact only - this workflow cannot publish a release)
+        if: steps.want.outputs.build == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slyce-UNLOCKED-${{ matrix.name }}
+          path: ${{ env.zip }}
+          retention-days: 14
+          if-no-files-found: error
