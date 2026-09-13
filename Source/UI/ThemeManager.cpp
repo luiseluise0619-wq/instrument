@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-int ThemeManager::idx = 0; // default to Studio Violet
+int ThemeManager::idx = 11; // default to Paper
 
 // ---------------------------------------------------------------------------
 // Every chrome token is DERIVED, not hand-picked.
@@ -520,21 +520,21 @@ namespace
     // Accents, inks and tint strengths verified against the DESIGN_SPEC.md §2
     // THEMES table row for row - unchanged, they already matched exactly.
     constexpr Spec kSpecs[] = {
-        { "Studio Violet", true,  0xffbf5af2, 0xff1c0d26,  7.0f },
-        { "Signal",        true,  0xffff3d7f, 0xff2c0616,  7.0f },
-        { "Acid",          true,  0xffc2f24a, 0xff141c07,  6.0f },
-        { "Mint",          true,  0xff2fd6a3, 0xff04231a,  7.0f },
-        { "Graphite",      true,  0xffb9b6c4, 0xff1a191f,  0.0f },
-        { "Cobalt",        true,  0xff3d8bff, 0xff04142e,  9.0f },
-        { "Indigo",        true,  0xff7b78f5, 0xff0c0a2e,  9.0f },
-        { "Aqua",          true,  0xff32ade6, 0xff031c27,  8.0f },
-        { "Ember",         true,  0xffff7a3d, 0xff2a0f05,  8.0f },
-        { "Sunset",        true,  0xffffb340, 0xff2a1a02,  8.0f },
-        { "Clay",          true,  0xffd98a6a, 0xff2a1611, 10.0f },
-        { "Paper",         false, 0xff5b3df2, 0xfff5f3ff,  5.0f },
-        { "Bone",          false, 0xffc8452b, 0xfffff4f1,  6.0f },
-        { "Sand",          false, 0xffa8752a, 0xfffff8ee,  7.0f },
-        { "Snow",          false, 0xff0a72e8, 0xfff2f8ff,  4.0f },
+        { "Liquid Blue",    true,  0xff0a84ff, 0xfff2f8ff,  5.0f },
+        { "System Pink",    true,  0xffff2d55, 0xfffff2f5,  5.0f },
+        { "Sage",           true,  0xff30d158, 0xff061b0d,  4.0f },
+        { "Mint",           true,  0xff63e6be, 0xff04231a,  5.0f },
+        { "Graphite",       true,  0xffb9b6c4, 0xff1a191f,  0.0f },
+        { "Sky",            true,  0xff64d2ff, 0xff031827,  6.0f },
+        { "Iris",           true,  0xff5e5ce6, 0xfff3f2ff,  6.0f },
+        { "Aqua",           true,  0xff32ade6, 0xff031c27,  6.0f },
+        { "Coral",          true,  0xffff9f0a, 0xff231202,  5.0f },
+        { "Amber",          true,  0xffffcc00, 0xff241c03,  5.0f },
+        { "Taupe",          true,  0xffd0a48a, 0xff241611,  5.0f },
+        { "Paper",          false, 0xff5e5ce6, 0xfff5f3ff,  3.0f },
+        { "Porcelain",      false, 0xffff453a, 0xfffff4f1,  3.0f },
+        { "Warm Sand",      false, 0xffa8752a, 0xfffff8ee,  4.0f },
+        { "Liquid Glass",   false, 0xff0a84ff, 0xfff2f8ff,  2.5f },
     };
 
     /** Neon Ocean is the sixteenth theme, and it is not in the spec - the spec

@@ -125,6 +125,11 @@ void AmbientPanel::timerCallback()
 
 void AmbientPanel::mouseDown (const juce::MouseEvent&)
 {
+    const auto p = getMouseXYRelative();
+    if (prevButton.getBounds().contains (p) || nextButton.getBounds().contains (p)
+        || lookLabel.getBounds().contains (p) || dotRow.expanded (8, 8).contains (p))
+        return;
+
     if (onExit) onExit();
 }
 
@@ -264,6 +269,9 @@ void AmbientPanel::paint (juce::Graphics& g)
         float x = row.getX();
         for (int i = 0; i < bits.size(); ++i)
         {
+            if (x >= row.getRight() - 8.0f)
+                break;
+
             if (i > 0)
             {
                 g.setColour (th.accent.withAlpha (0.85f * fadeIn));
@@ -275,7 +283,10 @@ void AmbientPanel::paint (juce::Graphics& g)
             // supported way to measure a run of text.
             juce::GlyphArrangement ga;
             ga.addLineOfText (g.getCurrentFont(), bits[i], 0.0f, 0.0f);
-            const float w = ga.getBoundingBox (0, -1, true).getWidth();
+            float w = ga.getBoundingBox (0, -1, true).getWidth();
+            w = juce::jmin (w, row.getRight() - x - 4.0f);
+            if (w <= 6.0f)
+                break;
             g.drawText (bits[i], juce::Rectangle<float> (x, row.getY(), w + 2.0f, row.getHeight()),
                         juce::Justification::centredLeft, false);
             x += w + 4.0f;
@@ -377,18 +388,19 @@ void AmbientPanel::drawTunnel (juce::Graphics& g, juce::Rectangle<float> r)
     const auto c = r.getCentre();
     const float t = (float) phase;
     constexpr int kRings = 22;
+    const float maxRad = juce::jmin (r.getWidth(), r.getHeight()) * 0.58f;
 
     for (int i = 0; i < kRings; ++i)
     {
         float u = std::fmod (t / 9.0f + (float) i / kRings, 1.0f);
-        const float z = 1500.0f - u * 1920.0f;          // -1500 .. 420
-        if (z <= -880.0f) continue;
+        const float z = 1500.0f - u * 1780.0f;          // -280 .. 1500
         const auto p = project (r.getWidth() * 0.42f, 0.0f, z, c);
-        const float rad = p.x - c.x;
+        const float rawRad = p.x - c.x;
+        const float rad = juce::jlimit (4.0f, maxRad, rawRad);
         if (rad < 2.0f) continue;
 
         const float a = juce::jlimit (0.0f, 1.0f, u < 0.12f ? u / 0.12f
-                                                            : juce::jmin (1.0f, (1.0f - u) * 6.0f));
+                                                            : juce::jmin (1.0f, (1.0f - u) * 4.5f));
         g.setColour (th.accent.withAlpha (a * 0.55f * fadeIn));
         g.drawEllipse (juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (c),
                        2.0f + 2.0f * u);
