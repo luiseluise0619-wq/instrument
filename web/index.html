@@ -701,6 +701,32 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
 
 .pg-bar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .pg-hint { font-family: var(--mono); font-size: .64rem; letter-spacing: .08em; color: var(--dim); margin-left: auto; }
+.midi-status { font-family: var(--mono); font-size: .64rem; color: var(--muted); }
+.midi-status[data-state="ready"] { color: var(--accent); }
+
+/* Touch targets must remain usable below desktop width. The playground keeps
+   its dense instrument feel, but none of its controls drops below 44px. */
+@media (max-width: 600px) {
+  body { scroll-snap-type: none; }
+  .wrap { width: min(100% - 1.25rem, 1180px); }
+  .screen { min-height: auto; padding: 5rem 0 3rem; }
+  .panel { border-radius: 20px; }
+  .pg { gap: 1.1rem; padding: 1rem; }
+  .knobs { gap: 1rem .45rem; }
+  .kn canvas { width: 72px; height: 72px; }
+  .keys { height: 150px; }
+  .seg { gap: .35rem; }
+  .seg button, .pg-bar .btn { min-height: 44px; padding: .55rem .8rem; }
+  .pg-hint { order: 3; width: 100%; margin-left: 0; line-height: 1.55; }
+  .midi-status { width: 100%; }
+}
+
+/* iOS and iPadOS should never turn a deliberate key press into a viewport
+   zoom or a delayed synthetic click. */
+@media (hover: none) {
+  .btn, .seg button, .keys .w, .keys .b { -webkit-tap-highlight-color: transparent; }
+  .fcard:hover { border-color: var(--highlight); box-shadow: none; }
+}
 
 /* No backdrop-filter here on purpose.
 
@@ -924,6 +950,8 @@ footer { border-top: 1px solid var(--line); padding: 2.8rem 0 3.6rem; }
         <div class="pg-bar">
           <button class="btn" id="beatBtn" aria-pressed="false" data-ko="▶ 비트 재생">▶ Play beat</button>
           <button class="btn" id="panicBtn" data-ko="전체 정지">All notes off</button>
+          <button class="btn" id="midiBtn" type="button" data-ko="MIDI 건반 연결">Connect MIDI keyboard</button>
+          <span class="midi-status" id="midiStatus" aria-live="polite" data-ko="MIDI: 오디오를 시작한 뒤 건반을 연결하세요">MIDI: connect after starting audio</span>
           <span class="pg-hint" data-ko="노브를 드래그 · 건반을 클릭 · 또는 Z S X D C V G B H N J M 입력">drag the dials · click the keys · or type Z S X D C V G B H N J M</span>
         </div>
       </div>
@@ -1592,19 +1620,32 @@ const PG = (() => {
     const up = () => { down = false; [...held].forEach((h) => { if (!latched.has(h)) release(h); }); };
     host.addEventListener("pointerup", up);
     host.addEventListener("pointercancel", up);
+    host.addEventListener("lostpointercapture", up);
+    addEventListener("pointerup", () => { if (down) up(); }, { passive: true });
   }
 
   function paintKey(m, on) { const el = keyEls[m]; if (el) el.classList.toggle("on", on); }
 
-  function press(m) {
+  function press(m, velocity = 0.9) {
     if (held.has(m)) return;
     held.add(m); paintKey(m, true);
-    if (P.arp === 0) E.noteOn(m, 0.9);
+    if (P.arp === 0) E.noteOn(m, velocity);
   }
   function release(m) {
     if (!held.has(m)) return;
     held.delete(m); paintKey(m, false);
     E.noteOff(m);
+  }
+
+  // A lost pointer-up (leaving the browser, a phone call, alt-tab) must never
+  // leave an oscillator ringing. This is the web equivalent of MIDI All Notes
+  // Off and fixes the "one key keeps sounding" failure mode.
+  function releaseAllNotes({ clearLatches = false } = {}) {
+    [...held].forEach(release);
+    typeHeld.clear();
+    midiHeld.clear();
+    if (clearLatches) latched.clear();
+    E.allOff();
   }
 
   /* typing keys */
@@ -1627,9 +1668,57 @@ const PG = (() => {
     if (!latched.has(m)) release(m);
   });
 
+  addEventListener("blur", () => { stopTransport(); releaseAllNotes(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { stopTransport(); releaseAllNotes(); }
+  });
+
   /* ---- latched chords ------------------------------------------- */
   const CHORDS = [[65,68,72],[61,65,68],[68,72,75],[63,67,70]];
   const latched = new Set();
+  const midiHeld = new Set();
+  let midiAccess = null;
+
+  function setMidiStatus(message, state = "") {
+    const el = document.getElementById("midiStatus");
+    if (!el) return;
+    el.textContent = message;
+    el.dataset.state = state;
+  }
+
+  function handleMidiMessage(event) {
+    const [status, note, velocity = 0] = event.data;
+    const command = status & 0xf0;
+    if (command === 0x90 && velocity > 0) {
+      midiHeld.add(note);
+      press(note, velocity / 127);
+    } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
+      midiHeld.delete(note);
+      if (!latched.has(note)) release(note);
+    }
+  }
+
+  async function connectMidi() {
+    if (!navigator.requestMIDIAccess) {
+      setMidiStatus("MIDI: this browser does not support MIDI", "error");
+      return;
+    }
+    try {
+      await E.start();
+      midiAccess = midiAccess || await navigator.requestMIDIAccess();
+      const wireInputs = () => {
+        let count = 0;
+        midiAccess.inputs.forEach((input) => { input.onmidimessage = handleMidiMessage; count++; });
+        setMidiStatus(count ? `MIDI: ${count} keyboard${count === 1 ? "" : "s"} connected`
+                            : "MIDI: connect a keyboard, then press a key", count ? "ready" : "");
+      };
+      midiAccess.onstatechange = () => { releaseAllNotes(); wireInputs(); };
+      wireInputs();
+    } catch (error) {
+      setMidiStatus("MIDI: permission was not granted", "error");
+    }
+  }
+
   function setChord(idx) {
     [...latched].forEach((m) => { latched.delete(m); release(m); });
     document.querySelectorAll("#chordSeg button").forEach((b) =>
@@ -1641,6 +1730,16 @@ const PG = (() => {
   /* ---- transport / sequencer ------------------------------------ */
   let beatOn = false, nextStep = 0, stepIdx = 0, arpIdx = 0, arpDir = 1;
   const KICK = [0, 4, 8, 12], CLAP = [4, 12];
+
+  function stopTransport() {
+    beatOn = false;
+    nextStep = 0;
+    const beatBtn = document.getElementById("beatBtn");
+    if (beatBtn) {
+      beatBtn.setAttribute("aria-pressed", "false");
+      beatBtn.textContent = "▶ Play beat";
+    }
+  }
 
   function scheduler() {
     if (!E.started) return;
@@ -1755,16 +1854,17 @@ const PG = (() => {
       beatBtn.textContent = beatOn ? "■ Stop beat" : "▶ Play beat";
     });
     document.getElementById("panicBtn").addEventListener("click", () => {
-      [...held].forEach((m) => release(m));
-      latched.clear();
+      stopTransport();
+      releaseAllNotes({ clearLatches: true });
       document.querySelectorAll("#chordSeg button").forEach((b) => b.setAttribute("aria-pressed", "false"));
-      E.allOff();
     });
+    document.getElementById("midiBtn").addEventListener("click", connectMidi);
 
     const gate = document.getElementById("audioGate");
     gate.addEventListener("click", async () => {
       await E.start();
       gate.remove();
+      setMidiStatus("MIDI: connect a keyboard when you are ready");
       onAudioStart();
     });
   }
@@ -2584,11 +2684,17 @@ const PG = (() => {
 
     // A pattern, on the page's own 128 BPM clock, so pressing play lines up
     // with everything else that is already pulsing.
+    function stopPattern() {
+      if (!pattern) return;
+      clearInterval(pattern);
+      pattern = null;
+      playBtn.setAttribute('aria-pressed', 'false');
+      playBtn.textContent = 'Play the pattern';
+      note.textContent = 'stopped';
+    }
+
     playBtn.onclick = async () => {
-      if (pattern) { clearInterval(pattern); pattern = null;
-                     playBtn.setAttribute('aria-pressed', 'false');
-                     playBtn.textContent = 'Play the pattern';
-                     note.textContent = 'stopped'; return; }
+      if (pattern) { stopPattern(); return; }
       if (!(await ready())) return;
       const seq = [0, 3, 1, 6, 0, 9, 4, 2, 0, 5, 7, 3, 0, 8, 2, 10];
       let k = 0;
@@ -2605,6 +2711,12 @@ const PG = (() => {
       tick();
       pattern = setInterval(tick, stepMs);
     };
+
+    // Never keep a preview looping after the tab loses focus. Besides being
+    // polite on mobile, this gives the demo the same all-notes-off behaviour
+    // as the keyboard playground above.
+    addEventListener('blur', stopPattern);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopPattern(); });
   }
 
   PG.init();
