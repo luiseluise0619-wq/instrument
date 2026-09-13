@@ -708,7 +708,7 @@ void WaveformView::paint (juce::Graphics& g)
         {
             g.setColour (theme.textSecondary.withAlpha (0.65f));
             g.setFont (juce::Font (juce::FontOptions (12.0f)));
-            g.drawText ("or press Demo for a built-in vocal",
+            g.drawText ("or press Vocals for a built-in vocal",
                         card.withTop (centre.y + 30.0f).withHeight (18.0f),
                         juce::Justification::centred);
         }

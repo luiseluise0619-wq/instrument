@@ -4,7 +4,7 @@ Generates examples/vox_beatbox.wav — a human-beatbox-style one-bar loop
 (voiced "buh" kicks, "pff" snares, "ts" hats, "ka" rims) built from the same
 stdlib-only synthesis approach as generate_demo_samples.py.
 
-The point of this sample: press Demo until it loads, and the transient
+The point of this sample: press Vocals until it loads, and the transient
 slicer maps each mouth-drum hit to its own key — drums played with a voice.
 
 Run:  python3 tools/generate_beatbox_sample.py

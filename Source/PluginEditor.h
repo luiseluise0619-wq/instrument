@@ -88,7 +88,7 @@ private:
     juce::ComboBox   presetBox;
     juce::ComboBox   themeBox;
     juce::TextButton loadButton   { "Load sample" };
-    juce::TextButton demoButton   { "Demo vocal" };
+    juce::TextButton demoButton   { "Vocals" };
     juce::TextButton looperTabButton { "Looper" };
     bool             showLooper = false;
 

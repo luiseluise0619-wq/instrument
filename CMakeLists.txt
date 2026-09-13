@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VocalChopStudio VERSION 3.2.2 LANGUAGES C CXX)
+project(VocalChopStudio VERSION 3.2.3 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -151,7 +151,37 @@ juce_add_binary_data(VocalChopData SOURCES
     examples/vox_swung.wav
     examples/vox_onebar.wav
     examples/vox_talkbox.wav
-    examples/vox_shout.wav)
+    examples/vox_shout.wav
+    # Fourth wave: tighter, radio/EDM-leaning vocal sources. Kept deliberately
+    # selective; rejected gimmicky candidates so the picker stays premium.
+    examples/vox_neon.wav
+    examples/vox_jersey.wav
+    examples/vox_amapiano.wav
+    examples/vox_latin.wav
+    examples/vox_rnbrun.wav
+    examples/vox_kpop.wav
+    examples/vox_soul.wav
+    examples/vox_falsetto.wav
+    examples/vox_alto.wav
+    examples/vox_monk.wav
+    examples/vox_glasschoir.wav
+    examples/vox_tapewarp.wav
+    examples/vox_telephone.wav
+    examples/vox_choirhit.wav
+    examples/vox_impact.wav
+    examples/vox_shortriser.wav
+    examples/vox_vowelperc.wav
+    examples/vox_oohstack.wav
+    examples/vox_dancepop.wav
+    examples/vox_popadlib.wav
+    examples/vox_festival.wav
+    examples/vox_futurehouse.wav
+    examples/vox_slaphouse.wav
+    examples/vox_edmdrop.wav
+    examples/vox_trance.wav
+    examples/vox_bigroom.wav
+    examples/vox_hookgrid.wav
+    examples/vox_edmbreath.wav)
 
 target_sources(VocalChopStudio PRIVATE
     Source/PluginProcessor.cpp

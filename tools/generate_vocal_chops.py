@@ -1013,11 +1013,537 @@ THIRD_WAVE = [
 ]
 
 
+# ==========================================================================
+# FOURTH WAVE. Twenty-four more: more genre pockets, more actual playable
+# ad-libs, and more utility FX. These are still generated formant voices, not
+# sample-pack lifts, so they remain royalty-free and reproducible.
+# ==========================================================================
+
+def neon_chop():
+    """Fast bright hyperpop chops with tiny gaps and high formants."""
+    random.seed(401)
+    sixteenth = 60.0 / 158 / 4
+    buf = blank(sixteenth * 80 + 0.45)
+    notes = [81, 84, 86, 88, 84, 81, 79, 76]
+    for k in range(80):
+        if k % 10 in (4, 9):
+            continue
+        seg = _word(notes[k % 8], "iea"[k % 3], sixteenth * 0.62,
+                    ["t", "ch", None, "s"][k % 4], q=16.0, breath=0.035,
+                    vib=(7.0, 0.018))
+        place(buf, int(k * sixteenth * SR), seg, 0.9, (k % 5 - 2) * 0.18)
+    return buf
+
+
+def jersey_chop():
+    """Triplet bounce with call-response pockets for Jersey club."""
+    random.seed(402)
+    trip = 60.0 / 144 / 3
+    buf = blank(trip * 54 + 0.5)
+    hits = [0, 1, 3, 5, 6, 8, 10, 12, 13, 16]
+    for bar in range(3):
+        for j, h in enumerate(hits):
+            k = bar * 18 + h
+            seg = _word([72, 76, 79, 74][j % 4], "aeio"[j % 4], trip * 0.92,
+                        ["k", None, "t", "sh"][j % 4], q=13.0, breath=0.035)
+            place(buf, int(k * trip * SR), seg, 0.9, (j % 3 - 1) * 0.28)
+    return buf
+
+
+def amapiano_vox():
+    """Loose, late syllables for amapiano / afro-house grooves."""
+    random.seed(403)
+    eighth = 60.0 / 112 / 2
+    buf = blank(eighth * 40 + 0.7)
+    hits = [0, 2, 3, 6, 8, 11, 12, 14, 17, 19, 22, 24, 27, 30, 31, 35]
+    for i, k in enumerate(hits):
+        late = random.uniform(0.0, eighth * 0.22)
+        seg = _word([67, 69, 72, 74, 76][i % 5], "aoe"[i % 3],
+                    eighth * random.uniform(0.7, 1.4),
+                    None if i % 3 else "k", q=10.0, breath=0.055)
+        place(buf, int((k * eighth + late) * SR), seg, 0.92, (i % 4 - 1.5) * 0.25)
+    return buf
+
+
+def footwork_chop():
+    """Ultra-short repeating syllables for footwork / jungle edits."""
+    random.seed(404)
+    step = 60.0 / 160 / 4
+    buf = blank(step * 96 + 0.35)
+    for k in range(96):
+        if k % 12 in (5, 11):
+            continue
+        seg = _word([72, 72, 79, 76][k % 4], "ie"[k % 2], step * 0.48,
+                    ["t", "k", "ch", None][k % 4], q=18.0, breath=0.02)
+        place(buf, int(k * step * SR), seg, 0.86, (k % 7 - 3) * 0.12)
+    return buf
+
+
+def latin_chop():
+    """Open-vowel syncopation for pop reggaeton hooks."""
+    random.seed(405)
+    sixteenth = 60.0 / 100 / 4
+    buf = blank(sixteenth * 64 + 0.6)
+    hits = [0, 3, 4, 7, 10, 12, 15]
+    for bar in range(4):
+        for j, h in enumerate(hits):
+            k = bar * 16 + h
+            seg = _word([69, 72, 74, 76][(bar + j) % 4], "aoae"[j % 4],
+                        sixteenth * 1.05, ["t", None, "k"][j % 3],
+                        q=12.0, breath=0.04)
+            place(buf, int(k * sixteenth * SR), seg, 0.92, (j % 3 - 1) * 0.24)
+    return buf
+
+
+def rnb_run():
+    """Smooth melismatic run for R&B chops."""
+    random.seed(411)
+    buf = blank(8.0)
+    t = 0.05
+    runs = [[76, 77, 79, 81, 79, 77], [74, 76, 77, 79], [72, 74, 76, 77, 76, 74]]
+    for r, notes in enumerate(runs):
+        step = 0.135 + r * 0.015
+        for i, m in enumerate(notes):
+            n = int(step * SR)
+            seg = _syl(n, m, "aei"[i % 3], q=10.0, breath=0.04,
+                       vib=(6.0, 0.026), atk=0.010)
+            place(buf, int((t + i * step) * SR), seg, 0.94)
+        t += len(notes) * step + 0.75
+    return buf
+
+
+def kpop_hook():
+    """Bright stacked-pop phrase with short callouts."""
+    random.seed(412)
+    buf = blank(7.5)
+    phrase = [(0.0, 79, .34), (.42, 81, .28), (.75, 84, .46), (1.45, 81, .34),
+              (1.86, 79, .42), (2.65, 76, .55), (3.55, 81, .30), (3.9, 84, .32),
+              (4.35, 86, .52), (5.1, 84, .36), (5.55, 81, .95)]
+    for i, (t, m, d) in enumerate(phrase):
+        seg = _word(m, "iea"[i % 3], d, None if i % 4 else "ch",
+                    q=13.0, breath=0.035, vib=(6.3, 0.020))
+        place(buf, int(t * SR), seg, 0.93, (i % 3 - 1) * 0.18)
+    return buf
+
+
+def soul_phrase():
+    """Warm mid-register phrase that feels sampled rather than synthetic."""
+    random.seed(413)
+    buf = blank(8.5)
+    for i, (t, m, d) in enumerate([(0, 65, .9), (1.05, 69, .65), (1.85, 72, 1.0),
+                                  (3.1, 71, .8), (4.0, 69, .75), (5.0, 65, 1.4),
+                                  (6.6, 67, 1.1)]):
+        n = int(d * SR)
+        seg = _syl(n, m, "aoe"[i % 3], q=8.0, breath=0.075,
+                   vib=(4.8, 0.020), atk=0.035)
+        place(buf, int(t * SR), seg, 0.94)
+    return buf
+
+
+def falsetto_hook():
+    """Airy high hook for pitched vocal leads."""
+    random.seed(414)
+    buf = blank(8.0)
+    for i, (t, m, d) in enumerate([(0, 84, .7), (.9, 86, .5), (1.55, 88, .95),
+                                  (2.9, 86, .45), (3.45, 84, .7), (4.45, 81, 1.5),
+                                  (6.2, 84, 1.0)]):
+        n = int(d * SR)
+        seg = _syl(n, m, "ie"[i % 2], q=12.5, breath=0.12,
+                   vib=(5.8, 0.024), atk=0.04)
+        place(buf, int(t * SR), seg, 0.88)
+    return buf
+
+
+def alto_harmony():
+    """Lower harmony phrase to stack under other chops."""
+    random.seed(415)
+    buf = blank(8.0)
+    for i, (t, m, d) in enumerate([(0, 57, .85), (1.0, 60, .7), (1.85, 64, .9),
+                                  (3.0, 62, 1.0), (4.25, 60, .7), (5.1, 57, 1.6)]):
+        n = int(d * SR)
+        seg = _syl(n, m, "oua"[i % 3], q=7.0, breath=0.055,
+                   vib=(4.3, 0.016), atk=0.035)
+        place(buf, int(t * SR), seg, 0.93)
+    return buf
+
+
+def monk_drone():
+    """Dark chant drone with slow formant movement."""
+    random.seed(421)
+    buf = blank(11.0)
+    for i, m in enumerate([43, 50, 55]):
+        n = int(10.4 * SR)
+        seg = say(n, hz(m - 12), "u" if i != 1 else "o", q=5.2,
+                  breath=0.045, vib=(2.2, 0.006))
+        e = env(n, 1.8, 2.8)
+        seg = [seg[j] * e[j] for j in range(n)]
+        place(buf, int(0.25 * SR), seg, 0.46, (i - 1) * 0.5)
+    return _tail(buf, decay=2.8, taps=28)
+
+
+def glass_choir():
+    """Thin icy vowels for ambient pads."""
+    random.seed(422)
+    buf = blank(10.0)
+    for i, m in enumerate([72, 76, 79, 83]):
+        n = int(9.4 * SR)
+        seg = say(n, hz(m - 12), "i" if i % 2 else "e", q=18.0,
+                  breath=0.08, vib=(3.1, 0.009))
+        e = env(n, 1.6, 2.5)
+        seg = [seg[j] * e[j] * 0.55 for j in range(n)]
+        place(buf, int(0.2 * SR), seg, 0.55, (i - 1.5) * 0.48)
+    return _tail(buf, decay=2.0, taps=18)
+
+
+def tape_warp_vox():
+    """Wobbly vintage vowel phrase for lo-fi chops."""
+    random.seed(423)
+    buf = blank(8.5)
+    t = 0.0
+    for i, m in enumerate([69, 72, 71, 67, 69, 65, 64]):
+        d = random.uniform(0.55, 1.05)
+        n = int(d * SR)
+        seg = _syl(n, m, "aoeu"[i % 4], q=7.0, breath=0.09,
+                   vib=(2.2 + i * 0.15, 0.040), atk=0.025)
+        place(buf, int(t * SR), seg, 0.9, random.uniform(-0.25, 0.25))
+        t += d * 0.78
+    return buf
+
+
+def telephone_vox():
+    """Narrow-band radio/phone voice, great before distortion."""
+    random.seed(424)
+    buf = blank(6.2)
+    sixteenth = 60.0 / 118 / 4
+    for k in range(42):
+        if k % 6 == 4:
+            continue
+        n = int(sixteenth * 0.72 * SR)
+        seg = _word([72, 74, 76, 72][k % 4], "aeio"[k % 4], sixteenth * 0.55,
+                    ["t", None, "k"][k % 3], q=24.0, breath=0.02,
+                    vib=(0.0, 0.0))
+        place(buf, int(k * sixteenth * SR), seg, 0.85)
+    return buf
+
+
+def alien_formant():
+    """Extreme formant-like chirps for character chops."""
+    random.seed(425)
+    buf = blank(6.4)
+    t = 0.1
+    for k in range(22):
+        d = random.uniform(0.08, 0.23)
+        n = int(d * SR)
+        seg = say(n, hz(random.choice([57, 60, 72, 84]) - 12),
+                  "ieou"[k % 4], q=random.uniform(18.0, 28.0),
+                  breath=0.04, vib=(8.0, 0.06))
+        e = env(n, 0.002, d * 0.55)
+        seg = [seg[i] * e[i] for i in range(n)]
+        place(buf, int(t * SR), seg, 0.86, random.uniform(-0.85, 0.85))
+        t += random.uniform(0.16, 0.35)
+    return buf
+
+
+def choir_hit():
+    """Short stacked choir hits for drops."""
+    random.seed(431)
+    buf = blank(6.0)
+    for t, chord in [(0.1, [60, 64, 67, 72]), (1.55, [57, 60, 65, 69]),
+                     (3.0, [55, 62, 67, 74]), (4.4, [60, 67, 72, 76])]:
+        for i, m in enumerate(chord):
+            n = int(0.72 * SR)
+            seg = _syl(n, m, "ao"[i % 2], q=8.0, breath=0.07,
+                       vib=(5.0, 0.018), atk=0.012, rel=0.38)
+            place(buf, int(t * SR), seg, 0.38, (i - 1.5) * 0.45)
+    return buf
+
+
+def vocal_impact():
+    """Big one-shot vocal impact with a noisy front edge."""
+    random.seed(432)
+    buf = blank(5.2)
+    for t, m in [(0.1, 48), (1.9, 43), (3.55, 55)]:
+        burst = _cons(int(0.08 * SR), "sh", 0.9)
+        body = _syl(int(0.65 * SR), m, "o", q=5.8, breath=0.11,
+                    vib=(3.8, 0.012), atk=0.004, rel=0.52)
+        place(buf, int(t * SR), burst + body, 0.9)
+    return _tail(buf, decay=1.3, taps=14)
+
+
+def laugh_chop():
+    """Short voiced laughs and ha's."""
+    random.seed(433)
+    buf = blank(6.0)
+    t = 0.12
+    for k in range(18):
+        d = random.uniform(0.12, 0.28)
+        seg = _word(random.choice([69, 72, 76, 79]), "a", d,
+                    "ch" if k % 5 == 0 else None, q=9.0, breath=0.18,
+                    vib=(7.0, 0.035))
+        place(buf, int(t * SR), seg, 0.88, random.uniform(-0.6, 0.6))
+        t += random.uniform(0.18, 0.42)
+    return buf
+
+
+def cry_chop():
+    """Tiny emotional yelps for pop transitions."""
+    random.seed(434)
+    buf = blank(6.4)
+    t = 0.18
+    for k in range(14):
+        d = random.uniform(0.18, 0.45)
+        n = int(d * SR)
+        seg = _syl(n, random.choice([76, 79, 81, 84]), "ie"[k % 2],
+                   q=12.0, breath=0.12, vib=(6.8, 0.050), atk=0.012)
+        place(buf, int(t * SR), seg, 0.86, random.uniform(-0.5, 0.5))
+        t += d + random.uniform(0.12, 0.34)
+    return buf
+
+
+def crowd_response():
+    """Group call-and-response, several small voices around one phrase."""
+    random.seed(435)
+    buf = blank(7.4)
+    for t in (0.2, 1.8, 3.4, 5.0):
+        for v in range(5):
+            d = random.uniform(0.32, 0.58)
+            seg = _word(69 + random.choice([-5, 0, 3, 7]), "aeo"[v % 3], d,
+                        None if v % 2 else "t", q=8.5, breath=0.12,
+                        vib=(5.3 + v * 0.2, 0.018))
+            place(buf, int((t + random.uniform(-0.04, 0.04)) * SR),
+                  seg, 0.34, random.uniform(-0.9, 0.9))
+    return buf
+
+
+def breath_riser_short():
+    """Short airy vocal risers for fills."""
+    random.seed(436)
+    buf = blank(5.5)
+    for base in (0.1, 2.7):
+        steps = 24
+        for k in range(steps):
+            d = 0.075
+            n = int(d * SR)
+            m = 67 + 12 * (k / steps)
+            seg = _syl(n, m, "ie"[k % 2], q=15.0, breath=0.34,
+                       vib=(7.0, 0.022), atk=0.003)
+            place(buf, int((base + k * d * 0.82) * SR), seg, 0.5 + 0.45 * k / steps)
+    return buf
+
+
+def vowel_perc_loop():
+    """Percussive vowels only, designed to slice into a playable kit."""
+    random.seed(437)
+    sixteenth = 60.0 / 126 / 4
+    buf = blank(sixteenth * 64 + 0.45)
+    pattern = [1, 0, 1, 0, 2, 0, 1, 2, 0, 1, 0, 2, 1, 0, 2, 0]
+    for k in range(64):
+        kind = pattern[k % 16]
+        if kind == 0:
+            continue
+        midi = 50 if kind == 1 else 74
+        seg = _syl(int(sixteenth * 0.55 * SR), midi, "u" if kind == 1 else "i",
+                   q=7.0 if kind == 1 else 18.0, breath=0.08,
+                   atk=0.002, rel=0.055)
+        place(buf, int(k * sixteenth * SR), seg, 0.9, (k % 4 - 1.5) * 0.18)
+    return buf
+
+
+def ooh_stack():
+    """Soft ooh/ah stack for instant pop backing vocals."""
+    random.seed(438)
+    buf = blank(8.2)
+    for t, chord in [(0.0, [60, 64, 67]), (2.5, [62, 65, 69]), (5.0, [59, 64, 67, 72])]:
+        for i, m in enumerate(chord):
+            n = int(2.35 * SR)
+            seg = _syl(n, m, "oua"[i % 3], q=7.5, breath=0.06,
+                       vib=(4.8, 0.015), atk=0.12, rel=1.2)
+            place(buf, int(t * SR), seg, 0.45, (i - 1) * 0.52)
+    return buf
+
+
+def micro_chop():
+    """Tiny one-syllable grains for fast MPC-style keyboard chopping."""
+    random.seed(439)
+    step = 60.0 / 150 / 8
+    buf = blank(step * 96 + 0.35)
+    for k in range(96):
+        if k % 16 in (7, 14, 15):
+            continue
+        seg = _word(random.choice([69, 72, 76, 79]), "aei"[k % 3],
+                    step * random.uniform(0.85, 1.25),
+                    ["t", "k", None, "s"][k % 4], q=15.5, breath=0.03)
+        place(buf, int(k * step * SR), seg, 0.84, (k % 5 - 2) * 0.15)
+    return buf
+
+
+def dance_pop_hook():
+    """Chart-pop / Billboard-style vowel hook: bright, simple, singable."""
+    random.seed(451)
+    buf = blank(8.0)
+    phrase = [(0.0, 76, .38), (.46, 79, .34), (.88, 81, .52), (1.62, 79, .42),
+              (2.15, 76, .72), (3.15, 74, .34), (3.58, 76, .36), (4.05, 79, .62),
+              (5.05, 81, .42), (5.58, 79, .35), (6.05, 76, 1.15)]
+    for i, (t, m, d) in enumerate(phrase):
+        seg = _word(m, "aei"[i % 3], d, None if i % 5 else "t",
+                    q=12.0, breath=0.035, vib=(5.7, 0.018))
+        place(buf, int(t * SR), seg, 0.94, (i % 3 - 1) * 0.12)
+    return buf
+
+
+def pop_adlibs():
+    """Short modern pop ad-libs: hey/ah style one-shots without copying words."""
+    random.seed(452)
+    buf = blank(6.8)
+    t = 0.1
+    for k in range(16):
+        d = random.uniform(0.16, 0.38)
+        seg = _word(random.choice([74, 76, 79, 81, 84]), "aei"[k % 3], d,
+                    ["t", None, "sh", None][k % 4], q=12.5, breath=0.07,
+                    vib=(6.2, 0.026))
+        place(buf, int(t * SR), seg, 0.88, random.uniform(-0.65, 0.65))
+        t += random.uniform(0.26, 0.52)
+    return buf
+
+
+def festival_chant():
+    """Big crowd-style chant for EDM drops and festival breaks."""
+    random.seed(453)
+    beat = 60.0 / 128
+    buf = blank(beat * 16 + 0.8)
+    hits = [0, 1, 2, 3.5, 4, 5, 6.5, 8, 9, 10, 11.5, 12, 13, 14.5]
+    for j, h in enumerate(hits):
+        for v in range(5):
+            d = beat * random.uniform(0.28, 0.48)
+            seg = _word(69 + random.choice([-12, 0, 3, 7]), "ao"[v % 2], d,
+                        None if v % 2 else "t", q=8.0, breath=0.13,
+                        vib=(5.0 + v * 0.2, 0.016))
+            place(buf, int((h * beat + random.uniform(-0.012, 0.012)) * SR),
+                  seg, 0.26, random.uniform(-0.85, 0.85))
+    return _tail(buf, decay=1.1, taps=10)
+
+
+def future_house_chop():
+    """Bouncy future-house vocal slices on a tight offbeat grid."""
+    random.seed(454)
+    sixteenth = 60.0 / 124 / 4
+    buf = blank(sixteenth * 64 + 0.5)
+    pattern = [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1]
+    for k in range(64):
+        if not pattern[k % 16]:
+            continue
+        seg = _word([72, 76, 79, 81][(k // 3) % 4], "iea"[k % 3],
+                    sixteenth * 0.82, ["k", None, "t"][k % 3],
+                    q=15.0, breath=0.03, vib=(6.2, 0.012))
+        place(buf, int(k * sixteenth * SR), seg, 0.9, (k % 4 - 1.5) * 0.22)
+    return buf
+
+
+def slap_house_vox():
+    """Dark pitched-down house vocal source."""
+    random.seed(455)
+    buf = blank(8.0)
+    for i, (t, m, d) in enumerate([(0, 57, .55), (.75, 60, .40), (1.4, 62, .62),
+                                  (2.45, 57, .80), (3.65, 55, .52), (4.35, 57, .42),
+                                  (5.0, 60, .58), (6.0, 55, 1.1)]):
+        seg = _word(m, "oua"[i % 3], d, None if i % 3 else "k",
+                    q=7.0, breath=0.075, vib=(4.1, 0.018))
+        place(buf, int(t * SR), seg, 0.94)
+    return buf
+
+
+def edm_drop_vox():
+    """Short vocal shots designed to sit right before an EDM drop."""
+    random.seed(456)
+    buf = blank(6.0)
+    for t, m, cons in [(0.15, 72, "t"), (1.35, 76, "ch"), (2.65, 79, "k"), (4.05, 84, "sh")]:
+        seg = _word(m, "ae"[int(t) % 2], 0.42, cons, q=14.0, breath=0.05,
+                    vib=(6.8, 0.030))
+        place(buf, int(t * SR), seg, 0.92)
+    return _tail(buf, decay=1.0, taps=12)
+
+
+def trance_vocal():
+    """Long euphoric vowel line for trance/progressive builds."""
+    random.seed(457)
+    buf = blank(10.0)
+    for i, (t, m, d) in enumerate([(0, 72, 1.4), (1.7, 76, 1.2), (3.2, 79, 1.5),
+                                  (5.0, 81, 1.0), (6.3, 79, 2.2)]):
+        n = int(d * SR)
+        seg = _syl(n, m, "aei"[i % 3], q=10.0, breath=0.06,
+                   vib=(5.2, 0.028), atk=0.10)
+        place(buf, int(t * SR), seg, 0.88)
+    return _tail(buf, decay=2.1, taps=20)
+
+
+def bigroom_call():
+    """Simple stadium call, easy to chop across keys."""
+    random.seed(458)
+    beat = 60.0 / 128
+    buf = blank(beat * 12 + 0.6)
+    for i, h in enumerate([0, 1.5, 3, 4, 6, 7.5, 9, 10]):
+        seg = _word([69, 72, 76, 79][i % 4], "ao"[i % 2], beat * 0.42,
+                    "t" if i % 2 == 0 else None, q=9.0, breath=0.08)
+        place(buf, int(h * beat * SR), seg, 0.92, (i % 2 - 0.5) * 0.35)
+    return buf
+
+
+def chopped_hook_grid():
+    """Already-grid-ready dance-pop hook fragments."""
+    random.seed(459)
+    step = 60.0 / 126 / 4
+    buf = blank(step * 64 + 0.5)
+    notes = [76, 79, 81, 79, 76, 74, 76, 72]
+    for k in range(64):
+        if k % 8 in (3, 7):
+            continue
+        seg = _word(notes[k % 8], "aei"[k % 3], step * 0.75,
+                    None if k % 4 else "ch", q=13.0, breath=0.035)
+        place(buf, int(k * step * SR), seg, 0.88, (k % 3 - 1) * 0.2)
+    return buf
+
+
+def edm_breath_fill():
+    """Breathy chopped fills for pre-drop tension."""
+    random.seed(460)
+    step = 60.0 / 128 / 8
+    buf = blank(step * 96 + 0.4)
+    for k in range(96):
+        if k % 12 in (2, 6, 9):
+            continue
+        n = int(step * random.uniform(0.7, 1.35) * SR)
+        seg = _noise(n, 900 + (k % 5) * 400, 5200 + (k % 4) * 900, 0.9)
+        e = env(n, 0.001, (n / SR) * 0.65)
+        seg = [seg[i] * e[i] * (0.45 + 0.45 * k / 96) for i in range(n)]
+        place(buf, int(k * step * SR), seg, 0.88, (k % 5 - 2) * 0.18)
+    return buf
+
+
+FOURTH_WAVE = [
+    ("vox_neon",       neon_chop),       ("vox_jersey",     jersey_chop),
+    ("vox_amapiano",   amapiano_vox),
+    ("vox_latin",      latin_chop),      ("vox_rnbrun",     rnb_run),
+    ("vox_kpop",       kpop_hook),       ("vox_soul",       soul_phrase),
+    ("vox_falsetto",   falsetto_hook),   ("vox_alto",       alto_harmony),
+    ("vox_monk",       monk_drone),      ("vox_glasschoir", glass_choir),
+    ("vox_tapewarp",   tape_warp_vox),   ("vox_telephone",  telephone_vox),
+    ("vox_choirhit",   choir_hit),       ("vox_impact",     vocal_impact),
+    ("vox_shortriser", breath_riser_short),
+    ("vox_vowelperc",  vowel_perc_loop),
+    ("vox_oohstack",   ooh_stack),
+    ("vox_dancepop",   dance_pop_hook),   ("vox_popadlib",  pop_adlibs),
+    ("vox_festival",   festival_chant),   ("vox_futurehouse", future_house_chop),
+    ("vox_slaphouse",  slap_house_vox),   ("vox_edmdrop",   edm_drop_vox),
+    ("vox_trance",     trance_vocal),     ("vox_bigroom",   bigroom_call),
+    ("vox_hookgrid",   chopped_hook_grid),("vox_edmbreath", edm_breath_fill),
+]
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     print("generating vocal chop sources…")
     for name, fn in [("vox_chant", chant), ("vox_hook", hook),
                      ("vox_choir", choir), ("vox_whisper", whisper),
-                     ("vox_diva", diva), ("vox_stabs", stabs)] + SECOND_WAVE + THIRD_WAVE:
+                     ("vox_diva", diva), ("vox_stabs", stabs)] + SECOND_WAVE + THIRD_WAVE + FOURTH_WAVE:
         write(os.path.join(OUT, name + ".wav"), fn())
     print("done.")

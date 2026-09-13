@@ -718,7 +718,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // "Demo" read as "demo version" to the first person who saw it. It loads a
     // built-in VOCAL, which is a different thing entirely, and it sits next to
     // "Load Sample" - so the pair now reads "ours" and "yours".
-    demoButton.setTooltip ("Loads one of 52 built-in vocals to chop - press again for the next");
+    demoButton.setTooltip ("Loads one of " + juce::String (VocalChopAudioProcessor::getNumDemoSamples())
+                           + " built-in vocals to chop - press again for the next");
     loadButton.setTooltip ("Load your own audio (wav/mp3...) to chop across the keys");
     engineBox.setTooltip ("Chop = slices of loaded audio.  Synth = 403 built-in sounds.  "
                           "Sampled = load an SFZ bank of REAL recordings (Load button).  "
@@ -793,7 +794,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // The primary action in this panel, and the control the first tester could
     // not find. Accent, per spec - this is an active affordance, not chrome.
     instBrowseButton.getProperties().set ("primaryAction", true);
-    instBrowseButton.setTooltip ("Chop / Melody: pick one of 52 built-in vocals, or load your own.\n"
+    instBrowseButton.setTooltip ("Chop / Melody: pick one of " + juce::String (VocalChopAudioProcessor::getNumDemoSamples())
+                                 + " built-in vocals, or load your own.\n"
                                  "Synth: browse 403 instruments by genre or category");
     instBrowseButton.onClick = [this]
     {
@@ -1450,7 +1452,7 @@ void VocalChopAudioProcessorEditor::refreshInstrumentHero()
     // In Chop and Melody this row is about the VOCAL. It used to show a greyed
     // synth instrument name with three dead controls under it, which described
     // something the engine was not playing and offered no way to reach the
-    // built-in vocals except by pressing "Demo vocal" repeatedly and hoping.
+    // built-in vocals except by pressing "Vocals" repeatedly and hoping.
     const bool vox = sampleHero();
 
     if (vox)
@@ -2687,7 +2689,7 @@ void VocalChopAudioProcessorEditor::layoutContent()
     // so every element gave back what the new one needed.
     subtitleLabel.setBounds (top.removeFromLeft (128).withTrimmedTop (6));
 
-    // Right-aligned: help, theme, load, demo, preset combo, preset label.
+    // Right-aligned: help, theme, load, vocals, preset combo, preset label.
     helpButton.setBounds (top.removeFromRight (34).withSizeKeepingCentre (34, 34));
     top.removeFromRight (kGap / 2);
     {

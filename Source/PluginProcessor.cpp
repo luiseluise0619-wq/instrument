@@ -1219,6 +1219,12 @@ namespace
         { BinaryData::vox_onebar_wav,             BinaryData::vox_onebar_wavSize,         "One-Bar Loop",     "Chops" },
         { BinaryData::vox_swung_wav,              BinaryData::vox_swung_wavSize,          "Swung Chop",       "Chops" },
         { BinaryData::vox_dembow_wav,             BinaryData::vox_dembow_wavSize,         "Dembow Vox",       "Chops" },
+        { BinaryData::vox_neon_wav,               BinaryData::vox_neon_wavSize,           "Neon Chop",        "Chops" },
+        { BinaryData::vox_jersey_wav,             BinaryData::vox_jersey_wavSize,         "Jersey Chop",      "Chops" },
+        { BinaryData::vox_amapiano_wav,           BinaryData::vox_amapiano_wavSize,       "Amapiano Vox",     "Chops" },
+        { BinaryData::vox_latin_wav,              BinaryData::vox_latin_wavSize,          "Latin Chop",       "Chops" },
+        { BinaryData::vox_futurehouse_wav,        BinaryData::vox_futurehouse_wavSize,    "Future House",     "Chops" },
+        { BinaryData::vox_hookgrid_wav,           BinaryData::vox_hookgrid_wavSize,       "Hook Grid",        "Chops" },
 
         // --- Hooks: sung phrases with a top line --------------------------
         { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize,        "Sung Hook",     "Hooks" },
@@ -1231,6 +1237,15 @@ namespace
         { BinaryData::vox_minor_wav,              BinaryData::vox_minor_wavSize,          "Minor Hook",       "Hooks" },
         { BinaryData::vox_lament_wav,             BinaryData::vox_lament_wavSize,         "Lament",           "Hooks" },
         { BinaryData::vox_talkbox_wav,            BinaryData::vox_talkbox_wavSize,        "Talkbox Lead",     "Hooks" },
+        { BinaryData::vox_rnbrun_wav,             BinaryData::vox_rnbrun_wavSize,         "R&B Run",          "Hooks" },
+        { BinaryData::vox_kpop_wav,               BinaryData::vox_kpop_wavSize,           "K-Pop Hook",       "Hooks" },
+        { BinaryData::vox_soul_wav,               BinaryData::vox_soul_wavSize,           "Soul Phrase",      "Hooks" },
+        { BinaryData::vox_falsetto_wav,           BinaryData::vox_falsetto_wavSize,       "Falsetto Hook",    "Hooks" },
+        { BinaryData::vox_alto_wav,               BinaryData::vox_alto_wavSize,           "Alto Harmony",     "Hooks" },
+        { BinaryData::vox_dancepop_wav,           BinaryData::vox_dancepop_wavSize,       "Dance Pop Hook",   "Hooks" },
+        { BinaryData::vox_popadlib_wav,           BinaryData::vox_popadlib_wavSize,       "Pop Adlibs",       "Hooks" },
+        { BinaryData::vox_slaphouse_wav,          BinaryData::vox_slaphouse_wavSize,      "Slap House Vox",   "Hooks" },
+        { BinaryData::vox_trance_wav,             BinaryData::vox_trance_wavSize,         "Trance Vocal",     "Hooks" },
 
         // --- Textures: held beds, for pads and granular -------------------
         { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize,       "Choir Vox",     "Textures" },
@@ -1247,6 +1262,10 @@ namespace
         { BinaryData::vox_ambient_wav,            BinaryData::vox_ambient_wavSize,        "Ambient Vox",      "Textures" },
         { BinaryData::vox_cathedral_wav,          BinaryData::vox_cathedral_wavSize,      "Cathedral",        "Textures" },
         { BinaryData::vox_ghost_wav,              BinaryData::vox_ghost_wavSize,          "Ghost Vox",        "Textures" },
+        { BinaryData::vox_monk_wav,               BinaryData::vox_monk_wavSize,           "Monk Drone",       "Textures" },
+        { BinaryData::vox_glasschoir_wav,         BinaryData::vox_glasschoir_wavSize,     "Glass Choir",      "Textures" },
+        { BinaryData::vox_tapewarp_wav,           BinaryData::vox_tapewarp_wavSize,       "Tape Warp Vox",    "Textures" },
+        { BinaryData::vox_oohstack_wav,           BinaryData::vox_oohstack_wavSize,       "Ooh Stack",        "Textures" },
 
         // --- Percussion & FX: mouth drums, breaths, transitions -----------
         { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize,     "Beatbox Loop",  "Percussion & FX" },
@@ -1259,12 +1278,21 @@ namespace
         { BinaryData::vox_riser_wav,       BinaryData::vox_riser_wavSize,       "Riser Vox",     "Percussion & FX" },
         { BinaryData::vox_downlifter_wav,  BinaryData::vox_downlifter_wavSize,  "Downlifter",    "Percussion & FX" },
         { BinaryData::vox_shout_wav,              BinaryData::vox_shout_wavSize,          "Crowd Shout",      "Percussion & FX" },
+        { BinaryData::vox_choirhit_wav,           BinaryData::vox_choirhit_wavSize,       "Choir Hit",        "Percussion & FX" },
+        { BinaryData::vox_impact_wav,             BinaryData::vox_impact_wavSize,         "Vocal Impact",     "Percussion & FX" },
+        { BinaryData::vox_shortriser_wav,         BinaryData::vox_shortriser_wavSize,     "Short Riser",      "Percussion & FX" },
+        { BinaryData::vox_vowelperc_wav,          BinaryData::vox_vowelperc_wavSize,      "Vowel Perc",       "Percussion & FX" },
+        { BinaryData::vox_festival_wav,           BinaryData::vox_festival_wavSize,       "Festival Chant",   "Percussion & FX" },
+        { BinaryData::vox_edmdrop_wav,            BinaryData::vox_edmdrop_wavSize,        "EDM Drop Vox",     "Percussion & FX" },
+        { BinaryData::vox_bigroom_wav,            BinaryData::vox_bigroom_wavSize,        "Big Room Call",    "Percussion & FX" },
+        { BinaryData::vox_edmbreath_wav,          BinaryData::vox_edmbreath_wavSize,      "EDM Breath Fill",  "Percussion & FX" },
 
         // --- Characters: a different voice, not a different phrase --------
         { BinaryData::vox_kids_wav,        BinaryData::vox_kids_wavSize,        "Kids Vox",      "Characters" },
         { BinaryData::vox_deep_wav,        BinaryData::vox_deep_wavSize,        "Deep Male",     "Characters" },
         { BinaryData::vox_robot_wav,       BinaryData::vox_robot_wavSize,       "Robot Vox",     "Characters" },
         { BinaryData::vox_opera_wav,       BinaryData::vox_opera_wavSize,       "Opera Vox",     "Characters" },
+        { BinaryData::vox_telephone_wav,          BinaryData::vox_telephone_wavSize,      "Telephone Vox",    "Characters" },
     };
 
     constexpr int kNumDemoVocals = (int) (sizeof (kDemoVocals) / sizeof (kDemoVocals[0]));
