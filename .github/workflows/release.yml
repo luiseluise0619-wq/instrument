@@ -80,7 +80,8 @@ jobs:
           mkdir -p dist
           cp -r "$ART"/VST3/*.vst3 dist/   # product renamed to Slyce.vst3; glob survives future renames
           if [ -d "$ART/Standalone" ]; then cp -r "$ART/Standalone/." dist/; fi
-          if [ -d "$ART/AU" ]; then cp -r "$ART/AU/." dist/; fi
+          # macOS gets AU as well for Logic/GarageBand.
+          if [ "${RUNNER_OS}" = "macOS" ] && [ -d "$ART/AU" ]; then cp -r "$ART/AU/." dist/; fi
           # GPL-3.0 requires the full licence text alongside binaries.
           curl -sL https://www.gnu.org/licenses/gpl-3.0.txt -o dist/COPYING \
             || echo "See https://www.gnu.org/licenses/gpl-3.0.txt" > dist/COPYING
@@ -148,8 +149,16 @@ jobs:
           LINUX
             Copy "Slyce.vst3" to ~/.vst3
 
-          STANDALONE
-            The Slyce app runs on its own without any DAW - just open it.
+          STANDALONE APP
+            The Slyce app runs on its own without any DAW. It is included for
+            quick testing and live play. If Windows Smart App Control or macOS
+            Gatekeeper blocks it, load Slyce inside your DAW with the VST3
+            instead.
+
+          ACTIVATION
+            Open Slyce inside your DAW, enter the email assigned to your
+            licence, paste your licence key, then click Activate.
+            Once activation succeeds, it is saved on this computer.
           EOF
           cd dist
           cmake -E tar cf "../Slyce-${RELEASE_TAG}-${RUNNER_OS}.zip" --format=zip -- .
