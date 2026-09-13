@@ -200,14 +200,14 @@ namespace
     Base makeDarkBase()
     {
         Base b {};
-        b.bg1    = 0xff17161c;   // #17161c
-        b.bg2    = 0xff0d0d10;   // #0d0d10
-        b.mat1   = 0xff1c1b21;   // #1c1b21
-        b.mat2   = 0xff191820;   // #191820
-        b.matA1  = 0xff26232e;   // #26232e
-        b.matA2  = 0xff1d1c23;   // #1d1c23
-        b.card   = 0x99282730;   // rgba(40,39,48,.60)
-        b.cardA  = 0x9e3a324a;   // rgba(58,50,74,.62)
+        b.bg1    = 0xff151821;   // cooler "space grey" desk
+        b.bg2    = 0xff090b10;
+        b.mat1   = 0xff1c2029;
+        b.mat2   = 0xff171b24;
+        b.matA1  = 0xff262d3a;
+        b.matA2  = 0xff1b202b;
+        b.card   = 0x99282d38;
+        b.cardA  = 0x9e30394a;
         b.cardBd = 0x16ffffff;   // rgba(255,255,255,.085)
         b.hi     = 0x0fffffff;   // rgba(255,255,255,.06)
         b.ctl    = 0x12ffffff;   // rgba(255,255,255,.07)
@@ -215,29 +215,29 @@ namespace
         b.well   = 0x4d000000;   // rgba(0,0,0,.30)
         b.well2  = 0x57000000;   // rgba(0,0,0,.34)
         b.well3  = 0x61000000;   // rgba(0,0,0,.38)
-        b.wellT  = 0xd9121116;   // rgba(18,17,22,.85)   [HTML only]
+        b.wellT  = 0xd90f1218;   // rgba(15,18,24,.85)   [HTML only]
         b.sep    = 0x17ffffff;   // rgba(255,255,255,.09)
         b.sep2   = 0x1cffffff;   // rgba(255,255,255,.11)
         b.sep3   = 0x12ffffff;   // rgba(255,255,255,.07)
-        b.txt    = 0xfff2f0f5;   // #f2f0f5
-        b.txtB   = 0xffc9c6d2;   // #c9c6d2
-        b.txt2   = 0xffb6b2c0;   // #b6b2c0
-        b.txt3   = 0xffaca8b8;   // #aca8b8
-        b.txt4   = 0xff9d99a9;   // #9d99a9
-        b.knobT  = 0xff2a2931;   // #2a2931
-        b.knobB  = 0xff1a1920;   // #1a1920
-        b.knobRim= 0xff3d3c47;   // #3d3c47
-        b.tick   = 0xff3a3944;   // #3a3944
-        b.tickL  = 0xff413f4d;   // #413f4d
-        b.track  = 0xff2f2e38;   // #2f2e38
-        b.mT     = 0xff302e3a;   // #302e3a
-        b.mRim   = 0xff4a4857;   // #4a4857
-        b.keyW1  = 0xfff4f1f8;   // #f4f1f8
-        b.keyW2  = 0xffd9d5e2;   // #d9d5e2
-        b.keyB1  = 0xff2a2831;   // #2a2831
-        b.keyB2  = 0xff121116;   // #121116
-        b.keyTx  = 0xff8a879a;   // #8a879a               [HTML only]
-        b.keyTxB = 0xff7d7a8c;   // #7d7a8c               [HTML only]
+        b.txt    = 0xfff5f7fb;
+        b.txtB   = 0xffccd3df;
+        b.txt2   = 0xffb8c0cd;
+        b.txt3   = 0xffaab3c1;
+        b.txt4   = 0xff99a3b2;
+        b.knobT  = 0xff2a303b;
+        b.knobB  = 0xff171b23;
+        b.knobRim= 0xff3f4653;
+        b.tick   = 0xff38404d;
+        b.tickL  = 0xff424b59;
+        b.track  = 0xff2f3642;
+        b.mT     = 0xff303846;
+        b.mRim   = 0xff4b5463;
+        b.keyW1  = 0xfff6f8fb;
+        b.keyW2  = 0xffdbe1ea;
+        b.keyB1  = 0xff292f3a;
+        b.keyB2  = 0xff101319;
+        b.keyTx  = 0xff8792a1;   // [HTML only]
+        b.keyTxB = 0xff7a8493;   // [HTML only]
         b.segOn  = 0x2bffffff;   // rgba(255,255,255,.17) [HTML only]
         b.sh1    = 0x73000000;   // rgba(0,0,0,.45)
         b.sh2    = 0x80000000;   // rgba(0,0,0,.5)
@@ -520,21 +520,21 @@ namespace
     // Accents, inks and tint strengths verified against the DESIGN_SPEC.md §2
     // THEMES table row for row - unchanged, they already matched exactly.
     constexpr Spec kSpecs[] = {
-        { "Liquid Blue",    true,  0xff0a84ff, 0xfff2f8ff,  5.0f },
-        { "System Pink",    true,  0xffff2d55, 0xfffff2f5,  5.0f },
-        { "Sage",           true,  0xff30d158, 0xff061b0d,  4.0f },
-        { "Mint",           true,  0xff63e6be, 0xff04231a,  5.0f },
-        { "Graphite",       true,  0xffb9b6c4, 0xff1a191f,  0.0f },
-        { "Sky",            true,  0xff64d2ff, 0xff031827,  6.0f },
-        { "Iris",           true,  0xff5e5ce6, 0xfff3f2ff,  6.0f },
-        { "Aqua",           true,  0xff32ade6, 0xff031c27,  6.0f },
-        { "Coral",          true,  0xffff9f0a, 0xff231202,  5.0f },
-        { "Amber",          true,  0xffffcc00, 0xff241c03,  5.0f },
-        { "Taupe",          true,  0xffd0a48a, 0xff241611,  5.0f },
-        { "Paper",          false, 0xff5e5ce6, 0xfff5f3ff,  3.0f },
-        { "Porcelain",      false, 0xffff453a, 0xfffff4f1,  3.0f },
-        { "Warm Sand",      false, 0xffa8752a, 0xfffff8ee,  4.0f },
-        { "Liquid Glass",   false, 0xff0a84ff, 0xfff2f8ff,  2.5f },
+        { "Midnight Pro",   true,  0xff0a84ff, 0xfff2f8ff,  4.5f },
+        { "Rose Quartz",    true,  0xffff2d55, 0xfffff2f5,  4.5f },
+        { "Sage Glass",     true,  0xff30d158, 0xff061b0d,  3.6f },
+        { "Mint Glass",     true,  0xff63e6be, 0xff04231a,  4.2f },
+        { "Titanium",       true,  0xffd1d5db, 0xff101216,  0.8f },
+        { "Skyline",        true,  0xff64d2ff, 0xff031827,  5.4f },
+        { "Aurora",         true,  0xffbf5af2, 0xfffff4ff,  5.2f },
+        { "Aqua Glass",     true,  0xff32ade6, 0xff031c27,  5.0f },
+        { "Solar",          true,  0xffff9f0a, 0xff231202,  4.0f },
+        { "Champagne",      true,  0xffffd60a, 0xff251e03,  3.8f },
+        { "Desert Rose",    true,  0xffffa58a, 0xff241611,  4.0f },
+        { "Paper",          false, 0xff0a84ff, 0xfff2f8ff,  2.2f },
+        { "Porcelain",      false, 0xffff453a, 0xfffff4f1,  2.6f },
+        { "Warm Sand",      false, 0xffb07a2a, 0xfffff8ee,  3.2f },
+        { "Liquid Glass",   false, 0xff007aff, 0xfff2f8ff,  2.0f },
     };
 
     /** Neon Ocean is the sixteenth theme, and it is not in the spec - the spec

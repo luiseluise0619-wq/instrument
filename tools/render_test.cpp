@@ -1410,6 +1410,103 @@ int main (int argc, char** argv)
         return 0;
     }
 
+    // "--knobs": make sure performance/level knobs do not accidentally turn
+    // a playable instrument into silence. Filter extremes are intentionally
+    // excluded here: a high-pass at 18 kHz or a closed low-pass is allowed to
+    // remove most of a sound, and --filter verifies that path separately.
+    if (argc > 1 && juce::String (argv[1]) == "--knobs")
+    {
+        auto set = [&] (const char* id, float v)
+        {
+            if (auto* pp = proc.getAPVTS().getParameter (id))
+                pp->setValueNotifyingHost (pp->convertTo0to1 (v));
+        };
+
+        auto renderRms = [&] (int note, int blocks, int offBlock)
+        {
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.95f), 0);
+            double sq = 0.0; long n = 0; bool finite = true;
+
+            for (int b = 0; b < blocks; ++b)
+            {
+                buf.clear();
+                proc.processBlock (buf, midi);
+                midi.clear();
+                if (b == offBlock)
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), 0);
+
+                for (int i = 0; i < buf.getNumSamples(); ++i)
+                    for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+                    {
+                        const float v = buf.getSample (ch, i);
+                        finite = finite && std::isfinite (v);
+                        sq += (double) v * v; ++n;
+                    }
+            }
+
+            return finite ? std::sqrt (sq / (double) juce::jmax (1L, n)) : -1.0;
+        };
+
+        struct Case { const char* id; float value; double minRatio; int blocks; int offBlock; };
+        const Case cases[] = {
+            { "outputGain", -18.0f, 0.050, 120, 60 },
+            { "outputGain",   6.0f, 0.500, 120, 60 },
+            { "drive",        1.0f, 0.250, 120, 60 },
+            { "width",        0.0f, 0.250, 120, 60 },
+            { "width",        2.0f, 0.250, 120, 60 },
+            { "mix",          0.0f, 0.250, 120, 60 },
+            { "mix",          1.0f, 0.250, 120, 60 },
+            { "attack",    1000.0f, 0.020, 260, 180 },
+            { "sustain",      0.0f, 0.020, 160, 90 },
+        };
+
+        printf ("%-20s %-10s %8s %8s %8s  %s\n",
+                "instrument", "case", "base", "rms", "ratio", "flags");
+        int bad = 0, checked = 0;
+
+        for (int idx = 0; idx < names.size(); ++idx)
+        {
+            proc.applyInstrument (idx);
+            set ("outputGain", 0.0f);
+            set ("drive", 0.0f);
+            set ("width", 1.0f);
+            set ("mix", 1.0f);
+            const double base = renderRms (60, 120, 60);
+            if (base <= 1.0e-5)
+                continue; // --sweep owns truly silent instruments.
+
+            for (const auto& c : cases)
+            {
+                proc.applyInstrument (idx);
+                set ("outputGain", 0.0f);
+                set ("drive", 0.0f);
+                set ("width", 1.0f);
+                set ("mix", 1.0f);
+                set (c.id, c.value);
+
+                const double rms = renderRms (60, c.blocks, c.offBlock);
+                const double ratio = rms / base;
+                juce::String flags;
+                if (rms < 0.0) flags << "NAN ";
+                if (rms >= 0.0 && ratio < c.minRatio) flags << "DROPOUT ";
+                ++checked;
+                if (flags.isNotEmpty())
+                {
+                    ++bad;
+                    printf ("%-20s %-10s %8.4f %8.4f %8.3f  %s\n",
+                            names[idx].toRawUTF8(),
+                            (juce::String (c.id) + "=" + juce::String (c.value)).toRawUTF8(),
+                            base, rms, ratio, flags.toRawUTF8());
+                }
+            }
+        }
+
+        printf ("\n%d knob case(s), %d dropout(s)\n", checked, bad);
+        return bad == 0 ? 0 : 2;
+    }
+
     // "--harsh": find the voices that FATIGUE the ear.
     //
     // Not the loud ones and not the bright ones - the ones with too much

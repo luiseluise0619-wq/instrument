@@ -158,7 +158,7 @@ VocalChopAudioProcessor::createParameterLayout()
         "playMode", "Play Mode", juce::StringArray { "Gate", "One-Shot" }, 0));
 
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
-        "outputGain", "Output", Range (-24.0f, 6.0f, 0.1f), 0.0f));
+        "outputGain", "Output", Range (-18.0f, 6.0f, 0.1f), 0.0f));
 
     // Synth engine mode: play oscillators instead of sample slices.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
