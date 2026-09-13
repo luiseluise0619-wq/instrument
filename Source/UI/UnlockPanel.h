@@ -254,7 +254,7 @@ private:
                 else if (! self->finalize (result.email, key))
                     self->showStatus ("Could not complete activation. Please retry.", false);
                 else
-                    self->activated (result.message + " Reverify after restarting the plugin.");
+                    self->activated (result.message + " Activation is saved on this computer.");
             });
         });
     }
