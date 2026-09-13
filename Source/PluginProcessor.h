@@ -236,19 +236,18 @@ public:
     /** Licensing: unlicensed = demo - mutes 2 s every 30 s, and refuses to
         write session state, so a project using it cannot be finished. */
     bool isLicensed() const { return licensed.load(); }
-    bool finalizeActivation (const juce::String& email, const juce::String& key)
-    {
-        juce::ignoreUnused (email, key);
-        // The key has just been verified by Gumroad on a worker thread.
-        // Persistence is intentionally omitted: an editable local file cannot
-        // establish that a future session belongs to a buyer.
-        licensed.store (true);
-        return true;
-    }
+    bool finalizeActivation (const juce::String& email, const juce::String& key);
 
 private:
     //==========================================================================
     void parameterChanged (const juce::String& id, float newValue) override;
+
+    static juce::File   localLicenseFile();
+    static juce::String localLicenseSignature (const juce::String& email,
+                                               const juce::String& key,
+                                               const juce::String& machine);
+    bool loadLocalActivation();
+    bool saveLocalActivation (const juce::String& email, const juce::String& key);
 
     /** The output-FX ids that survive an instrument change once touched. */
     static const juce::StringArray& ownableFx();

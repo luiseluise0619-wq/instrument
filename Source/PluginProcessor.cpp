@@ -10,9 +10,10 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
    #if SLYCE_DEMO_GATE
-    // A purchase is proven by the Gumroad check performed from UnlockPanel.
-    // Do not trust an editable local licence file at startup.
-    licensed.store (false);
+    // A purchase is proven by the online check performed from UnlockPanel.
+    // Once that succeeds, we keep a small machine-bound ticket so the buyer
+    // does not have to activate again every time the plugin opens.
+    licensed.store (loadLocalActivation());
    #else
     licensed.store (true);   // demo gate disabled at build time: fully open
    #endif
@@ -92,6 +93,89 @@ VocalChopAudioProcessor::~VocalChopAudioProcessor()
 {
     apvts.removeParameterListener ("pitch", this);
     apvts.removeParameterListener ("formant", this);
+}
+
+juce::File VocalChopAudioProcessor::localLicenseFile()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+        .getChildFile ("Slyce")
+        .getChildFile ("license-ticket.xml");
+}
+
+juce::String VocalChopAudioProcessor::localLicenseSignature (const juce::String& email,
+                                                             const juce::String& keyHash,
+                                                             const juce::String& machine)
+{
+    // This is a local persistence guard, not the source of licensing truth.
+    // The source of truth remains /api/license/activate. The guard prevents a
+    // plain-text "licensed=true" edit and binds the ticket to this machine.
+    static constexpr const char* pepper = "Slyce.LocalLicenseTicket.v1.2026";
+    const auto payload = vcs::Licensing::normEmail (email) + "|" + keyHash + "|" + machine + "|" + pepper;
+    const juce::SHA256 sha (payload.toRawUTF8(), (size_t) payload.getNumBytesAsUTF8());
+    return sha.toHexString().removeCharacters (" ");
+}
+
+bool VocalChopAudioProcessor::loadLocalActivation()
+{
+    const auto file = localLicenseFile();
+    if (! file.existsAsFile())
+        return false;
+
+    std::unique_ptr<juce::XmlElement> xml (juce::parseXML (file));
+    if (xml == nullptr || ! xml->hasTagName ("SlyceLicenseTicket"))
+        return false;
+
+    const auto email   = vcs::Licensing::normEmail (xml->getStringAttribute ("email"));
+    const auto keyHash = xml->getStringAttribute ("keyHash").trim();
+    const auto machine = xml->getStringAttribute ("machine").trim();
+    const auto sig     = xml->getStringAttribute ("signature").trim();
+
+    if (email.isEmpty() || keyHash.length() != 64 || machine.length() != 64 || sig.length() != 64)
+        return false;
+    if (! machine.equalsIgnoreCase (vcs::Licensing::machineHash()))
+        return false;
+
+    return sig.equalsIgnoreCase (localLicenseSignature (email, keyHash, machine));
+}
+
+bool VocalChopAudioProcessor::saveLocalActivation (const juce::String& emailIn,
+                                                   const juce::String& keyIn)
+{
+    const auto email = vcs::Licensing::normEmail (emailIn);
+    const auto key = vcs::Licensing::stripInvisible (keyIn);
+    if (email.isEmpty() || key.isEmpty())
+        return false;
+
+    const juce::SHA256 keySha (key.toRawUTF8(), (size_t) key.getNumBytesAsUTF8());
+    const auto keyHash = keySha.toHexString().removeCharacters (" ");
+    const auto machine = vcs::Licensing::machineHash();
+
+    juce::XmlElement xml ("SlyceLicenseTicket");
+    xml.setAttribute ("version", 1);
+    xml.setAttribute ("email", email);
+    xml.setAttribute ("keyHash", keyHash);
+    xml.setAttribute ("machine", machine);
+    xml.setAttribute ("signature", localLicenseSignature (email, keyHash, machine));
+    xml.setAttribute ("activatedAt", juce::Time::getCurrentTime().toISO8601 (true));
+
+    auto file = localLicenseFile();
+    if (! file.getParentDirectory().createDirectory())
+        return false;
+
+    return xml.writeTo (file);
+}
+
+bool VocalChopAudioProcessor::finalizeActivation (const juce::String& email,
+                                                  const juce::String& key)
+{
+    // The key has just been verified by the server on a worker thread. Save a
+    // machine-bound local ticket so the unlock survives DAW/plugin restarts.
+    if (! saveLocalActivation (email, key))
+        return false;
+
+    licensed.store (true);
+    sendChangeMessage();
+    return true;
 }
 
 //==============================================================================
