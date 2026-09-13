@@ -83,6 +83,7 @@ juce_add_plugin(VocalChopStudio
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     VST3_CATEGORIES "Instrument" "Synth" "Sampler"
+    VST3_AUTO_MANIFEST FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE
     PRODUCT_NAME "Slyce")
 
