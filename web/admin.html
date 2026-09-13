@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Slyce License Admin</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f5f7;
+      --card: rgba(255, 255, 255, .78);
+      --text: #17181c;
+      --muted: #6e7480;
+      --line: rgba(23, 24, 28, .12);
+      --accent: #007aff;
+      --accent-2: #5856d6;
+      --danger: #ff3b30;
+      --ok: #34c759;
+      --shadow: 0 24px 70px rgba(0, 0, 0, .12);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #090b10;
+        --card: rgba(28, 32, 41, .78);
+        --text: #f5f7fb;
+        --muted: #aab3c1;
+        --line: rgba(255, 255, 255, .12);
+        --shadow: 0 24px 80px rgba(0, 0, 0, .42);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 12%, rgba(0, 122, 255, .20), transparent 32%),
+        radial-gradient(circle at 82% 18%, rgba(88, 86, 214, .18), transparent 30%),
+        radial-gradient(circle at 50% 92%, rgba(52, 199, 89, .13), transparent 36%),
+        var(--bg);
+    }
+
+    main {
+      width: min(100%, 520px);
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(24px) saturate(145%);
+      -webkit-backdrop-filter: blur(24px) saturate(145%);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .16em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 7vw, 46px);
+      line-height: .98;
+      letter-spacing: -.045em;
+    }
+
+    .hint {
+      margin: 14px 0 24px;
+      color: var(--muted);
+    }
+
+    label {
+      display: block;
+      margin: 16px 0 7px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    input, select, button, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      font: inherit;
+    }
+
+    input, select, textarea {
+      padding: 14px 15px;
+      color: var(--text);
+      background: rgba(255, 255, 255, .58);
+      outline: none;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      input, select, textarea { background: rgba(0, 0, 0, .20); }
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: rgba(0, 122, 255, .72);
+      box-shadow: 0 0 0 4px rgba(0, 122, 255, .14);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 132px;
+      gap: 12px;
+      align-items: end;
+    }
+
+    button {
+      margin-top: 20px;
+      padding: 15px 18px;
+      border: 0;
+      color: white;
+      font-weight: 800;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 12px 28px rgba(0, 122, 255, .25);
+    }
+
+    button:disabled {
+      opacity: .58;
+      cursor: wait;
+    }
+
+    .status {
+      min-height: 22px;
+      margin-top: 14px;
+      color: var(--muted);
+    }
+
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--danger); }
+
+    .result {
+      display: none;
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: rgba(0, 0, 0, .045);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .result { background: rgba(255, 255, 255, .055); }
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+      font-family: ui-monospace, "SF Mono", Consolas, monospace;
+      font-size: 14px;
+      letter-spacing: .02em;
+    }
+
+    .mini {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .mini button {
+      margin: 0;
+      padding: 11px 12px;
+      border-radius: 14px;
+      font-size: 13px;
+      box-shadow: none;
+      background: rgba(0, 122, 255, .92);
+    }
+
+    .foot {
+      margin: 20px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 560px) {
+      body { padding: 16px; }
+      main { padding: 22px; border-radius: 24px; }
+      .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Slyce private admin</p>
+    <h1>라이선스 키 생성</h1>
+    <p class="hint">관리자 비밀토큰을 아는 사람만 seller-issued 키를 발급할 수 있습니다.</p>
+
+    <form id="form" autocomplete="off">
+      <label for="secret">관리자 비밀토큰</label>
+      <input id="secret" name="secret" type="password" placeholder="Vercel SLYCE_ADMIN_SECRET" required>
+
+      <div class="row">
+        <div>
+          <label for="email">구매자 이메일</label>
+          <input id="email" name="email" type="email" placeholder="buyer@example.com" required>
+        </div>
+        <div>
+          <label for="maxDevices">기기 수</label>
+          <select id="maxDevices" name="maxDevices">
+            <option value="1">1대</option>
+            <option value="2">2대</option>
+            <option value="3" selected>3대</option>
+            <option value="5">5대</option>
+            <option value="10">10대</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="submit" type="submit">키 생성하기</button>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </form>
+
+    <section id="result" class="result" aria-live="polite">
+      <label for="key">생성된 라이선스 키</label>
+      <textarea id="key" readonly></textarea>
+      <div class="mini">
+        <button id="copyKey" type="button">키 복사</button>
+        <button id="copyMail" type="button">메일용 문구 복사</button>
+      </div>
+    </section>
+
+    <p class="foot">
+      이 페이지는 비밀토큰을 저장하지 않습니다. 배포 후 Vercel 환경변수
+      <code>SLYCE_ADMIN_SECRET</code>, <code>KV_REST_API_URL</code>,
+      <code>KV_REST_API_TOKEN</code>이 필요합니다.
+    </p>
+  </main>
+
+  <script>
+    const form = document.getElementById('form');
+    const statusEl = document.getElementById('status');
+    const submit = document.getElementById('submit');
+    const result = document.getElementById('result');
+    const keyBox = document.getElementById('key');
+    let last = null;
+
+    function setStatus(message, kind = '') {
+      statusEl.textContent = message;
+      statusEl.className = `status ${kind}`.trim();
+    }
+
+    async function copy(text) {
+      await navigator.clipboard.writeText(text);
+      setStatus('복사 완료.', 'ok');
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const secret = String(data.get('secret') || '').trim();
+      const email = String(data.get('email') || '').trim().toLowerCase();
+      const maxDevices = Number(data.get('maxDevices') || 3);
+
+      if (!secret || !email) {
+        setStatus('비밀토큰과 이메일을 입력해 주세요.', 'err');
+        return;
+      }
+
+      submit.disabled = true;
+      result.style.display = 'none';
+      setStatus('키 생성 중...');
+
+      try {
+        const response = await fetch('/api/license/issue', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${secret}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email, maxDevices })
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.ok) {
+          throw new Error(body.message || '키 생성에 실패했습니다.');
+        }
+
+        last = body;
+        keyBox.value = body.key;
+        result.style.display = 'block';
+        setStatus(`${body.email} / ${body.maxDevices}대용 키 생성 완료.`, 'ok');
+      } catch (error) {
+        setStatus(error.message || '키 생성에 실패했습니다.', 'err');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    document.getElementById('copyKey').addEventListener('click', () => {
+      if (last?.key) copy(last.key);
+    });
+
+    document.getElementById('copyMail').addEventListener('click', () => {
+      if (!last?.key) return;
+      copy(`Slyce 라이선스 키입니다.\n\n이메일: ${last.email}\n라이선스 키: ${last.key}\n허용 기기 수: ${last.maxDevices}대\n\n플러그인 Activate 화면에서 같은 이메일과 키를 입력해 주세요.`);
+    });
+  </script>
+</body>
+</html>

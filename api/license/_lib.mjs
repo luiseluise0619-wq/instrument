@@ -45,7 +45,11 @@ export async function kv(...command) {
 
 export async function readRequestBody(request) {
   if (typeof request.body === 'object' && request.body !== null) return request.body;
-  if (typeof request.body === 'string') return Object.fromEntries(new URLSearchParams(request.body));
+  if (typeof request.body === 'string') {
+    const body = request.body.trim();
+    if (body.startsWith('{')) return JSON.parse(body);
+    return Object.fromEntries(new URLSearchParams(body));
+  }
   return {};
 }
 
