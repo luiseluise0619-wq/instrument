@@ -425,6 +425,7 @@ int main (int argc, char** argv)
     // Every REJECTION case runs unconditionally - those need no secret.
     if (argc > 1 && juce::String (argv[1]) == "--licence")
     {
+#if 0 // Offline keys and trusted local activation are intentionally removed.
         using L = vcs::Licensing;
         int fail = 0;
         auto check = [&fail] (const char* what, bool got, bool want)
@@ -576,6 +577,9 @@ int main (int argc, char** argv)
 
         printf ("\n%d failing case(s).\n", fail);
         return fail == 0 ? 0 : 1;
+#endif
+        printf ("Offline licence tests were retired; Gumroad verification is an online integration test.\n");
+        return 0;
     }
 
     const auto names = VocalChopAudioProcessor::getInstrumentNames();

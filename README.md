@@ -6,6 +6,22 @@ A MIDI-triggered vocal chop / slice instrument built with [JUCE](https://juce.co
 and exported as **VST3**, **AU**, and **Standalone**. Licensed under
 **GPL-3.0** (see `LICENSE.md`).
 
+## Activation
+
+Buyer keys are checked against Gumroad by the Slyce license API. Seller-issued
+keys are created only by the owner-protected Vercel API, stored hashed in KV,
+and bound to the recipient e-mail and a device limit. A local activation file
+is never trusted.
+
+### Vercel license service
+
+Deploy the root `api/` directory with the existing Vercel project and set the
+four production environment variables listed in `.env.example`. `KV_REST_*`
+values come from a Vercel KV / Upstash Redis database. Generate a long random
+`SLYCE_ADMIN_SECRET` and keep it in Vercel only. The owner issues a key by
+calling `POST /api/license/issue` with `Authorization: Bearer <secret>` and a
+recipient `email`; the API returns the sole copy of the generated key.
+
 ## Release checklist
 
 - [x] CI builds (Windows / macOS / Linux) with downloadable artifacts

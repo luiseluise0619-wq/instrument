@@ -2,7 +2,6 @@
 
 #include <JuceHeader.h>
 #include "ThemeManager.h"
-#include "../Licensing.h"
 
 /**
     First-run quick-start overlay: three big steps (PLAY / SOUNDS / LOOP)
@@ -25,7 +24,9 @@ public:
 
     static juce::File seenFile()
     {
-        return vcs::Licensing::licenseFile().getSiblingFile ("welcomed.flag");
+        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                   .getChildFile ("Slyce")
+                   .getChildFile ("welcomed.flag");
     }
     static bool hasSeenWelcome()   { return seenFile().existsAsFile(); }
     static void markSeen()

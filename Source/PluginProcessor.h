@@ -238,8 +238,10 @@ public:
     bool isLicensed() const { return licensed.load(); }
     bool finalizeActivation (const juce::String& email, const juce::String& key)
     {
-        if (! vcs::Licensing::saveActivation (email, key))
-            return false;
+        juce::ignoreUnused (email, key);
+        // The key has just been verified by Gumroad on a worker thread.
+        // Persistence is intentionally omitted: an editable local file cannot
+        // establish that a future session belongs to a buyer.
         licensed.store (true);
         return true;
     }

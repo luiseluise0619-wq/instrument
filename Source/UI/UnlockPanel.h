@@ -10,15 +10,14 @@ class VocalChopAudioProcessor;
 /**
     Full-window overlay where a buyer enters their license.
 
-    Gumroad keys go online once (device-counted); "VCS-" keys verify
-    offline. On success the activation is stored machine-bound and the
-    overlay dismisses itself.
+    Gumroad keys are verified online for the current plugin session. The
+    overlay dismisses itself after a successful purchase verification.
 */
 class UnlockPanel : public juce::Component
 {
 public:
-    /** finalize(email, key) must persist the activation and flip the
-        processor's licensed flag; returns false if saving failed. */
+    /** finalize(email, key) flips the processor's licensed flag after the
+        worker thread has verified a Gumroad purchase. */
     explicit UnlockPanel (std::function<bool (juce::String, juce::String)> finalizeFn)
         : finalize (std::move (finalizeFn))
     {
@@ -37,7 +36,7 @@ public:
         // Placeholder colour is set from the theme in paint(). It was a
         // hardcoded Colours::grey, which is a fixed mid-grey on every skin -
         // near-invisible against the pale control fill of the light themes.
-        emailBox.setTextToShowWhenEmpty ("e-mail (for VCS- keys)", juce::Colours::grey);
+        emailBox.setTextToShowWhenEmpty ("Gumroad purchase e-mail", juce::Colours::grey);
         addAndMakeVisible (emailBox);
 
         keyBox.setTextToShowWhenEmpty ("license key", juce::Colours::grey);
@@ -180,7 +179,7 @@ public:
         // hardest thing on the card to read.
         {
             const auto hint = theme.text.withAlpha (0.55f);
-            emailBox.setTextToShowWhenEmpty ("e-mail (for VCS- keys)", hint);
+            emailBox.setTextToShowWhenEmpty ("Gumroad purchase e-mail", hint);
             keyBox  .setTextToShowWhenEmpty ("license key",            hint);
         }
     }
@@ -215,21 +214,15 @@ private:
         const auto email = emailBox.getText();
         const auto key   = keyBox.getText();
 
-        if (vcs::Licensing::normKey (key).isEmpty())
+        if (vcs::Licensing::stripInvisible (key).isEmpty())
         {
             showStatus ("Enter a license key first.", false);
             return;
         }
 
-        if (vcs::Licensing::looksLikeOfflineKey (key))
+        if (vcs::Licensing::normEmail (email).isEmpty())
         {
-            if (! vcs::Licensing::verifyOfflineKey (email, key))
-                showStatus ("Key and e-mail don't match. Use the exact e-mail "
-                            "the key was issued for.", false);
-            else if (! finalize (email, key))
-                showStatus (saveFailedMessage(), false);
-            else
-                activated ("Activated - welcome aboard!");
+            showStatus ("Enter the e-mail used for this license.", false);
             return;
         }
 
@@ -245,32 +238,25 @@ private:
         cancelNet = std::make_shared<std::atomic<bool>> (false);
         auto cancel = cancelNet;
         juce::Component::SafePointer<UnlockPanel> self (this);
-        netThread = std::make_unique<std::thread> ([self, key, cancel]
+        netThread = std::make_unique<std::thread> ([self, email, key, cancel]
         {
-            const auto result = vcs::Licensing::activateOnline (key, cancel.get());
-            juce::MessageManager::callAsync ([self, result, key]
+            const auto result = vcs::Licensing::activateOnline (key, email, cancel.get());
+            juce::MessageManager::callAsync ([self, result, email, key]
             {
                 if (self == nullptr)
                     return;
                 self->activateButton.setEnabled (true);
                 if (! result.ok)
                     self->showStatus (result.message, false);
+                else if (email.trim().isNotEmpty()
+                         && ! email.trim().equalsIgnoreCase (result.email.trim()))
+                    self->showStatus ("That e-mail does not match the Gumroad receipt.", false);
                 else if (! self->finalize (result.email, key))
-                    // The key verified (and consumed a device slot), but the
-                    // licence file could not be written — say THAT, not
-                    // "invalid key".
-                    self->showStatus (self->saveFailedMessage(), false);
+                    self->showStatus ("Could not complete activation. Please retry.", false);
                 else
-                    self->activated (result.message);
+                    self->activated (result.message + " Reverify after restarting the plugin.");
             });
         });
-    }
-
-    juce::String saveFailedMessage() const
-    {
-        return "Key verified, but the license file could not be saved to "
-               + vcs::Licensing::licenseFile().getParentDirectory().getFullPathName()
-               + ". Check folder permissions and try again.";
     }
 
     void joinNetThread()

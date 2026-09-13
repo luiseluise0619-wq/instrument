@@ -10,7 +10,9 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
    #if SLYCE_DEMO_GATE
-    licensed.store (vcs::Licensing::loadActivation());
+    // A purchase is proven by the Gumroad check performed from UnlockPanel.
+    // Do not trust an editable local licence file at startup.
+    licensed.store (false);
    #else
     licensed.store (true);   // demo gate disabled at build time: fully open
    #endif
@@ -2897,6 +2899,8 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
             if (byName >= 0)
                 idx = byName;
         }
+        // This applies only the selected engine architecture; the saved
+        // parameter tree above remains authoritative for every knob value.
         applyEnginePatch (idx);
     }
 

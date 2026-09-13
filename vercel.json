@@ -4,6 +4,9 @@
   "buildCommand": null,
   "installCommand": null,
   "framework": null,
+  "functions": {
+    "api/license/*.mjs": { "maxDuration": 10 }
+  },
   "cleanUrls": true,
   "headers": [
     {

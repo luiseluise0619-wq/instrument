@@ -9,7 +9,16 @@ SampleLoader::readAll (juce::AudioFormatReader* reader, double& outSampleRate)
 
     outSampleRate = r->sampleRate;
 
-    const int numChannels = juce::jmax (1, (int) r->numChannels);
+    // Do not turn an untrusted file header into an overflowing int or an
+    // unbounded allocation. Ten minutes at 192 kHz is already well beyond a
+    // sensible in-memory sample for a plugin.
+    constexpr int64_t kMaxSamples = 192000LL * 60LL * 10LL;
+    constexpr int kMaxChannels = 8;
+    if (r->numChannels == 0 || r->numChannels > kMaxChannels
+        || r->lengthInSamples > kMaxSamples)
+        return nullptr;
+
+    const int numChannels = (int) r->numChannels;
     const int numSamples  = (int) r->lengthInSamples;
 
     auto buffer = std::make_shared<juce::AudioBuffer<float>> (numChannels, numSamples);

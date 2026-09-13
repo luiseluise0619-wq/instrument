@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(VocalChopStudio VERSION 3.2.1 LANGUAGES C CXX)
+project(VocalChopStudio VERSION 3.2.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -189,6 +189,7 @@ target_include_directories(VocalChopStudio PRIVATE
 # release. 0 ships fully unlocked (current default while testing/free).
 target_compile_definitions(VocalChopStudio PRIVATE
     SLYCE_DEMO_GATE=1
+    SLYCE_LICENSE_API_URL="https://instrument-nu.vercel.app/api/license/activate"
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=1
     JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
