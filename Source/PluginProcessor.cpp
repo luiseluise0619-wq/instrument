@@ -2671,6 +2671,33 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
             if (p.fmAmount.load() > 0.45f)  p.fmAmount  = 0.45f;
             if (p.filterCutoff.load() > 5600.0f) p.filterCutoff = 5600.0f;
         }
+
+        // Perc Click measured as broadband attack with almost no pitched
+        // body. Keep it tight, but give the transient a little less glass so
+        // it reads as percussion instead of a noise spike.
+        if (name == "Perc Click")
+        {
+            p.attackNoise = 0.32f;
+            p.attackTone = 2.8f;
+            p.attackMs = 8.0f;
+            p.filterCutoff = 6500.0f;
+            p.filterQ = 0.6f;
+            p.satAmount = 0.08f;
+        }
+
+        // These tuned voices were still the most fatiguing after the broad
+        // family pass. They should stay bright, just not scrape the 2-6 kHz
+        // band quite as hard on sustained notes.
+        if (name == "Hyperpop Squeak" || name == "Drill Bell Lead"
+            || name == "Laser Lead" || name == "Chime Syn"
+            || name == "Glass Pluck" || name == "Digital Ice")
+        {
+            p.inharmonic = juce::jmin (p.inharmonic.load(), 0.18f);
+            p.fmAmount = juce::jmin (p.fmAmount.load(), 0.30f);
+            p.filterCutoff = juce::jmin (p.filterCutoff.load(), 4800.0f);
+            p.filterQ = juce::jmin (p.filterQ.load(), 0.9f);
+            p.satAmount = juce::jmin (p.satAmount.load(), 0.16f);
+        }
     }
 
     p.chorusMix = chorus;
