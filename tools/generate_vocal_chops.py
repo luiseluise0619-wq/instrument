@@ -53,7 +53,14 @@ def run_bp(x, coef):
 
 
 def glottal(n, f0, jitter=0.008, shimmer=0.06, breath=0.05, vib=(5.2, 0.012)):
-    """A voiced source: band-limited pulse train, humanised."""
+    """A voiced source: band-limited pulse train, humanised.
+
+    The first versions were intentionally simple and safe, but a pure rounded
+    glottal wave can read as "synth vowel" once it is chopped. This source adds
+    a controlled second harmonic, a little asymmetric buzz, and breath that
+    blooms with the note. It is still generated from scratch, but it sits
+    closer to a recorded vocal take.
+    """
     out = [0.0] * n
     phase = 0.0
     amp = 1.0
@@ -70,17 +77,31 @@ def glottal(n, f0, jitter=0.008, shimmer=0.06, breath=0.05, vib=(5.2, 0.012)):
         # rising half is what gives a voice its buzz without aliasing hard.
         p = phase
         g = (p * p * (3.0 - 2.0 * p)) * 2.0 - 1.0 if p < 0.62 else -0.62
-        out[i] = g * amp + random.uniform(-breath, breath)
+        harmonic = math.sin(4.0 * math.pi * p) * 0.11
+        buzz = (2.0 * p - 1.0) * 0.055 if p < 0.42 else 0.0
+        breath_env = 0.35 + 0.65 * min(1.0, i / max(1, int(0.035 * SR)))
+        out[i] = (g + harmonic + buzz) * amp + random.uniform(-breath, breath) * breath_env
     return out
 
 
 def say(n, f0, vowel, q=9.0, breath=0.05, vib=(5.2, 0.012)):
     src = glottal(n, f0, breath=breath, vib=vib)
     (f1, f2, f3), (g1, g2, g3) = VOWELS[vowel]
-    a = run_bp(src, biquad_bp(f1, q))
-    b = run_bp(src, biquad_bp(f2, q * 1.15))
-    c = run_bp(src, biquad_bp(f3, q * 1.3))
-    return [(a[i] * g1 + b[i] * g2 + c[i] * g3) for i in range(n)]
+    # Small per-syllable formant offsets keep repeated notes from sounding like
+    # a single oscillator being retriggered. The caller seeds random, so the
+    # result is still reproducible.
+    drift = random.uniform(-0.024, 0.024)
+    bright = random.uniform(-0.015, 0.020)
+    a = run_bp(src, biquad_bp(f1 * (1.0 + drift), q))
+    b = run_bp(src, biquad_bp(f2 * (1.0 - drift * 0.55), q * 1.15))
+    c = run_bp(src, biquad_bp(f3 * (1.0 + bright), q * 1.3))
+    air_freq = min(8600.0, max(4200.0, f3 * 2.15))
+    air = run_bp(src, biquad_bp(air_freq, 2.2))
+    body = run_bp(src, biquad_bp(max(120.0, f0 * 1.05), 2.0))
+    return [(a[i] * g1 + b[i] * g2 + c[i] * g3
+             + air[i] * (0.040 + breath * 0.055)
+             + body[i] * 0.080)
+            for i in range(n)]
 
 
 def env(n, atk, rel, hold=None):
@@ -280,7 +301,17 @@ def _syl(n, midi, vowel, q=9.0, breath=0.05, vib=(5.2, 0.012),
     """One shaped syllable, ready to place."""
     seg = say(n, hz(midi - 12), vowel, q=q, breath=breath, vib=vib)
     e = env(n, atk, (n / SR) * 0.55 if rel is None else rel)
-    return [seg[i] * e[i] for i in range(n)]
+    out = [seg[i] * e[i] for i in range(n)]
+    # Subtle mouth-noise onset: enough for the transient detector and the ear
+    # to read the syllable as a chop, not enough to turn every vowel into a
+    # consonant sample.
+    burst_n = min(n, int(0.018 * SR))
+    if burst_n > 8 and random.random() < 0.72:
+        burst = _noise(burst_n, 1800, 7200, 1.0)
+        be = env(burst_n, 0.001, 0.014)
+        for i in range(burst_n):
+            out[i] += burst[i] * be[i] * (0.030 + min(0.050, breath * 0.12))
+    return out
 
 
 # --- chops ----------------------------------------------------------------
