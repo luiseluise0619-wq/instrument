@@ -163,11 +163,48 @@ jobs:
           cd dist
           cmake -E tar cf "../Slyce-${RELEASE_TAG}-${RUNNER_OS}.zip" --format=zip -- .
 
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slyce-${{ steps.tag.outputs.tag }}-${{ runner.os }}
+          path: Slyce-*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -e
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            TAG="${INPUT_TAG}"
+          else
+            TAG="$(tr -d '[:space:]' < .release-tag)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${TAG}"
+
+      - name: Download release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Slyce-${{ steps.tag.outputs.tag }}-*
+          path: release-packages
+          merge-multiple: true
+
       - name: Publish to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          files: Slyce-*.zip
-          # Only one matrix job generates notes, or the body gets duplicated.
-          generate_release_notes: ${{ matrix.name == 'Linux' }}
+          files: release-packages/Slyce-*.zip
+          generate_release_notes: true
