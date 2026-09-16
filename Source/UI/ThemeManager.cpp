@@ -275,18 +275,18 @@ namespace
         // premium, and it is the second deliberate deviation here.)
         b.bg1    = 0xfff1f3f7;
         b.bg2    = 0xffe2e6ee;
-        b.mat1   = 0xf4ffffff;   // translucent white: the raised panel
-        b.mat2   = 0xdeffffff;
-        b.matA1  = 0xeaffffff;
-        b.matA2  = 0xd4ffffff;
+        b.mat1   = 0xd8ffffff;   // glass white: raised, but no longer solid
+        b.mat2   = 0xc8ffffff;
+        b.matA1  = 0xd6ffffff;
+        b.matA2  = 0xc2ffffff;
         // The card stays bright but lets more of the cool desk show through.
         // This keeps the light skins premium without turning them into a flat
         // white screenshot.
-        b.card   = 0xdcffffff;
-        b.cardA  = 0xeaffffff;
-        b.cardBd = 0x17000f1e;   // slightly deeper and cooler than rgba(0,0,0,.07)
-        b.hi     = 0xd9ffffff;   // rgba(255,255,255,.85)
-        b.ctl    = 0xeaffffff;
+        b.card   = 0xb8ffffff;   // translucent Apple glass, not paper-white
+        b.cardA  = 0xc8ffffff;
+        b.cardBd = 0x26000f1e;   // clearer edge so lower opacity still reads
+        b.hi     = 0xb8ffffff;
+        b.ctl    = 0xd2ffffff;
         b.ctlBd  = 0x1a000000;   // rgba(0,0,0,.10)
         // Wells sit INSIDE a now-white card, so they need real depth to read
         // as recessed at all - at 4.5% black on a 42% card they were visible

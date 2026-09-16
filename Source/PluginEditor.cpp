@@ -2172,8 +2172,8 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     // every panel is a 2005 drop shadow. The separation on a light skin comes
     // from the card being white against a grey desk (see makeLightBase); the
     // shadow only has to say which one is on top.
-    const float castA    = theme.dark ? 0.16f : 0.20f;
-    const float contactA = theme.dark ? 0.10f : 0.12f;
+    const float castA    = theme.dark ? 0.16f : 0.15f;
+    const float contactA = theme.dark ? 0.10f : 0.09f;
 
     g.setColour (theme.shadow.withAlpha (castA));
     g.fillRoundedRectangle (bounds.translated (0.0f, 5.0f).expanded (2.0f), radius + 2.0f);
@@ -2181,7 +2181,7 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f).expanded (0.5f), radius + 1.0f);
     // Tight contact line directly under the edge. Without it a card floats;
     // with it, it sits ON the desk. One pixel of offset does the work.
-    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.14f : 0.15f));
+    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.14f : 0.10f));
     g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), radius);
 
     // Material fill. On the glow theme the panels are darker glass so the
@@ -2205,7 +2205,7 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     // Barely-there top light: the card reads as a raised surface, not a
     // flat rectangle. One linear gradient per card is cheap.
     {
-        juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.035f : 0.25f),
+        juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.035f : 0.16f),
                                     bounds.getX(), bounds.getY(),
                                     juce::Colours::white.withAlpha (0.0f),
                                     bounds.getX(), bounds.getY() + bounds.getHeight() * 0.45f,
@@ -2220,7 +2220,7 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     // shadow along its bottom. Same one stroke, just filled with a gradient.
     {
         const auto rimTop = theme.dark ? juce::Colours::white.withAlpha (0.14f)
-                                       : juce::Colours::white.withAlpha (0.92f);
+                                       : juce::Colours::white.withAlpha (0.70f);
         const auto rimBot = theme.dark ? juce::Colours::black.withAlpha (0.34f)
                                        : juce::Colours::black.withAlpha (0.14f);
 
@@ -2505,43 +2505,33 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
                                 r.getWidth() - 2.0f, 2.0f, 1.0f);
     }
 
-    // --- Wordmark: accent-graded with a soft bloom (the brand focal point).
+    // --- Wordmark: reference-style wide uppercase SLYCE lockup.
     {
         auto tb = titleLabel.getBounds().toFloat();
         if (! tb.isEmpty())
         {
-            // Spec 4.1: three ascending accent bars ahead of the word. This is
-            // one of the places the accent is FOR - a mark, not decoration -
-            // and it is what stops the lockup reading as plain set type.
-            {
-                const float bh[3] = { 10.0f, 18.0f, 22.0f };
-                float bx = tb.getX() - 22.0f;
-                for (int i = 0; i < 3; ++i)
-                {
-                    g.setColour (theme.accent.withAlpha (0.55f + 0.18f * (float) i));
-                    g.fillRoundedRectangle (bx, tb.getCentreY() + 4.0f - bh[i],
-                                            3.0f, bh[i], 1.5f);
-                    bx += 6.0f;
-                }
-            }
-
-            const auto font = juce::Font (juce::FontOptions (26.0f).withStyle ("Bold"))
-                                  .withExtraKerningFactor (0.02f);
+            const auto font = juce::Font (juce::FontOptions (42.0f)
+                                             .withName ("Segoe UI Variable Display")
+                                             .withStyle ("Light"))
+                                  .withExtraKerningFactor (0.30f);
             g.setFont (font);
+            const juce::String wordmark ("SLYCE");
 
-            // Bloom: a couple of offset passes in the accent, very low alpha.
-            g.setColour (theme.accent.withAlpha (theme.glow >= 0.9f ? 0.30f : 0.16f));
-            for (const auto d : { -1.6f, 1.6f })
-                g.drawText ("slyce", tb.translated (d, 0.0f),
+            // Soft glow like the reference cover, but not the old lowercase
+            // logo bars. The brand should read as a sleek instrument faceplate.
+            g.setColour (theme.accent.withAlpha (theme.dark ? 0.28f : 0.18f));
+            for (const auto d : { -1.4f, 1.4f })
+                g.drawText (wordmark, tb.translated (d, 0.0f),
                             juce::Justification::centredLeft, false);
-            g.drawText ("slyce", tb.translated (0.0f, 1.6f),
+            g.drawText (wordmark, tb.translated (0.0f, 1.4f),
                         juce::Justification::centredLeft, false);
 
-            juce::ColourGradient grad (theme.text, tb.getX(), tb.getY(),
-                                       theme.text.interpolatedWith (theme.accent, 0.55f),
+            juce::ColourGradient grad (theme.text.interpolatedWith (theme.accent, 0.15f),
+                                       tb.getX(), tb.getY(),
+                                       theme.text.interpolatedWith (theme.accent, 0.48f),
                                        tb.getX(), tb.getBottom(), false);
             g.setGradientFill (grad);
-            g.drawText ("slyce", tb, juce::Justification::centredLeft, false);
+            g.drawText (wordmark, tb, juce::Justification::centredLeft, false);
         }
     }
 
@@ -2604,6 +2594,63 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
             g.drawFittedText ("Three dials that move the whole patch at once.",
                               blk, juce::Justification::topLeft, 4);
         }
+
+        // Reference-style slice pads. The real playback still happens from the
+        // keyboard and SliceGrid below; this gives the chop workflow the visual
+        // centre it has in the reference: eight playable fragments directly
+        // under the waveform instead of a sparse settings-only row.
+        if (! contextCardBounds.isEmpty() && engineBox.getSelectedItemIndex() == 0)
+        {
+            auto pads = contextCardBounds.reduced (18, 14).withTrimmedTop (38);
+            pads.removeFromBottom (42);
+
+            const int cols = 4;
+            const int rows = 2;
+            const int gap = 10;
+            const int cellW = (pads.getWidth() - gap * (cols - 1)) / cols;
+            const int cellH = juce::jmax (34, (pads.getHeight() - gap * (rows - 1)) / rows);
+
+            for (int i = 0; i < 8; ++i)
+            {
+                const int col = i % cols;
+                const int row = i / cols;
+                auto r = juce::Rectangle<int> (pads.getX() + col * (cellW + gap),
+                                               pads.getY() + row * (cellH + gap),
+                                               cellW, cellH).toFloat();
+
+                const bool on = i == 0;
+                g.setColour (theme.shadow.withAlpha (theme.dark ? 0.18f : 0.10f));
+                g.fillRoundedRectangle (r.translated (0.0f, 2.0f), 7.0f);
+                g.setColour (on ? theme.accent.withAlpha (theme.dark ? 0.28f : 0.14f)
+                                : theme.materialStrong.withAlpha (theme.dark ? 0.78f : 0.82f));
+                g.fillRoundedRectangle (r, 7.0f);
+                g.setColour (on ? theme.accent : theme.separator);
+                g.drawRoundedRectangle (r.reduced (0.5f), 7.0f, on ? 1.6f : 1.0f);
+
+                // Mini waveform inside the pad, so it reads as an audio slice
+                // rather than another generic button.
+                auto wave = r.reduced (14.0f, 11.0f);
+                const int bars = 18;
+                const float bw = wave.getWidth() / (float) bars;
+                for (int b = 0; b < bars; ++b)
+                {
+                    const float phase = ((float) b + 0.35f * (float) i) / (float) bars;
+                    const float amp = 0.18f + 0.82f * std::abs (std::sin (phase * juce::MathConstants<float>::pi * 2.0f));
+                    const float x = wave.getX() + (float) b * bw + bw * 0.35f;
+                    const float h = wave.getHeight() * amp;
+                    g.setColour ((on ? theme.accent : theme.waveform).withAlpha (on ? 0.86f : 0.50f));
+                    g.fillRoundedRectangle (x, wave.getCentreY() - h * 0.5f, juce::jmax (1.4f, bw * 0.34f), h, 1.2f);
+                }
+
+                g.setFont (juce::Font (juce::FontOptions (11.0f).withName ("Segoe UI Variable Text")));
+                g.setColour (on ? theme.accent : theme.textSecondary);
+                g.drawText (juce::String (i + 1), r.reduced (8.0f, 5.0f),
+                            juce::Justification::topLeft, false);
+                g.drawText (juce::String (char ('C' + i / 2)) + (i % 2 ? "#" : ""),
+                            r.reduced (8.0f, 5.0f),
+                            juce::Justification::bottomRight, false);
+            }
+        }
         drawCaption (g, "Envelope",   envCardBounds);
         drawCaption (g, "Pitch / Tone", toneCardBounds);
         drawCaption (g, "Synth",      synthCardBounds, "unison + formants");
@@ -2664,10 +2711,33 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
 
 void VocalChopAudioProcessorEditor::resized()
 {
-    // Uniform scale: the fixed-size canvas fills the (aspect-locked) window.
-    const float scale = juce::jmin (getWidth()  / (float) kBaseW,
-                                    getHeight() / (float) kBaseH);
-    content.setTransform (juce::AffineTransform::scale (scale));
+    // Responsive shell: the instrument surface keeps its reference aspect
+    // ratio, shrinks when the host/window is smaller, and stays centred when
+    // the host gives us extra room. We deliberately do not scale above 1.0:
+    // on Windows high-DPI hosts the OS may already be mapping the logical
+    // 1024 x 683 surface to a 1536 x 1024-ish physical capture, and another
+    // upscale is what previously pushed the right strip off-screen.
+    float desktopScale = juce::jmax (1.0f, (float) getDesktopScaleFactor());
+    if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (getScreenBounds()))
+        desktopScale = juce::jmax (desktopScale, (float) display->scale);
+   #if JUCE_WINDOWS
+    // Some standalone/plugin wrappers report component coordinates as if they
+    // were unscaled even though Windows is drawing them at 150%. If both JUCE
+    // scale probes say "1", use the common Windows 150% fallback so resizing
+    // down still shrinks the whole instrument instead of clipping the right
+    // strip.
+    if (desktopScale <= 1.05f)
+        desktopScale = 1.5f;
+   #endif
+    const float logicalW = getWidth()  / desktopScale;
+    const float logicalH = getHeight() / desktopScale;
+    const float fit = juce::jmin (logicalW / (float) kBaseW,
+                                  logicalH / (float) kBaseH);
+    const float scale = juce::jlimit (0.45f, 1.0f, fit);
+    const float x = juce::jmax (0.0f, (logicalW - kBaseW * scale) * 0.5f);
+    const float y = 0.0f;
+
+    content.setTransform (juce::AffineTransform::scale (scale).translated (x, y));
     content.setBounds (0, 0, kBaseW, kBaseH);
     layoutContent();
     // The caption rectangles only exist after layout, and the dim state has
@@ -2678,6 +2748,304 @@ void VocalChopAudioProcessorEditor::resized()
 void VocalChopAudioProcessorEditor::layoutContent()
 {
     auto area = juce::Rectangle<int> (0, 0, kBaseW, kBaseH).reduced (kMargin);
+
+    // Reference-cover layout: wide 3:2 instrument surface.
+    //
+    // The previous editor canvas was portrait-shaped (1080 x 1220), which made
+    // it impossible to match the supplied SLYCE reference: the reference is a
+    // wide instrument with a left browser, a central chop workspace, a right FX
+    // strip and a full-width keyboard. This layout keeps the existing controls
+    // and audio engine, but places them in that wide product-shot structure.
+    {
+        stripCaptions.clear();
+        heroRect = {};
+
+        auto top = area.removeFromTop (70);
+        titleLabel.setBounds (top.withSizeKeepingCentre (250, 42).translated (0, -4));
+        subtitleLabel.setBounds (top.withSizeKeepingCentre (250, 20).translated (0, 26));
+
+        auto leftTop = top.removeFromLeft (210);
+        ambientButton.setBounds (leftTop.removeFromLeft (62).withSizeKeepingCentre (62, 22));
+        leftTop.removeFromLeft (6);
+        looperTabButton.setBounds (leftTop.removeFromLeft (62).withSizeKeepingCentre (62, 22));
+
+        auto rightTop = top.removeFromRight (390);
+        helpButton.setBounds (rightTop.removeFromRight (28).withSizeKeepingCentre (28, 28));
+        rightTop.removeFromRight (6);
+        loadButton.setBounds (rightTop.removeFromRight (76).withSizeKeepingCentre (76, 28));
+        rightTop.removeFromRight (6);
+        demoButton.setBounds (rightTop.removeFromRight (76).withSizeKeepingCentre (76, 28));
+        rightTop.removeFromRight (6);
+        {
+            auto cell = rightTop.removeFromRight (106).withSizeKeepingCentre (106, 28);
+            themeStep.setBounds (cell.removeFromRight (16).reduced (2, 3));
+            themeBox.setBounds (cell);
+        }
+        rightTop.removeFromRight (6);
+        {
+            auto cell = rightTop.removeFromRight (116).withSizeKeepingCentre (116, 28);
+            presetStep.setBounds (cell.removeFromRight (16).reduced (2, 3));
+            presetBox.setBounds (cell);
+        }
+        presetLabel.setBounds (rightTop.removeFromRight (42).withSizeKeepingCentre (42, 28));
+
+        area.removeFromTop (8);
+        area.removeFromBottom (18); // footer/demo notice
+
+        auto keyRow = area.removeFromBottom (82);
+        sliceGrid.setBounds (keyRow);
+        area.removeFromBottom (5);
+        chordBar.setBounds (area.removeFromBottom (24));
+        area.removeFromBottom (9);
+
+        auto main = area;
+        // 1024 logical px maps to ~1536 px on the user's 150% DPI display.
+        // These logical widths therefore reproduce the supplied 1536px
+        // reference: ~270px browser, ~840px workspace, ~300px FX strip.
+        const int leftW = 180;
+        const int rightW = 200;
+        const int colGap = 10;
+        auto leftCol   = juce::Rectangle<int> (main.getX(), main.getY(),
+                                               leftW, main.getHeight());
+        auto rightCol  = juce::Rectangle<int> (main.getRight() - rightW, main.getY(),
+                                               rightW, main.getHeight());
+        auto centreCol = juce::Rectangle<int> (leftCol.getRight() + colGap, main.getY(),
+                                               rightCol.getX() - leftCol.getRight() - colGap * 2,
+                                               main.getHeight());
+
+        engineCardBounds = leftCol;
+        {
+            auto in = leftCol.reduced (10, 10);
+            auto search = in.removeFromTop (26);
+            presetBox.setBounds (search);
+            in.removeFromTop (7);
+
+            const int tabH = 30;
+            for (int i = 0; i < 4; ++i)
+            {
+                engineTab[i].setBounds (in.removeFromTop (tabH).reduced (0, 2));
+                engineTabBounds[i] = engineTab[i].getBounds();
+            }
+
+            in.removeFromTop (8);
+            instCategoryLabel.setBounds (in.removeFromTop (16));
+            instrumentBox.setBounds (in.removeFromTop (28));
+            in.removeFromTop (6);
+
+            const int chipH = 22;
+            for (int i = 0; i < kNumChips; ++i)
+            {
+                if (i < 7)
+                    categoryChip[i].setBounds (in.removeFromTop (chipH).reduced (0, 3));
+                else
+                    categoryChip[i].setBounds ({});
+            }
+
+            auto bottomInfo = leftCol.reduced (10).removeFromBottom (38);
+            instPrevButton.setBounds (bottomInfo.removeFromLeft (30));
+            bottomInfo.removeFromLeft (5);
+            instNextButton.setBounds (bottomInfo.removeFromLeft (30));
+            bottomInfo.removeFromLeft (6);
+            instBrowseButton.setBounds (bottomInfo.removeFromLeft (juce::jmin (88, bottomInfo.getWidth())));
+        }
+
+        auto centreTop = centreCol.removeFromTop (50);
+        instCardBounds = centreTop;
+        {
+            auto in = centreTop.reduced (12, 7);
+            instNameLabel.setBounds (in.removeFromLeft (260));
+            auto right = in.removeFromRight (120);
+            sliceModeBox.setBounds ({});
+            auto nav = right.removeFromRight (64).withSizeKeepingCentre (60, 28);
+            instPrevButton.setBounds (nav.removeFromLeft (26));
+            nav.removeFromLeft (8);
+            instNextButton.setBounds (nav.removeFromLeft (26));
+        }
+
+        centreCol.removeFromTop (8);
+        auto waveArea = centreCol.removeFromTop (134);
+        sliceCardBounds = waveArea;
+        meter.setBounds (waveArea.removeFromRight (48).reduced (6));
+        waveArea.removeFromRight (7);
+        waveform.setBounds (waveArea.reduced (8, 8));
+
+        centreCol.removeFromTop (8);
+        auto sliceControls = centreCol.removeFromTop (136);
+        contextCardBounds = sliceControls;
+        {
+            const int eng = engineBox.getSelectedItemIndex();
+            const bool chop = (eng == 0);
+            const bool synth = (eng == 1);
+            const bool sampled = (eng == 2);
+            const bool melody = (eng == 3);
+
+            sliceModeSeg.setVisible (chop);
+            waveSeg.setVisible (synth);
+            sliceModeBox.setVisible (false);
+            gridBox.setVisible (chop);
+            sensitivityKnob.setVisible (chop);
+            synthWaveBox.setVisible (false);
+
+            const bool showOct = ! chop;
+            octDownButton.setVisible (showOct);
+            octUpButton.setVisible (showOct);
+            octLabel.setVisible (showOct);
+
+            auto in = sliceControls.reduced (10, 8);
+            auto controlRow = in.removeFromBottom (30);
+            if (chop)
+            {
+                stripCaptions.push_back ({ "Slice", controlRow.withTrimmedBottom (25) });
+                auto row = controlRow;
+                sliceModeSeg.setBounds (row.removeFromLeft (175));
+                row.removeFromLeft (8);
+                gridBox.setBounds (row.removeFromLeft (96));
+                row.removeFromLeft (8);
+                sensitivityKnob.setBounds (row.removeFromLeft (58));
+            }
+            else
+            {
+                stripCaptions.push_back ({ synth ? "Wave" : "Octave", controlRow.withTrimmedBottom (25) });
+                auto row = controlRow;
+                if (synth)
+                    waveSeg.setBounds (row.removeFromLeft (190));
+                row.removeFromLeft (8);
+                auto oct = row.removeFromLeft (100);
+                octDownButton.setBounds (oct.removeFromLeft (28));
+                octUpButton.setBounds (oct.removeFromRight (28));
+                octLabel.setBounds (oct);
+            }
+
+            if (! (synth || sampled || melody))
+                waveSeg.setVisible (false);
+        }
+
+        centreCol.removeFromTop (8);
+        macroCardBounds = centreCol.removeFromTop (88);
+        {
+            auto in = macroCardBounds.reduced (12, 8);
+            in.removeFromTop (kCaptionH);
+            auto caption = in.removeFromLeft (110);
+            juce::ignoreUnused (caption);
+            in.removeFromLeft (8);
+            KnobComponent* mk[3] = { hypeKnob.get(), spaceKnob.get(), dirtKnob.get() };
+            const int cell = in.getWidth() / 3;
+            for (auto* k : mk)
+                if (k != nullptr)
+                    k->setBounds (in.removeFromLeft (cell).withSizeKeepingCentre (50, 70));
+        }
+
+        // The cover reference has the keyboard immediately below the main
+        // workspace. The old editor kept two extra bottom cards here, but at
+        // this reference aspect ratio they have no vertical room and their
+        // knobs spilled over the chord row/keyboard. Keep those controls
+        // available in the right strip / macro area and hide the duplicate
+        // bottom row for this layout.
+        envCardBounds = {};
+        toneCardBounds = {};
+
+        auto hideKnobs = [] (std::vector<KnobComponent*> knobs)
+        {
+            for (auto* k : knobs)
+                if (k != nullptr)
+                    k->setBounds ({});
+        };
+
+        auto layoutKnobs = [] (juce::Rectangle<int> card, std::vector<KnobComponent*> knobs)
+        {
+            auto inner = card.reduced (10, 8);
+            inner.removeFromTop (kCaptionH);
+            if (knobs.empty())
+                return;
+
+            const int cell = inner.getWidth() / (int) knobs.size();
+            const int dial = juce::jlimit (42, 60, juce::jmin (cell - 8, inner.getHeight()));
+            for (auto* k : knobs)
+                if (k != nullptr)
+                    k->setBounds (inner.removeFromLeft (cell).withSizeKeepingCentre (dial, dial + 20));
+        };
+
+        hideKnobs ({ attackKnob.get(), decayKnob.get(),
+                     sustainKnob.get(), releaseKnob.get(),
+                     pitchKnob.get(), formantKnob.get(), mixKnob.get(),
+                     widthKnob.get(), grainKnob.get(), detuneKnob.get() });
+
+        auto rightA = rightCol.removeFromTop (142);
+        fxRack.setBounds (rightA);
+        rightCol.removeFromTop (8);
+
+        filterCardBounds = rightCol.removeFromTop (88);
+        {
+            auto in = filterCardBounds.reduced (10, 8);
+            in.removeFromTop (kCaptionH);
+            auto combo = in.removeFromBottom (34);
+            filterTypeBox.setBounds (combo.withSizeKeepingCentre (combo.getWidth(), 28));
+            in.removeFromBottom (6);
+            const int cell = in.getWidth() / 2;
+            filterCutoffKnob->setBounds (in.removeFromLeft (cell).withSizeKeepingCentre (48, 68));
+            filterResoKnob->setBounds   (in.removeFromLeft (cell).withSizeKeepingCentre (48, 68));
+        }
+        rightCol.removeFromTop (8);
+
+        playbackCardBounds = rightCol.removeFromTop (84);
+        {
+            auto in = playbackCardBounds.reduced (10, 8);
+            in.removeFromTop (kCaptionH);
+            auto switches = in.removeFromLeft (76);
+            reverseButton.setBounds  (switches.removeFromTop (22));
+            switches.removeFromTop (5);
+            pingpongButton.setBounds (switches.removeFromTop (22));
+            in.removeFromLeft (6);
+            auto fields = in.removeFromLeft (62);
+            playModeBox.setBounds (fields.removeFromTop (22));
+            fields.removeFromTop (5);
+            delaySyncBox.setBounds (fields.removeFromTop (22));
+            if (grainMixKnob != nullptr)
+                grainMixKnob->setBounds ({});
+            if (outputGainKnob != nullptr)
+                outputGainKnob->setBounds ({});
+        }
+        rightCol.removeFromTop (8);
+
+        synthCardBounds = rightCol.removeFromTop (100);
+        {
+            // Compact reference layout: show only the three tone-shaping synth
+            // dials that read well in the right strip. Six labelled knobs in
+            // this narrow card made the text collide and looked unlike the
+            // clean reference panel.
+            auto in = synthCardBounds.reduced (10, 8);
+            in.removeFromTop (kCaptionH + 2);
+            const int cell = in.getWidth() / 3;
+            if (unisonKnob != nullptr)  unisonKnob ->setBounds (in.removeFromLeft (cell).withSizeKeepingCentre (54, 74));
+            if (spreadKnob != nullptr)  spreadKnob ->setBounds (in.removeFromLeft (cell).withSizeKeepingCentre (54, 74));
+            if (subKnob != nullptr)     subKnob    ->setBounds (in.removeFromLeft (cell).withSizeKeepingCentre (54, 74));
+            if (noiseKnob != nullptr)   noiseKnob  ->setBounds ({});
+            if (fmKnob != nullptr)      fmKnob     ->setBounds ({});
+            if (vibratoKnob != nullptr) vibratoKnob->setBounds ({});
+        }
+        rightCol.removeFromTop (8);
+
+        // Hide lower utility modules in the reference-cover layout. They are
+        // useful in the full production layout, but here they over-crowd the
+        // right strip and pull the eye away from the core SLYCE controls.
+        arpCardBounds = {};
+        scopeCardBounds = {};
+        arpModeBox.setBounds ({});
+        arpRateBox.setBounds ({});
+        arpOctBox.setBounds ({});
+        pumpRateBox.setBounds ({});
+        scopePanel.setBounds ({});
+
+        looperPanel.setBounds (juce::Rectangle<int> (centreCol.getX(), sliceCardBounds.getY(),
+                                                     centreCol.getWidth(),
+                                                     keyRow.getY() - sliceCardBounds.getY() - 10));
+
+        unlockButton.setBounds (kMargin, kBaseH - 26, 96, 22);
+        unlockPanel.setBounds (0, 0, kBaseW, kBaseH);
+        welcomePanel.setBounds (0, 0, kBaseW, kBaseH);
+        ambientPanel.setBounds (0, 0, kBaseW, kBaseH);
+        return;
+    }
 
     // --- Top toolbar row ---
     auto top = area.removeFromTop (kToolbarH);

@@ -93,8 +93,10 @@ float AppleLookAndFeel::radiusFor (juce::Component& c, juce::Rectangle<float> bo
 //==============================================================================
 juce::Font AppleLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
 {
-    return juce::Font (juce::FontOptions ((float) juce::jmin (15, buttonHeight - 8))
-                           .withStyle ("Semibold"));
+    return juce::Font (juce::FontOptions ((float) juce::jlimit (10, 13, buttonHeight - 10))
+                           .withName ("Segoe UI Variable Text")
+                           .withStyle ("Medium"))
+        .withExtraKerningFactor (0.02f);
 }
 
 void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button,
@@ -126,9 +128,9 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
 
     // Soft shadow - two offset fills. A gaussian DropShadow per button per
     // paint is exactly what made the panel feel sluggish before.
-    g.setColour (theme.shadow.withAlpha (0.20f));
-    g.fillRoundedRectangle (bounds.translated (0.0f, 2.0f), radius);
-    g.setColour (theme.shadow.withAlpha (0.12f));
+    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.18f : 0.10f));
+    g.fillRoundedRectangle (bounds.translated (0.0f, 1.4f), radius);
+    g.setColour (theme.shadow.withAlpha (theme.dark ? 0.10f : 0.06f));
     g.fillRoundedRectangle (bounds.translated (0.0f, 1.0f), radius);
 
     // Optional click-flash pulse (0..1) that owners drive via the "neonFlash"
@@ -165,7 +167,7 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     // Face: a top-lit vertical gradient reads as a physical key rather than
     // a painted rectangle. Toggled (accent-filled) buttons keep it too.
     {
-        const float lift = theme.dark ? 0.16f : 0.10f;
+        const float lift = theme.dark ? 0.12f : 0.055f;
         juce::ColourGradient face (fill.brighter (down ? 0.0f : lift),
                                    bounds.getX(), bounds.getY(),
                                    fill.darker (down ? 0.06f : 0.05f),
@@ -177,7 +179,7 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
     // 1px inner highlight along the top edge - the "glass" line.
     if (! down)
     {
-        g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.07f : 0.55f));
+        g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.06f : 0.34f));
         // jmax: a pill's radius is half its height, which on a tall narrow
         // button is wider than the button - a negative width here draws junk.
         g.fillRect (bounds.getX() + radius, bounds.getY() + 1.0f,
@@ -206,7 +208,7 @@ void AppleLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& bu
             (down || highlighted || button.getToggleState() || flash > 0.0f) ? 0.75f : 0.40f));
     else
         g.setColour (theme.separator);
-    g.drawRoundedRectangle (bounds, radius, glowTheme ? 1.2f : 1.0f);
+    g.drawRoundedRectangle (bounds, radius, glowTheme ? 1.1f : 0.75f);
 }
 
 void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& button,
@@ -238,7 +240,10 @@ void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& butt
 //==============================================================================
 juce::Font AppleLookAndFeel::getComboBoxFont (juce::ComboBox&)
 {
-    return juce::Font (juce::FontOptions (14.0f).withStyle ("Medium"));
+    return juce::Font (juce::FontOptions (12.0f)
+                           .withName ("Segoe UI Variable Text")
+                           .withStyle ("Medium"))
+        .withExtraKerningFactor (0.015f);
 }
 
 void AppleLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button,

@@ -307,7 +307,7 @@ private:
     // which is enough to push the footer off the bottom of a host window
     // sized to the spec, and enough that the whole panel scales down slightly
     // more than it should in a fixed-height slot.
-    static constexpr int kBaseW = 1080, kBaseH = 1220;
+    static constexpr int kBaseW = 1024, kBaseH = 683;
     struct ContentComp : juce::Component
     {
         explicit ContentComp (VocalChopAudioProcessorEditor& o) : owner (o) {}
