@@ -80,6 +80,21 @@ void KnobComponent::KnobLookAndFeel::drawRotarySlider (
         g.setGradientFill (face);
         g.fillEllipse (discBounds);
 
+        // Liquid-glass highlight over the face. This is especially important
+        // on Frost/Paper, where the previous knobs were technically correct
+        // but read too plastic next to the new translucent cards.
+        juce::ColourGradient faceShine (
+            juce::Colours::white.withAlpha (theme.dark ? 0.07f : 0.44f),
+            centre.x - discRadius * 0.55f, centre.y - discRadius * 0.72f,
+            juce::Colours::white.withAlpha (0.0f),
+            centre.x + discRadius * 0.30f, centre.y + discRadius * 0.24f,
+            false);
+        g.setGradientFill (faceShine);
+        g.fillEllipse (discBounds.reduced (discRadius * 0.11f,
+                                           discRadius * 0.18f)
+                                  .translated (-discRadius * 0.10f,
+                                              -discRadius * 0.18f));
+
         // Fine bevel: a bright arc across the top edge, a dark one beneath.
         juce::Path topArc, botArc;
         const auto inner = discBounds.reduced (0.6f);
@@ -332,14 +347,19 @@ KnobComponent::KnobComponent (const juce::String& captionText)
     addAndMakeVisible (slider);
 
     label.setText (caption, juce::dontSendNotification);
-    label.setFont (juce::Font (juce::FontOptions (12.0f).withStyle ("Medium")));
+    label.setFont (juce::Font (juce::FontOptions (11.5f)
+                                   .withName ("Segoe UI Variable Text")
+                                   .withStyle ("Medium"))
+                       .withExtraKerningFactor (0.03f));
     label.setJustificationType (juce::Justification::centred);
     label.setInterceptsMouseClicks (false, false);
     addAndMakeVisible (label);
 
     subLabel.setJustificationType (juce::Justification::centred);
     subLabel.setInterceptsMouseClicks (false, false);
-    subLabel.setFont (juce::Font (juce::FontOptions (9.5f)));
+    subLabel.setFont (juce::Font (juce::FontOptions (9.2f)
+                                      .withName ("Segoe UI Variable Text"))
+                          .withExtraKerningFactor (0.02f));
     addChildComponent (subLabel);          // shown only once one is set
 
     slider.addListener (this);

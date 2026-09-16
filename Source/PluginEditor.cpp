@@ -2202,10 +2202,42 @@ void VocalChopAudioProcessorEditor::drawCard (juce::Graphics& g,
     g.setColour (theme.material);
     g.fillRoundedRectangle (bounds, radius);
 
+    // Liquid-glass wash: a faint diagonal reflection across the top-left third
+    // makes the light skins read like translucent acrylic instead of flat
+    // white panels. It is deliberately subtle on dark skins so it does not
+    // fight the neon themes.
+    {
+        juce::Path shine;
+        shine.addRoundedRectangle (bounds.reduced (1.0f), juce::jmax (1.0f, radius - 1.0f));
+        g.saveState();
+        g.reduceClipRegion (shine);
+
+        juce::ColourGradient sweep (
+            juce::Colours::white.withAlpha (theme.dark ? 0.025f : 0.22f),
+            bounds.getX() + bounds.getWidth() * 0.08f, bounds.getY(),
+            juce::Colours::white.withAlpha (0.0f),
+            bounds.getX() + bounds.getWidth() * 0.72f, bounds.getY() + bounds.getHeight() * 0.58f,
+            false);
+        sweep.addColour (0.38, juce::Colours::white.withAlpha (theme.dark ? 0.018f : 0.095f));
+        g.setGradientFill (sweep);
+        g.fillRoundedRectangle (bounds.getX() - bounds.getWidth() * 0.10f,
+                                bounds.getY() - bounds.getHeight() * 0.30f,
+                                bounds.getWidth() * 0.80f,
+                                bounds.getHeight() * 0.92f,
+                                radius + 14.0f);
+
+        // Thin inner cold rim along the upper edge, matching the user's
+        // reference image: crisp enough to feel expensive, not enough to look
+        // like a hard border.
+        g.setColour (juce::Colours::white.withAlpha (theme.dark ? 0.050f : 0.46f));
+        g.drawRoundedRectangle (bounds.reduced (2.0f), juce::jmax (1.0f, radius - 2.0f), 0.8f);
+        g.restoreState();
+    }
+
     // Barely-there top light: the card reads as a raised surface, not a
     // flat rectangle. One linear gradient per card is cheap.
     {
-        juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.035f : 0.16f),
+        juce::ColourGradient sheen (juce::Colours::white.withAlpha (theme.dark ? 0.035f : 0.11f),
                                     bounds.getX(), bounds.getY(),
                                     juce::Colours::white.withAlpha (0.0f),
                                     bounds.getX(), bounds.getY() + bounds.getHeight() * 0.45f,
@@ -2533,6 +2565,33 @@ void VocalChopAudioProcessorEditor::paintContent (juce::Graphics& g)
             g.setGradientFill (grad);
             g.drawText (wordmark, tb, juce::Justification::centredLeft, false);
         }
+    }
+
+    // Tiny reference-cover side copy. It is purely decorative, but it anchors
+    // the wide layout to the mockup the user liked and makes the top band feel
+    // designed rather than empty.
+    {
+        g.setFont (juce::Font (juce::FontOptions (9.0f)
+                                   .withName ("Segoe UI Variable Text")
+                                   .withStyle ("Medium"))
+                       .withExtraKerningFactor (0.24f));
+        g.setColour (theme.textSecondary.withAlpha (theme.dark ? 0.72f : 0.62f));
+
+        auto left = juce::Rectangle<int> (kMargin + 8, kMargin + 6, 86, 54);
+        g.drawFittedText ("FIND\nSLICE\nCREATE", left,
+                          juce::Justification::topLeft, 3);
+        g.setColour (theme.separator.withAlpha (0.65f));
+        g.fillRoundedRectangle ((float) left.getX(), (float) left.getBottom() - 2.0f,
+                                24.0f, 1.0f, 0.5f);
+
+        g.setColour (theme.textSecondary.withAlpha (theme.dark ? 0.72f : 0.62f));
+        auto right = juce::Rectangle<int> (kBaseW - kMargin - 104, kMargin + 6, 96, 54);
+        g.drawFittedText ("SOUNDS\nVOICES\nNEW PERSPECTIVE", right,
+                          juce::Justification::topRight, 3);
+        g.setColour (theme.separator.withAlpha (0.65f));
+        g.fillRoundedRectangle ((float) right.getRight() - 24.0f,
+                                (float) right.getBottom() - 2.0f,
+                                24.0f, 1.0f, 0.5f);
     }
 
     // Live label colours.
