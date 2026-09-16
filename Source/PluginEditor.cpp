@@ -490,7 +490,7 @@ namespace
 VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProcessor& p)
     : AudioProcessorEditor (&p),
       processor (p),
-      sensitivityKnob ("Sensitivity"),
+      sensitivityKnob ("Auto sensitivity"),
       waveform (p),
       chordBar (p),
       sliceGrid (p),
@@ -731,7 +731,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     themeBox.setTooltip ("Color themes and artwork skins");
     presetBox.setTooltip ("Full-plugin presets (sound + FX together)");
     sliceModeBox.setTooltip ("How the audio gets cut: at transients or on a beat grid");
-    gridBox.setTooltip ("Grid density when slicing by beats");
+    gridBox.setTooltip ("Beat-grid density when Auto Slice uses musical divisions");
     helpButton.setTooltip ("Show the quick-start guide again");
     unlockButton.setTooltip ("Enter your license key. The demo mutes 2 s every 30 s and does not save your session");
 
@@ -1022,8 +1022,8 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     // --- Slice mode (initialised from the engine so restored state shows) ---
     auto& engine = processor.getSliceEngine();
 
-    sliceModeBox.addItem ("Transient", 1);
-    sliceModeBox.addItem ("Grid", 2);
+    sliceModeBox.addItem ("Auto Slice", 1);
+    sliceModeBox.addItem ("Beat Grid", 2);
     // Keep the segment in step with the engine's own state (project reload,
     // preset switch, a re-slice that fell back to a grid).
     sliceModeSeg.setSelectedIndex (engine.getMode() == SliceEngine::Grid ? 1 : 0,
@@ -1033,7 +1033,7 @@ VocalChopAudioProcessorEditor::VocalChopAudioProcessorEditor (VocalChopAudioProc
     sliceModeBox.setJustificationType (juce::Justification::centred);
     sliceModeBox.onChange = [this] { applySlicing(); syncEngineEnablement(); };
     addChildComponent (sliceModeBox);
-    sliceModeSeg.setItems ({ "Transient", "Beats" });
+    sliceModeSeg.setItems ({ "Auto Slice", "Beat Grid" });
     sliceModeSeg.setSelectedIndex (juce::jmax (0, sliceModeBox.getSelectedItemIndex()),
                                    juce::dontSendNotification);
     sliceModeSeg.onChange = [this] (int i)
@@ -1825,8 +1825,8 @@ void VocalChopAudioProcessorEditor::syncEngineEnablement()
     dim (instNextButton,  voice);
 
     stripDimmed.clear();
-    if (! slicing)             stripDimmed.insert ("Slice by");
-    if (! (slicing && byBeats)) stripDimmed.insert ("Grid");
+    if (! slicing)             stripDimmed.insert ("Slice");
+    if (! (slicing && byBeats)) stripDimmed.insert ("Beat Grid");
     if (! voice)             { stripDimmed.insert ("Wave"); stripDimmed.insert ("Instrument"); }
 
     content.repaint (sliceCardBounds);
@@ -2839,10 +2839,10 @@ void VocalChopAudioProcessorEditor::layoutContent()
 
             if (chop)
             {
-                auto a = slot (capH + rowH, "Slice by");
+                auto a = slot (capH + rowH, "Slice");
                 sliceModeSeg.setBounds (a.withSizeKeepingCentre (a.getWidth(), rowH));
                 in.removeFromTop (4);
-                auto b = slot (capH + rowH + 12, "Grid");
+                auto b = slot (capH + rowH + 12, "Beat Grid");
                 auto sens = b.removeFromRight (66);
                 b.removeFromRight (8);
                 gridBox.setBounds (b.withSizeKeepingCentre (b.getWidth(), rowH));

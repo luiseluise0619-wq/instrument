@@ -162,7 +162,7 @@ private:
     juce::ComboBox sliceModeBox;
     juce::ComboBox gridBox;
     juce::ComboBox synthWaveBox;   // Saw / Square / Sine / Triangle
-    KnobComponent  sensitivityKnob { "Sensitivity" };
+    KnobComponent  sensitivityKnob { "Auto sensitivity" };
 
     // Octave shift for the whole synth (drives the synthOctave parameter).
     juce::TextButton octDownButton { "-" };

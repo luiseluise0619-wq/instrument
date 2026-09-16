@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-int ThemeManager::idx = 11; // default to Paper
+int ThemeManager::idx = 15; // default to Frost Paper
 
 // ---------------------------------------------------------------------------
 // Every chrome token is DERIVED, not hand-picked.
@@ -275,18 +275,18 @@ namespace
         // premium, and it is the second deliberate deviation here.)
         b.bg1    = 0xfff1f3f7;
         b.bg2    = 0xffe2e6ee;
-        b.mat1   = 0xfaffffff;   // near-solid white: the raised panel
-        b.mat2   = 0xe8ffffff;
-        b.matA1  = 0xf2ffffff;
-        b.matA2  = 0xdeffffff;
-        // 92%, not 42%. This is the single change that makes the light skins
-        // look made rather than washed: the card is now WHITE against the
-        // grey desk instead of another shade of the desk.
-        b.card   = 0xebffffff;
-        b.cardA  = 0xf5ffffff;
+        b.mat1   = 0xf4ffffff;   // translucent white: the raised panel
+        b.mat2   = 0xdeffffff;
+        b.matA1  = 0xeaffffff;
+        b.matA2  = 0xd4ffffff;
+        // The card stays bright but lets more of the cool desk show through.
+        // This keeps the light skins premium without turning them into a flat
+        // white screenshot.
+        b.card   = 0xdcffffff;
+        b.cardA  = 0xeaffffff;
         b.cardBd = 0x17000f1e;   // slightly deeper and cooler than rgba(0,0,0,.07)
         b.hi     = 0xd9ffffff;   // rgba(255,255,255,.85)
-        b.ctl    = 0xf7ffffff;
+        b.ctl    = 0xeaffffff;
         b.ctlBd  = 0x1a000000;   // rgba(0,0,0,.10)
         // Wells sit INSIDE a now-white card, so they need real depth to read
         // as recessed at all - at 4.5% black on a 42% card they were visible
@@ -516,7 +516,7 @@ namespace
         return t;
     }
 
-    // --- the fifteen ------------------------------------------------------
+    // --- the nineteen -----------------------------------------------------
     // Accents, inks and tint strengths verified against the DESIGN_SPEC.md §2
     // THEMES table row for row - unchanged, they already matched exactly.
     constexpr Spec kSpecs[] = {
@@ -535,9 +535,13 @@ namespace
         { "Porcelain",      false, 0xffff453a, 0xfffff4f1,  2.6f },
         { "Warm Sand",      false, 0xffb07a2a, 0xfffff8ee,  3.2f },
         { "Liquid Glass",   false, 0xff007aff, 0xfff2f8ff,  2.0f },
+        { "Frost Paper",    false, 0xff0a84ff, 0xfff5fbff,  1.6f },
+        { "Midnight Glass", true,  0xff9f7cff, 0xfffff6ff,  5.7f },
+        { "Graphite Pro",   true,  0xffd6e4ff, 0xff101216,  1.2f },
+        { "Violet Glass",   true,  0xffbf7cff, 0xfffff4ff,  5.8f },
     };
 
-    /** Neon Ocean is the sixteenth theme, and it is not in the spec - the spec
+    /** Neon Ocean is the twentieth theme, and it is not in the spec - the spec
         lists fifteen. It stays for two reasons. It is not derived and never
         was: it is the one deliberately un-Apple skin, a lit scene rather than a
         neutral room, and running it through the tint machine would turn it into

@@ -103,7 +103,7 @@ struct Theme
 class ThemeManager
 {
 public:
-    static constexpr int kNumThemes = 16;   // 15 derived + Neon Ocean
+    static constexpr int kNumThemes = 20;   // 19 derived + Neon Ocean
 
     static const std::array<Theme, kNumThemes>& themes() { return all; }
     static int  current()          { return idx; }
