@@ -1,16 +1,22 @@
 #include "VoicePool.h"
 
 #include <algorithm>
+#include <cmath>
 
 //==============================================================================
 void Voice::start (double hostSampleRate,
                    std::shared_ptr<const juce::AudioBuffer<float>> src, double srcSampleRate,
                    int startSample, int lengthSamples,
+                   float transposeSemitones,
                    float vel,
                    float attackMs, float decayMs, float sustain0to1, float releaseMs,
                    bool reverse, bool oneShot)
 {
-    if (src == nullptr || lengthSamples <= 0 || src->getNumSamples() == 0)
+    if (active) declick.begin (juce::jmax (1, (int) (0.003 * hostSampleRate)));
+    else declick.reset();
+
+    if (src == nullptr || lengthSamples <= 0 || src->getNumSamples() == 0
+        || src->getNumChannels() == 0)
     {
         active = false;
         return;
@@ -22,7 +28,10 @@ void Voice::start (double hostSampleRate,
     srcR          = source->getNumChannels() > 1 ? source->getReadPointer (1) : srcL;
 
     const double hostSR = hostSampleRate > 0.0 ? hostSampleRate : 44100.0;
-    ratio = (srcSampleRate > 0.0 ? srcSampleRate : hostSR) / hostSR;
+    const double transposeRatio = std::pow (2.0, (double) juce::jlimit (-36.0f, 36.0f, transposeSemitones) / 12.0);
+    ratio = ((srcSampleRate > 0.0 ? srcSampleRate : hostSR) / hostSR) * transposeRatio;
+
+    reader.setRatio (ratio);
 
     sliceStart = (double) juce::jlimit (0, srcNumSamples - 1, startSample);
     length     = (double) juce::jmin (lengthSamples, srcNumSamples - (int) sliceStart);
@@ -39,9 +48,9 @@ void Voice::start (double hostSampleRate,
 
     velocity = juce::jlimit (0.0f, 1.0f, vel);
 
-    attackSamples  = juce::jmax (1, (int) (attackMs  * 0.001 * hostSR));
+    attackSamples  = juce::jmax (1, (int) (juce::jmax (0.8f, attackMs) * 0.001 * hostSR));
     decaySamples   = juce::jmax (1, (int) (decayMs   * 0.001 * hostSR));
-    releaseSamples = juce::jmax (1, (int) (releaseMs * 0.001 * hostSR));
+    releaseSamples = juce::jmax (1, (int) (juce::jmax (2.0f, releaseMs) * 0.001 * hostSR));
     endFadeSamples = juce::jmax (1, (int) (0.005 * hostSR)); // 5 ms click-free tail
     sustainLevel   = juce::jlimit (0.0f, 1.0f, sustain0to1);
 
@@ -88,15 +97,16 @@ float Voice::envelope() const
                                             : ((sliceStart + length) - pos);
     const double outRemaining = srcRemaining / juce::jmax (1.0e-9, ratio);
     if (outRemaining < (double) endFadeSamples)
-        env *= (float) juce::jmax (0.0, outRemaining / (double) endFadeSamples);
+        env *= slyce::quality::smoothstep ((float) (outRemaining / (double) endFadeSamples));
 
     return juce::jlimit (0.0f, 1.0f, env);
 }
 
 void Voice::render (juce::AudioBuffer<float>& out, int numSamples)
 {
-    if (! active || source == nullptr)
+    if (! active || source == nullptr || out.getNumChannels() == 0)
         return;
+    numSamples = juce::jlimit (0, out.getNumSamples(), numSamples);
 
     const int outChannels = out.getNumChannels();
     float* outL = out.getWritePointer (0);
@@ -113,18 +123,14 @@ void Voice::render (juce::AudioBuffer<float>& out, int numSamples)
             return;
         }
 
-        // Linear interpolation for the resampled read.
-        const int   i0   = juce::jlimit (0, srcNumSamples - 1, (int) pos);
-        const int   i1   = juce::jmin (i0 + 1, srcNumSamples - 1);
-        const float frac = (float) (pos - (double) i0);
-
-        const float sL = srcL[i0] + frac * (srcL[i1] - srcL[i0]);
-        const float sR = srcR[i0] + frac * (srcR[i1] - srcR[i0]);
-
+        float sL = 0.0f, sR = 0.0f;
+        reader.readStereo (srcL, srcR, pos, (int) sliceStart,
+                           (int) sliceEnd, false, sL, sR);
         const float env = envelope() * velocity;
-        outL[n] += sL * env;
-        if (outR != nullptr)
-            outR[n] += sR * env;
+        sL *= env; sR *= env;
+        declick.process (sL, sR);
+        outL[n] += sL;
+        if (outR != nullptr) outR[n] += sR;
 
         // Advance the read head (reverse steps by -ratio).
         pos += reversePlay ? -ratio : ratio;
@@ -221,6 +227,9 @@ float Voice::normalisedPosition() const
 void VoicePool::prepare (juce::dsp::ProcessSpec spec)
 {
     hostSampleRate = spec.sampleRate > 0.0 ? spec.sampleRate : 44100.0;
+    slyce::quality::SampleReader::warmUp();
+    // A sample-rate/device re-prepare must not leave one-shot voices alive.
+    for (auto& v : voices) v = Voice {};
 
     // std::atomic<float> is not copyable, so initialise each slot explicitly.
     for (auto& p : playheads)
@@ -276,7 +285,8 @@ void VoicePool::setPlayMode (bool oneShot)
     oneShotMode = oneShot;
 }
 
-int VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity)
+int VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity,
+                             float transposeSemitones)
 {
     // Audio thread. Grab a snapshot of the source without blocking the loader.
     std::shared_ptr<const juce::AudioBuffer<float>> src;
@@ -295,7 +305,8 @@ int VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity)
         auto& v = voices[(size_t) i];
         if (! v.isActive())
         {
-            v.start (hostSampleRate, src, srcSR, startSample, lengthSamples, velocity,
+            v.start (hostSampleRate, src, srcSR, startSample, lengthSamples,
+                     transposeSemitones, velocity,
                      attackMs, decayMs, sustainLvl, releaseMs, reversePlay, oneShotMode);
             return i;
         }
@@ -314,9 +325,40 @@ int VoicePool::triggerVoice (int startSample, int lengthSamples, float velocity)
         }
     }
     voices[(size_t) quietest].start (hostSampleRate, src, srcSR, startSample, lengthSamples,
-                                     velocity, attackMs, decayMs, sustainLvl, releaseMs,
+                                     transposeSemitones, velocity, attackMs, decayMs, sustainLvl, releaseMs,
                                      reversePlay, oneShotMode);
     return quietest;
+}
+
+int VoicePool::triggerMonophonicVoice (int startSample, int lengthSamples, float velocity,
+                                       float transposeSemitones, bool forceOneShot)
+{
+    // Audio thread. The chop engine has one choke group: every new slice
+    // replaces the previous slice in the same slot. Voice::start() sees that
+    // the slot is active and carries its last output into the declicker, which
+    // gives us a short click-free transition without two vocal phrases
+    // continuing to play together.
+    std::shared_ptr<const juce::AudioBuffer<float>> src;
+    double srcSR;
+    {
+        const juce::SpinLock::ScopedTryLockType sl (sourceLock);
+        if (! sl.isLocked() || source == nullptr)
+            return -1;
+        src   = source;
+        srcSR = sourceSampleRate;
+    }
+
+    // Older builds could leave polyphonic chop voices in the other slots.
+    // Fade those emergency leftovers quickly; all new chop triggers stay in
+    // slot zero from this point on.
+    for (int i = 1; i < kMaxVoices; ++i)
+        voices[(size_t) i].hardStop();
+
+    auto& mono = voices[0];
+    mono.start (hostSampleRate, std::move (src), srcSR, startSample, lengthSamples,
+                transposeSemitones, velocity, attackMs, decayMs, sustainLvl,
+                releaseMs, reversePlay, forceOneShot || oneShotMode);
+    return 0;
 }
 
 void VoicePool::releaseVoice (int voiceIndex)

@@ -17,6 +17,8 @@ void PitchFormant::prepare (double sampleRate, int maxBlockSize, int numChannels
     for (int ch = 0; ch < 2; ++ch)
         dryRing[(size_t) ch].assign ((size_t) ringCap, 0.0f);
     ringWrite = 0;
+    engaged = false;
+    fadePos = kFadeLen;
 
     mixSmoothed.reset (sr, 0.02); // ~20 ms ramp
     mixSmoothed.setCurrentAndTargetValue (1.0f);
@@ -28,6 +30,9 @@ void PitchFormant::reset()
     for (int ch = 0; ch < 2; ++ch)
         std::fill (dryRing[(size_t) ch].begin(), dryRing[(size_t) ch].end(), 0.0f);
     ringWrite = 0;
+    engaged = false;
+    fadePos = kFadeLen;
+    mixSmoothed.setCurrentAndTargetValue (1.0f);
 }
 
 void PitchFormant::process (juce::AudioBuffer<float>& buffer,
@@ -72,13 +77,19 @@ void PitchFormant::process (juce::AudioBuffer<float>& buffer,
         return;                    // signal passes untouched: zero delay
     }
 
-    // Hosts may deliver a block larger than prepareToPlay promised; writing
-    // it into the scratch would overflow the heap. Pass it through dry - but
-    // still advance the fade, or a toggle landing on such a block plays at
-    // full gain and clicks.
-    if (numSamples > inputScratch.getNumSamples())
+    // Process unexpected large host buffers in bounded, allocation-free
+    // views instead of silently changing the sound to dry for this block.
+    const int capacity = inputScratch.getNumSamples();
+    if (numSamples > capacity)
     {
-        applyToggleFade (buffer, numSamples, numChannels);
+        for (int offset = 0; offset < numSamples; offset += capacity)
+        {
+            const int count = juce::jmin (capacity, numSamples - offset);
+            float* pointers[2] { buffer.getWritePointer (0, offset),
+                                  buffer.getWritePointer (numChannels - 1, offset) };
+            juce::AudioBuffer<float> part (pointers, numChannels, count);
+            process (part, pitchSemitones, formantSemitones, mix);
+        }
         return;
     }
 

@@ -1,312 +1,152 @@
-cmake_minimum_required(VERSION 3.22)
-
-project(VocalChopStudio VERSION 3.2.5 LANGUAGES C CXX)
-
+cmake_minimum_required(VERSION 3.24)
+project(VocalChopStudio VERSION 3.3.5 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Link the MSVC runtime statically: user machines without the VC++
-# redistributable would otherwise fail to load the plugin with no error
-# message at all - the #1 cause of "the DAW can't see it" reports.
+option(SLYCE_TESTS_ONLY "Build the native regression tests without the plugin SDK" OFF)
+if(SLYCE_TESTS_ONLY)
+    enable_testing()
+    add_subdirectory(tests)
+    return()
+endif()
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_compile_options(/utf-8)
 endif()
-
-# ---------------------------------------------------------------------------
-# JUCE
-#
-# By default we pull JUCE via FetchContent so a fresh checkout builds with a
-# single `cmake -B build` invocation. If you already have JUCE checked out,
-# pass -DJUCE_SOURCE_DIR=/path/to/JUCE to use it instead of downloading.
-# ---------------------------------------------------------------------------
-set(JUCE_SOURCE_DIR "" CACHE PATH "Path to an existing JUCE source tree")
-
 include(FetchContent)
-
+set(JUCE_SOURCE_DIR "" CACHE PATH "Existing JUCE source checkout (expected 8.0.4)")
 if(JUCE_SOURCE_DIR)
-    add_subdirectory(${JUCE_SOURCE_DIR} ${CMAKE_BINARY_DIR}/JUCE)
+    add_subdirectory("${JUCE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/JUCE")
 else()
-    FetchContent_Declare(
-        JUCE
-        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-        GIT_TAG        8.0.4
-        GIT_SHALLOW    TRUE)
+    FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+                         GIT_TAG 8.0.4 GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(JUCE)
 endif()
 
-# ---------------------------------------------------------------------------
-# Signalsmith Stretch — high-quality pitch / formant shifting.
-#
-# Header-only, MIT-licensed, with a `dsp/` git submodule (fetched
-# automatically). Used by Source/AudioEngine/PitchFormant for transparent,
-# formant-preserving pitch shifting. Pin SIGNALSMITH_STRETCH_TAG to a specific
-# commit for reproducible builds; `main` is used by default.
-# ---------------------------------------------------------------------------
-set(SIGNALSMITH_STRETCH_TAG "main" CACHE STRING "signalsmith-stretch git tag/commit")
-
-# Header-only: SOURCE_SUBDIR points at a non-existent dir so
-# FetchContent_MakeAvailable only downloads the sources without calling
-# add_subdirectory (we just need the include paths). This also avoids the
-# FetchContent_Populate deprecation error on CMake >= 3.30.
-#
-# signalsmith-stretch depends on the separate signalsmith-linear library via
-# #include "signalsmith-linear/stft.h", so we fetch that too and check it out
-# into a directory literally named "signalsmith-linear" whose PARENT we put on
-# the include path.
-set(SIGNALSMITH_LINEAR_TAG "main" CACHE STRING "signalsmith linear git tag/commit")
-set(SIGNALSMITH_INCLUDE_ROOT ${CMAKE_BINARY_DIR}/_deps/signalsmith-include)
-
-FetchContent_Declare(
-    signalsmith_stretch
-    GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
-    GIT_TAG        ${SIGNALSMITH_STRETCH_TAG}
-    SOURCE_SUBDIR  cmake_subdir_intentionally_unused)
-FetchContent_Declare(
-    signalsmith_linear
-    GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
-    GIT_TAG        ${SIGNALSMITH_LINEAR_TAG}
-    SOURCE_DIR     ${SIGNALSMITH_INCLUDE_ROOT}/signalsmith-linear
-    SOURCE_SUBDIR  cmake_subdir_intentionally_unused)
-FetchContent_MakeAvailable(signalsmith_stretch signalsmith_linear)
-
-# It's a MIDI-triggered sampler, so it must be an INSTRUMENT (generator), not an
-# audio effect — otherwise FL Studio / Ableton load it on the mixer and never
-# send it piano-roll notes. IS_SYNTH TRUE also sets the VST3 "Instrument"
-# category and the AU 'aumu' type.
-juce_add_plugin(VocalChopStudio
-    COMPANY_NAME "VocalChop Labs"
-    BUNDLE_ID com.vocalchoplabs.slyce
-    PLUGIN_MANUFACTURER_CODE VCSL
-    PLUGIN_CODE VCS0
-    FORMATS VST3 AU Standalone
-    IS_SYNTH TRUE
-    NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT FALSE
-    VST3_CATEGORIES "Instrument" "Synth" "Sampler"
-    VST3_AUTO_MANIFEST FALSE
-    COPY_PLUGIN_AFTER_BUILD FALSE
-    PRODUCT_NAME "Slyce")
-
-juce_generate_juce_header(VocalChopStudio)
-
-# Embed the demo vocals (one-click first-run sound). The themes draw their
-# backdrops procedurally now, so no artwork ships in the binary.
-# The built-in chop sources. Mono on purpose: the plugin has its own width and
-# chorus, and every one of these ships inside the binary, so stereo would
-# double the download for a placement the user overrides anyway.
-juce_add_binary_data(VocalChopData SOURCES
-    examples/vocal_chop_demo.wav
-    examples/vox_air.wav
-    examples/vox_rage.wav
-    examples/vox_beatbox.wav
-    examples/vox_chant.wav
-    examples/vox_hook.wav
-    examples/vox_choir.wav
-    examples/vox_whisper.wav
-    examples/vox_diva.wav
-    examples/vox_stabs.wav
-    # Second wave: twenty-six more, grouped in the picker by what you would
-    # reach for them FOR - chops, hooks, textures, percussion, characters.
-    examples/vox_triplet.wav
-    examples/vox_halftime.wav
-    examples/vox_garage.wav
-    examples/vox_amen.wav
-    examples/vox_stutter.wav
-    examples/vox_revchant.wav
-    examples/vox_topline.wav
-    examples/vox_trapmel.wav
-    examples/vox_afro.wav
-    examples/vox_drill.wav
-    examples/vox_ballad.wav
-    examples/vox_vowelpad.wav
-    examples/vox_nasal.wav
-    examples/vox_hum.wav
-    examples/vox_gospel.wav
-    examples/vox_vocoder.wav
-    examples/vox_mouthperc.wav
-    examples/vox_clicks.wav
-    examples/vox_breath.wav
-    examples/vox_gasp.wav
-    examples/vox_riser.wav
-    examples/vox_downlifter.wav
-    examples/vox_kids.wav
-    examples/vox_deep.wav
-    examples/vox_robot.wav
-    examples/vox_opera.wav
-    # Third wave: the gaps the first thirty-six left - consonant-led
-    # syllables, a minor register, beds long enough to sit under a
-    # section, and sources that are already wet.
-    examples/vox_word.wav
-    examples/vox_hardcons.wav
-    examples/vox_whispchop.wav
-    examples/vox_minor.wav
-    examples/vox_sadpad.wav
-    examples/vox_lament.wav
-    examples/vox_sustain.wav
-    examples/vox_swell.wav
-    examples/vox_ambient.wav
-    examples/vox_cathedral.wav
-    examples/vox_ghost.wav
-    examples/vox_dembow.wav
-    examples/vox_swung.wav
-    examples/vox_onebar.wav
-    examples/vox_talkbox.wav
-    examples/vox_shout.wav
-    # Fourth wave: tighter, radio/EDM-leaning vocal sources. Kept deliberately
-    # selective; rejected gimmicky candidates so the picker stays premium.
-    examples/vox_neon.wav
-    examples/vox_jersey.wav
-    examples/vox_amapiano.wav
-    examples/vox_latin.wav
-    examples/vox_rnbrun.wav
-    examples/vox_kpop.wav
-    examples/vox_soul.wav
-    examples/vox_falsetto.wav
-    examples/vox_alto.wav
-    examples/vox_monk.wav
-    examples/vox_glasschoir.wav
-    examples/vox_tapewarp.wav
-    examples/vox_telephone.wav
-    examples/vox_choirhit.wav
-    examples/vox_impact.wav
-    examples/vox_shortriser.wav
-    examples/vox_vowelperc.wav
-    examples/vox_oohstack.wav
-    examples/vox_dancepop.wav
-    examples/vox_popadlib.wav
-    examples/vox_festival.wav
-    examples/vox_futurehouse.wav
-    examples/vox_slaphouse.wav
-    examples/vox_edmdrop.wav
-    examples/vox_trance.wav
-    examples/vox_bigroom.wav
-    examples/vox_hookgrid.wav
-    examples/vox_edmbreath.wav)
-
-target_sources(VocalChopStudio PRIVATE
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp
-    Source/AudioEngine/SampleLoader.cpp
-    Source/AudioEngine/SliceEngine.cpp
-    Source/AudioEngine/PitchFormant.cpp
-    Source/AudioEngine/GranularEngine.cpp
-    Source/AudioEngine/SynthEngine.cpp
-    Source/AudioEngine/SamplerEngine.cpp
-    Source/AudioEngine/FXChain.cpp
-    Source/AudioEngine/VoicePool.cpp
-    Source/UI/ThemeManager.cpp
-    Source/UI/AppleLookAndFeel.cpp
-    Source/UI/MeterComponent.cpp
-    Source/UI/ScopePanel.cpp
-    Source/UI/SegmentedControl.cpp
-    Source/UI/WaveformView.cpp
-    Source/UI/KnobComponent.cpp
-    Source/UI/SliceGrid.cpp
-    Source/UI/LooperPanel.cpp
-    Source/UI/ChordBar.cpp
-    Source/UI/AmbientPanel.cpp
-    Source/UI/FXRack.cpp)
-
-target_include_directories(VocalChopStudio PRIVATE
-    Source
-    ${signalsmith_stretch_SOURCE_DIR}
-    ${SIGNALSMITH_INCLUDE_ROOT}
-    ${signalsmith_linear_SOURCE_DIR})
-
-# JUCE_DISPLAY_SPLASH_SCREEN=1 is what makes commercial sales legal on the
-# free JUCE Personal tier (splash shown, revenue under the tier's cap).
-# Only set it back to 0 after buying a JUCE Indie/Pro licence.
-# SLYCE_DEMO_GATE=1 turns on the demo mute + unlock flow for the paid
-# release. 0 ships fully unlocked (current default while testing/free).
-target_compile_definitions(VocalChopStudio PRIVATE
-    SLYCE_DEMO_GATE=1
-    SLYCE_LICENSE_API_URL="https://instrument-nu.vercel.app/api/license/activate"
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=1
-    JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
-    JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_DISPLAY_SPLASH_SCREEN=1
-    JUCE_MODAL_LOOPS_PERMITTED=1)
-
-target_link_libraries(VocalChopStudio
-    PRIVATE
-        VocalChopData
-        juce::juce_audio_utils
-        juce::juce_cryptography
-        juce::juce_dsp
-        juce::juce_gui_basics
-        juce::juce_gui_extra
-    PUBLIC
-        juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
-        juce::juce_recommended_warning_flags)
-
-# --- offline core for the developer tools ---------------------------------
-# The shipping library is compiled with SLYCE_DEMO_GATE=1, which mutes two
-# seconds every thirty AND refuses to write session state. The render tools
-# bounce multi-minute arrangements and --state round-trips the whole patch, so
-# linking the shipping library would punch a hole in every track and make the
-# state test vacuous. They get their own copy of the sources with the gate
-# compiled OUT - the product build is untouched.
-set(SLYCE_CORE_SOURCES
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp
-    Source/AudioEngine/SampleLoader.cpp
-    Source/AudioEngine/SliceEngine.cpp
-    Source/AudioEngine/PitchFormant.cpp
-    Source/AudioEngine/GranularEngine.cpp
-    Source/AudioEngine/SynthEngine.cpp
-    Source/AudioEngine/SamplerEngine.cpp
-    Source/AudioEngine/FXChain.cpp
-    Source/AudioEngine/VoicePool.cpp
-    Source/UI/ThemeManager.cpp
-    Source/UI/AppleLookAndFeel.cpp
-    Source/UI/MeterComponent.cpp
-    Source/UI/ScopePanel.cpp
-    Source/UI/SegmentedControl.cpp
-    Source/UI/WaveformView.cpp
-    Source/UI/KnobComponent.cpp
-    Source/UI/SliceGrid.cpp
-    Source/UI/LooperPanel.cpp
-    Source/UI/ChordBar.cpp
-    Source/UI/AmbientPanel.cpp
-    Source/UI/FXRack.cpp)
-
-function(slyce_add_tool target source)
-    juce_add_console_app(${target} PRODUCT_NAME "${target}")
-    target_sources(${target} PRIVATE ${source} ${SLYCE_CORE_SOURCES})
-    target_compile_definitions(${target} PRIVATE
-        JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
-        JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1
-        JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_VST3_CAN_REPLACE_VST2=0
-        # The editor prints the build version in its footer; outside the
-        # plugin wrapper that macro does not exist.
-        JucePlugin_VersionString="${PROJECT_VERSION}")
-    add_dependencies(${target} VocalChopStudio)
-    target_link_libraries(${target} PRIVATE
-        VocalChopData
-        juce::juce_audio_utils
-        juce::juce_cryptography
-        juce::juce_dsp
-        juce::juce_gui_basics
-        juce::juce_gui_extra
-        juce::juce_audio_plugin_client
-        juce::juce_recommended_config_flags)
-    target_include_directories(${target} PRIVATE
-        Source
-        ${CMAKE_CURRENT_BINARY_DIR}/VocalChopStudio_artefacts/JuceLibraryCode
-        ${CMAKE_CURRENT_BINARY_DIR}/juce_binarydata_VocalChopData/JuceLibraryCode
-        ${signalsmith_stretch_SOURCE_DIR}
-        ${SIGNALSMITH_INCLUDE_ROOT}
-        ${signalsmith_linear_SOURCE_DIR})
-endfunction()
-
-# --- offline render harness (developer tool; not part of the plugin) -------
-if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/render_test.cpp)
-    slyce_add_tool(SlyceRenderTest tools/render_test.cpp)
+# Preserve the original stretch API. The upstream branch is NOT a verified
+# immutable pin. Supply the exact commits used by your release pipeline.
+set(SIGNALSMITH_STRETCH_TAG "main" CACHE STRING "Stretch commit or tag")
+set(SIGNALSMITH_LINEAR_TAG "0.3.1" CACHE STRING "Linear commit or tag")
+set(SIGNALSMITH_STRETCH_SOURCE_DIR "" CACHE PATH "Local stretch checkout")
+set(SIGNALSMITH_LINEAR_SOURCE_DIR "" CACHE PATH "Local linear checkout")
+if(SIGNALSMITH_STRETCH_SOURCE_DIR)
+    set(signalsmith_stretch_SOURCE_DIR "${SIGNALSMITH_STRETCH_SOURCE_DIR}")
+else()
+    FetchContent_Declare(signalsmith_stretch
+        GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
+        GIT_TAG "${SIGNALSMITH_STRETCH_TAG}" SOURCE_SUBDIR cmake_not_used)
+    FetchContent_MakeAvailable(signalsmith_stretch)
 endif()
+if(SIGNALSMITH_LINEAR_SOURCE_DIR)
+    set(signalsmith_linear_SOURCE_DIR "${SIGNALSMITH_LINEAR_SOURCE_DIR}")
+else()
+    FetchContent_Declare(signalsmith_linear
+        GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+        GIT_TAG "${SIGNALSMITH_LINEAR_TAG}"
+        SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/signalsmith-include/signalsmith-linear"
+        SOURCE_SUBDIR cmake_not_used)
+    FetchContent_MakeAvailable(signalsmith_linear)
+endif()
+get_filename_component(SLYCE_LINEAR_PARENT "${signalsmith_linear_SOURCE_DIR}" DIRECTORY)
+set(SLYCE_DSP_INCLUDE_DIRS
+    "${signalsmith_stretch_SOURCE_DIR}"
+    "${signalsmith_stretch_SOURCE_DIR}/include"
+    "${signalsmith_stretch_SOURCE_DIR}/include/signalsmith-stretch"
+    "${signalsmith_linear_SOURCE_DIR}" "${signalsmith_linear_SOURCE_DIR}/include"
+    "${SLYCE_LINEAR_PARENT}")
+include(cmake/VocalAssets.cmake)
+juce_add_binary_data(VocalChopData SOURCES ${SLYCE_VOCAL_FILES})
+# A separate binary-data target prevents skins colliding with audio symbols.
+juce_add_binary_data(SlyceReferenceSkin
+    HEADER_NAME ReferenceSkinData.h NAMESPACE ReferenceSkinData
+    SOURCES
+        assets/reference/reference_chrome_light.png
+        assets/reference/reference_chrome_dark.png
+        assets/reference/reference_knob_light.png
+        assets/reference/reference_knob_dark.png)
+set(SLYCE_FORMATS VST3 Standalone)
+if(APPLE)
+    list(APPEND SLYCE_FORMATS AU)
+endif()
+# AAX is intentionally opt-in because the Avid SDK is not redistributable.
+# Set SLYCE_AAX_SDK_PATH (or AAX_SDK_PATH) to a locally downloaded AAX SDK
+# to produce an unsigned developer/test .aaxplugin alongside VST3.
+set(SLYCE_AAX_SDK_PATH "" CACHE PATH "Local Avid AAX SDK path (optional; never bundled)")
+if(NOT SLYCE_AAX_SDK_PATH AND DEFINED ENV{AAX_SDK_PATH})
+    set(SLYCE_AAX_SDK_PATH "$ENV{AAX_SDK_PATH}")
+endif()
+if(SLYCE_AAX_SDK_PATH)
+    if(EXISTS "${SLYCE_AAX_SDK_PATH}")
+        juce_set_aax_sdk_path("${SLYCE_AAX_SDK_PATH}")
+        list(APPEND SLYCE_FORMATS AAX)
+        message(STATUS "SLYCE: unsigned developer AAX target enabled")
+    else()
+        message(FATAL_ERROR "SLYCE_AAX_SDK_PATH does not exist: ${SLYCE_AAX_SDK_PATH}")
+    endif()
+else()
+    message(STATUS "SLYCE: AAX target disabled (set SLYCE_AAX_SDK_PATH to enable)")
+endif()
+juce_add_plugin(VocalChopStudio
+    COMPANY_NAME "VocalChop Labs" BUNDLE_ID com.vocalchoplabs.slyce
+    PLUGIN_MANUFACTURER_CODE VCSL PLUGIN_CODE VCS0
+    FORMATS ${SLYCE_FORMATS}
+    IS_SYNTH TRUE NEEDS_MIDI_INPUT TRUE NEEDS_MIDI_OUTPUT FALSE
+    VST3_CATEGORIES "Instrument" "Synth" "Sampler"
+    VST3_AUTO_MANIFEST FALSE COPY_PLUGIN_AFTER_BUILD FALSE PRODUCT_NAME "Slyce")
+juce_generate_juce_header(VocalChopStudio)
+set(SLYCE_CORE_SOURCES
+Source/PluginProcessor.cpp
+    Source/UI/Reference/ReferenceEditor.cpp
+    Source/AudioEngine/SampleLoader.cpp
+    Source/AudioEngine/SliceEngine.cpp
+    Source/AudioEngine/PitchFormant.cpp
+    Source/AudioEngine/GranularEngine.cpp
+    Source/AudioEngine/SynthEngine.cpp
+    Source/AudioEngine/SamplerEngine.cpp
+    Source/AudioEngine/VocalKitEngine.cpp
+    Source/AudioEngine/AirVocalEngine.cpp
+    Source/AudioEngine/FXChain.cpp
+    Source/AudioEngine/VoicePool.cpp
+    Source/UI/ThemeManager.cpp
+    Source/UI/AppleLookAndFeel.cpp
+    Source/UI/KnobComponent.cpp
+    Source/UI/LooperPanel.cpp
+    Source/UI/ChordBar.cpp
+)
+target_sources(VocalChopStudio PRIVATE ${SLYCE_CORE_SOURCES})
+target_include_directories(VocalChopStudio PRIVATE Source ${SLYCE_DSP_INCLUDE_DIRS})
+option(SLYCE_DEMO_GATE "Enable periodic demo mute and the owner's activation flow" ON)
+set(SLYCE_LICENSE_API_URL "https://instrument-nu.vercel.app/api/license/activate" CACHE STRING "Owner's activation endpoint")
+target_compile_definitions(VocalChopStudio PRIVATE
+    SLYCE_DEMO_GATE=$<BOOL:${SLYCE_DEMO_GATE}>
+    SLYCE_LICENSE_API_URL="${SLYCE_LICENSE_API_URL}"
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=1 JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
+    JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+# JUCE licensing is independent of plugin activation. A splash flag is NOT
+# proof of distribution rights. Consult the license for the SDK you use.
+target_link_libraries(VocalChopStudio PRIVATE VocalChopData SlyceReferenceSkin
+    juce::juce_audio_utils juce::juce_cryptography juce::juce_dsp
+    juce::juce_gui_basics juce::juce_gui_extra
+    PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
-# --- offline arrangement renderer: builds the demo tracks for the store page -
-if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tools/demo_render.cpp)
+option(SLYCE_BUILD_TOOLS "Build full-JUCE integration/render tools" OFF)
+if(SLYCE_BUILD_TOOLS)
+    function(slyce_add_tool target source)
+        juce_add_console_app(${target} PRODUCT_NAME "${target}")
+        juce_generate_juce_header(${target})
+        target_sources(${target} PRIVATE ${source} ${SLYCE_CORE_SOURCES})
+        target_compile_definitions(${target} PRIVATE
+            JUCE_STANDALONE_APPLICATION=1 SLYCE_DEMO_GATE=0 JUCE_USE_CURL=0
+            JUCE_WEB_BROWSER=0 JUCE_MODAL_LOOPS_PERMITTED=1 JUCE_VST3_CAN_REPLACE_VST2=0
+            JucePlugin_VersionString="${PROJECT_VERSION}")
+        target_include_directories(${target} PRIVATE Source ${SLYCE_DSP_INCLUDE_DIRS})
+        target_link_libraries(${target} PRIVATE VocalChopData SlyceReferenceSkin juce::juce_audio_utils
+            juce::juce_cryptography juce::juce_dsp juce::juce_gui_basics juce::juce_gui_extra
+            juce::juce_recommended_config_flags)
+    endfunction()
+    slyce_add_tool(SlyceRenderTest tools/render_test.cpp)
     slyce_add_tool(SlyceDemoRender tools/demo_render.cpp)
+    slyce_add_tool(SlyceAirVocalDemo tools/air_vocal_demo.cpp)
+    slyce_add_tool(SlyceUISnapshot tools/ui_snapshot.cpp)
 endif()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <set>
 #include <limits>
 
@@ -13,13 +14,16 @@
 #include "AudioEngine/FXChain.h"
 #include "AudioEngine/LoopStation.h"
 #include "AudioEngine/SamplerEngine.h"
+#include "AudioEngine/VocalKitEngine.h"
+#include "AudioEngine/AirVocalEngine.h"
 #include "DSP/Limiter.h"
 #include "Licensing.h"
 
 //==============================================================================
 class VocalChopAudioProcessor : public juce::AudioProcessor,
                                 public juce::AudioProcessorValueTreeState::Listener,
-                                public juce::ChangeBroadcaster
+                                public juce::ChangeBroadcaster,
+                                private juce::Timer
 {
 public:
     VocalChopAudioProcessor();
@@ -39,7 +43,7 @@ public:
     bool acceptsMidi()  const override { return true;  }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 2.0; }
+    double getTailLengthSeconds() const override { return 30.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -84,11 +88,26 @@ public:
     LoopStation&    getLooper()       { return looper; }
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
 
+    /** Reference-editor palette is project state, independent of the legacy
+        app-wide ThemeManager list.  Keeping the exact 0..7 scheme here means
+        closing/reopening a DAW editor cannot collapse Mint/Rose/etc. to a
+        generic Light theme. */
+    int  getReferenceThemeScheme() const noexcept { return referenceThemeScheme.load(); }
+    void setReferenceThemeScheme (int scheme) noexcept
+    {
+        referenceThemeScheme.store (juce::jlimit (0, 7, scheme));
+    }
+
     double getLoadedSampleRate() const { return loadedSampleRate; }
 
     /** Message-thread-safe: queues a key/pad hit that the audio thread plays.
         Velocity 0..1 (keyboard clicks pass the strike position). */
     void triggerSlicePad (int sliceIndex, float velocity = 0.9f);
+    // Direct slice-card preview: index is a slice number, not a chromatic key.
+    void triggerSliceDirectPad (int sliceIndex, float velocity = 0.9f);
+    // One-shot preview of the complete loaded sample (message -> audio thread).
+    void triggerWholeSamplePreview() noexcept
+    { wholeSamplePreviewPending.store (true, std::memory_order_release); }
 
     /** Gate-style pad events for the on-screen / computer keyboard: press
         starts the note, release enters its release stage (like real MIDI). */
@@ -109,7 +128,7 @@ public:
 
     /** Mono output ring for the live oscilloscope (Synth/Sampled modes).
         Size is a power of two; readers index with (i & (size-1)). */
-    const std::array<float, 2048>& getScopeRing() const { return scopeRing; }
+    const std::array<std::atomic<float>, 2048>& getScopeRing() const { return scopeRing; }
     int getScopeWritePos() const { return scopeWritePos.load (std::memory_order_acquire); }
 
     /** The slice the user last touched, in either the waveform or the
@@ -119,6 +138,16 @@ public:
         thread; the audio thread never reads it. */
     int  getSelectedSlice() const        { return selectedSlice; }
     void setSelectedSlice (int s)        { selectedSlice = s; }
+    float getSliceTranspose (int slice) const;
+    void  setSliceTranspose (int slice, float semitones);
+    void  nudgeSelectedSliceTranspose (float semitoneDelta);
+
+    /** Export the current chops as WAV. Per-slice transpose is baked in using
+        sampler-style resampling, so pitched-up slices are shorter and pitched-
+        down slices are longer, exactly like playback. */
+    bool exportSlicesToFolder (const juce::File& folder, juce::String& error) const;
+    bool exportSliceToFile (int sliceIndex, const juce::File& file, juce::String& error) const;
+    bool exportSlicesMergedToFile (const juce::File& file, juce::String& error) const;
 
     /** Which slice the n-th semitone above the root plays. Public so a test
         can compare the mapping against the audio that actually comes out. */
@@ -150,7 +179,9 @@ public:
     /** True when the Synth engine is selected (keyboard plays synth notes). */
     bool isSynthMode() const
     {
-        return engineParam != nullptr && engineParam->load() >= 0.5f;
+        if (engineParam == nullptr) return false;
+        const float v = engineParam->load();
+        return v >= 0.5f && v < 1.5f;
     }
 
     /** True when the Sampled (SFZ multisample) engine is selected. */
@@ -165,8 +196,36 @@ public:
         chromatically across the keyboard (root = C3). */
     bool isMelodyMode() const
     {
-        return engineParam != nullptr && engineParam->load() >= 2.5f;
+        if (engineParam == nullptr) return false;
+        const float v = engineParam->load();
+        return v >= 2.5f && v < 3.5f;
     }
+
+    /** Legacy fifteen-slot kit mode retained only so older projects restore.
+        New imports and factory vocal instruments use Melody mode: one sample
+        mapped chromatically from C3. */
+    bool isVocalKitMode() const
+    {
+        return engineParam != nullptr && engineParam->load() >= 3.5f
+                                      && engineParam->load() < 4.5f;
+    }
+    VocalKitEngine& getVocalKit() { return vocalKitEngine; }
+    const VocalKitEngine& getVocalKit() const { return vocalKitEngine; }
+    bool loadVocalKitSlot (int slot, const juce::File&, juce::String& error);
+    void selectVocalKitSlot (int slot) { selectedSlice.store (juce::jlimit (0, VocalKitEngine::kNumSlots - 1, slot)); }
+    void auditionVocalKitSlot (int slot, float velocity = 0.9f);
+    void loadFactoryVocalKit (int kitIndex = 0);
+
+    /** Chromatic/polyphonic CORE + AIR instrument with shared HALO space. */
+    bool isAirVocalMode() const
+    {
+        return engineParam != nullptr && engineParam->load() >= 4.5f;
+    }
+    static juce::StringArray getAirVocalPresetNames();
+    void applyAirVocalPreset (int presetIndex);
+    int getCurrentAirVocalPreset() const noexcept { return currentAirVocalPreset.load(); }
+    AirVocalEngine& getAirVocal() noexcept { return airVocalEngine; }
+    const AirVocalEngine& getAirVocal() const noexcept { return airVocalEngine; }
 
     /** Loads an SFZ multisample bank (message thread; heavy - decodes all
         samples). On success switches to Sampled mode and remembers the path
@@ -228,13 +287,18 @@ public:
     void applyInstrument (int instrumentIndex);
     int  getCurrentInstrument() const { return currentInstrument; }
 
+    // Looper MIDI CC assignments. Indices are: 0-5 record tracks, 6 stop all,
+    // 7 play all, 8/9 previous/next track, 10 record selected, 11 stop
+    // selected, 12 re-record, 13 undo/redo, 14 clear selected.
+    int  getLooperMidiCC (int action) const;
+    void setLooperMidiCC (int action, int cc);
+
     /** Detected musical key of the loaded sample: root 0..11 (C=0) or -1
         when unknown; minor flag alongside. The chord bar follows this. */
     int  getDetectedKeyRoot() const  { return detectedKeyRoot.load(); }
     bool isDetectedKeyMinor() const  { return detectedKeyMinor.load(); }
 
-    /** Licensing: unlicensed = demo - mutes 2 s every 30 s, and refuses to
-        write session state, so a project using it cannot be finished. */
+    /** Licensing: demo output mutes 2 seconds per minute; session saving is preserved. */
     bool isLicensed() const { return licensed.load(); }
     bool finalizeActivation (const juce::String& email, const juce::String& key);
 
@@ -254,9 +318,12 @@ private:
 
     /** Hands the FX rack back to the instrument table. The editor calls this
         from the FX card's reset, so "stop following me" is undoable. */
-    void releaseFxOwnership() { userOwnsFx.clear(); }
-    bool userOwnsAnyFx() const { return ! userOwnsFx.empty(); }
-    void handleMidi (const juce::MidiBuffer& midi, int numSamples);
+    void releaseFxOwnership() { userOwnedFx.store(0); }
+    bool userOwnsAnyFx() const { return userOwnedFx.load() != 0; }
+    bool ownsFx(const juce::String& id) const;
+    static unsigned fxOwnershipBit(const juce::String& id);
+    void handleMidiMessage(const juce::MidiMessage& msg);
+    void renderSegment(juce::AudioBuffer<float>&, int offset, int count);
 
     /** Every note the plugin plays goes through here, whatever its source
         (MIDI, on-screen keys, chord bar, arpeggiator). */
@@ -274,6 +341,9 @@ private:
     void applyMasterFXChain (juce::AudioBuffer<float>&);
     void applyStereoWidth (juce::AudioBuffer<float>&);
     void reassignSampleToEngines();
+    void appendSoundState(juce::XmlElement& root);
+    void restoreEmbeddedVocalKitSources();
+    void loadAirVocalPresetBank (int presetIndex); // message thread, no APVTS writes
     void rescanSlices();
     void analyzeSampleKey();
     void queuePadEvent (int sliceIndex, float velocity, int type);
@@ -285,15 +355,29 @@ private:
     SynthEngine    synthEngine;
     SamplerEngine  samplerEngine;
     SamplerEngine  melodyEngine;    // the loaded chop sample, pitched per key
+    // Mapped Sample is monophonic. The source reader remains at the original
+    // rate and PitchFormant applies this key interval, so higher notes no
+    // longer make an imported vocal finish unnaturally fast.
+    int mappedSampleInputNote = -1;       // audio-thread owned
+    float mappedSamplePitchSemitones = 0.0f;
+    VocalKitEngine vocalKitEngine;  // legacy project compatibility (C3..D4 slots)
+    AirVocalEngine airVocalEngine;  // chromatic CORE + AIR + shared HALO
     std::shared_ptr<juce::AudioBuffer<float>> melodySourceRef;   // rebuild guard
     juce::File     loadedSfzFile;   // persisted so reload restores the bank
     SliceEngine    sliceEngine;
+    // Audio callback only publishes an atomic. The processor timer (not the
+    // editor) notifies the host off the real-time thread when latency changes.
+    std::atomic<int> desiredHostLatency { 0 };
+    void timerCallback() override;
     PitchFormant   pitchFormant;
     GranularEngine granularEngine;
     FXChain        fxChain;
     LoopStation    looper;
     Limiter        limiter;
+    std::atomic<int> midiLooperTrack { 0 }; // selected track for MIDI CC looper controls
+    std::array<std::atomic<int>, 15> looperMidiCC;
 
+    mutable juce::CriticalSection sampleStateLock;
     std::shared_ptr<juce::AudioBuffer<float>> sampleBuffer;
     std::shared_ptr<juce::AudioBuffer<float>> prevSampleBuffer;   // 1-level edit undo
     double prevSampleRate = 44100.0;
@@ -309,6 +393,7 @@ private:
     std::atomic<float>* driveParam   = nullptr;
     std::atomic<float>* reverbParam  = nullptr;
     std::atomic<float>* delayParam   = nullptr;
+    std::atomic<float>* fxBypassParam = nullptr;
     std::atomic<float>* attackParam  = nullptr;
     std::atomic<float>* decayParam   = nullptr;
     std::atomic<float>* sustainParam = nullptr;
@@ -322,7 +407,9 @@ private:
     std::atomic<float>* playModeParam = nullptr;
     std::atomic<float>* outputGainParam = nullptr;
     std::atomic<float>* engineParam      = nullptr;
-    int selectedSlice = -1;   // message thread only
+    std::atomic<int> referenceThemeScheme { 0 };
+    std::atomic<int> selectedSlice { -1 };   // message thread only
+    std::array<std::atomic<float>, 64> sliceTransposeSemis; // per-slice, audio-thread safe
     std::atomic<float>* synthWaveParam   = nullptr;
     std::atomic<float>* synthDetuneParam = nullptr;
     std::atomic<float>* synthOctaveParam = nullptr;
@@ -341,6 +428,13 @@ private:
     std::atomic<float>* macroHypeParam  = nullptr;
     std::atomic<float>* macroSpaceParam = nullptr;
     std::atomic<float>* macroDirtParam  = nullptr;
+    std::atomic<float>* airMacroParam = nullptr;
+    std::atomic<float>* bodyMacroParam = nullptr;
+    std::atomic<float>* vowelMacroParam = nullptr;
+    std::atomic<float>* bloomMacroParam = nullptr;
+    std::atomic<float>* motionMacroParam = nullptr;
+    std::atomic<float>* airSpaceMacroParam = nullptr;
+    std::atomic<int> currentAirVocalPreset { 0 };
 
     std::atomic<float> outputLevel { 0.0f };
     juce::String loadedSampleName;
@@ -375,7 +469,7 @@ private:
     std::atomic<float>* pumpRateParam = nullptr;
 
     // Live-output oscilloscope ring (audio thread writes, UI paint reads).
-    std::array<float, 2048> scopeRing {};
+    std::array<std::atomic<float>, 2048> scopeRing {};
     std::atomic<int>        scopeWritePos { 0 };
 
     // Licensing (loaded once in the constructor; demo gate in processBlock).
@@ -397,14 +491,17 @@ private:
 
     // Lock-free queue of key/pad hits (message thread -> audio thread).
     // Generous size: a dropped note-off would leave a note stuck on.
-    enum PadEvent { padTap = 0, padOn = 1, padOff = 2, padChoke = 3 };
+    enum PadEvent { padTap = 0, padOn = 1, padOff = 2, padChoke = 3, padDirectTap = 4 };
     juce::AbstractFifo padFifo { 256 };
     std::array<int, 256>   padQueue {};
     std::array<float, 256> padQueueVel {};
     std::array<int, 256>   padQueueType {};
+    std::atomic<bool> wholeSamplePreviewPending { false };
 
     // Which voice each held MIDI note started (-1 = none), for note-off routing.
     std::array<int, 128> noteToVoice {};
+    std::array<bool,128> physicalHeld{}, sustainDeferred{};
+    bool sustainDown=false;
 
     // Same, for held on-screen / computer-keyboard pads (audio thread only).
     std::array<int, 128> padKeyToVoice {};
@@ -415,13 +512,13 @@ private:
 
     // Which output-FX knobs the user has taken over, and whether the change
     // currently arriving is our own doing. See applyInstrument.
-    std::set<juce::String> userOwnsFx;
-    bool applyingPatch = false;
+    std::atomic<unsigned> userOwnedFx { 0 };
+    std::atomic<bool> applyingPatch { false };
 
     // Engine-architecture half of an instrument (non-APVTS synth settings).
     void applyEnginePatch (int instrumentIndex);
     static int defaultInstrumentIndex();   // boot patch, found by name
-    int  currentInstrument = 0;
+    std::atomic<int> currentInstrument { 0 };
 
     // "Drum Kit" instrument: every semitone is a different drum (C=kick,
     // D=snare, E=clap, F=hat...). Pieces are snapshotted on the message
@@ -436,7 +533,17 @@ private:
               fltHz = 20000, fltEnvOct = 0, fltEnvMs = 200, filterQ = 0.71f,
               drift = 0, velFlt = 1.0f, pitchEnvOct = 0, pitchEnvMs = 60,
               atk = 0, dec = 200, sus = 0, rel = 150;
-    };
+            float attackNoise = 0.0f;
+        float attackTone = 0.0f;
+        float attackMs = 0.0f;
+        float inharmonic = 0.0f;
+        float stringMix = 0.0f;
+        float stringDamp = 0.0f;
+        float stringDecay = 0.0f;
+        float morphAmt = 0.0f;
+        float morphMs = 0.0f;
+        int morphTo = 2;
+};
     // Double-buffered: buildKitPieces (message thread) fills the inactive
     // page and flips the index; kitNoteOn (audio thread) reads the active
     // page - rewriting one shared array under the reader was a data race.
@@ -461,6 +568,7 @@ private:
 
     // Smoothed stereo width to avoid zipper noise when the knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmoothed { 1.0f };
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outputGainSmoothed { 1.0f };
 
     juce::dsp::ProcessSpec spec {};
 

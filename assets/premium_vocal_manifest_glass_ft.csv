@@ -1,0 +1,5 @@
+file,source_file,source,phrases,sample_rate,seconds,median_hf_ratio,median_transient_density,median_accompaniment_overlap,sha256
+premium_glass_tide_a_1.wav,glass_tide_a,user_supplied_vocal_separation,8,44100,18.777,0.29689,0.07716,0.02439,67710338fc7f8cc8f2b70e60e7a2fa453fcd430cc6d92f09d3dc82042a07163b
+premium_glass_tide_a_2.wav,glass_tide_a,user_supplied_vocal_separation,8,44100,17.988,0.34165,0.09545,0.01063,ee9948a001558725f8635a966014bfa040de99f1a3504cfabef5eb8b0b2cfb51
+premium_glass_tide_a_3.wav,glass_tide_a,user_supplied_vocal_separation,8,44100,17.709,0.16806,0.10781,0.04168,cbb4262917afa3ea946dbf99d175b37a9e3e52f251c0f713e264399b8cde3eed
+premium_glass_tide_a_4.wav,glass_tide_a,user_supplied_vocal_separation,8,44100,24.699,0.14892,0.04236,0.01838,726749bd3a161967828614c945b378d76ad46d505a5fe8042555e23544e564c2

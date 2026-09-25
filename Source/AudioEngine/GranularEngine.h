@@ -52,5 +52,6 @@ private:
     float density = 0.5f;
     float mix     = 0.0f;
     int   hopCounter = 0;
+    juce::SmoothedValue<float> mixSmoothed { 0.0f };
     juce::Random rng;
 };

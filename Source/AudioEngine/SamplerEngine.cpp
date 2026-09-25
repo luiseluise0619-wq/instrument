@@ -180,7 +180,7 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
         else if (name == "volume")          r.volumeDb  = value.getFloatValue();
         else if (name == "loop_mode")       r.loop = value.trim().startsWithIgnoreCase ("loop");
         else if (name == "loop_start")      r.loopStart = value.getIntValue();
-        else if (name == "loop_end")        r.loopEnd   = value.getIntValue();
+        else if (name == "loop_end")        r.loopEnd   = slyce::quality::exclusiveLoopEnd (value.getIntValue());
         else if (name == "ampeg_release")   r.releaseSeconds = juce::jlimit (0.01f, 8.0f,
                                                                              value.getFloatValue());
         else if (name == "offset")          r.offset = value.getIntValue();
@@ -203,7 +203,9 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
 
         const auto audioFile = defaultPath.getChildFile (path.replaceCharacter ('\\', '/'));
         std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (audioFile));
-        if (reader == nullptr)
+        if (reader == nullptr || reader->lengthInSamples <= 0
+            || reader->lengthInSamples > 192000LL * 60LL * 10LL
+            || reader->numChannels == 0 || reader->numChannels > 8)
         {
             error = "Can't read sample: " + audioFile.getFullPathName();
             return false;
@@ -220,7 +222,11 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
         }
 
         r.data.setSize (numCh, (int) reader->lengthInSamples);
-        reader->read (&r.data, 0, (int) reader->lengthInSamples, 0, true, numCh > 1);
+        if (! reader->read (&r.data, 0, (int) reader->lengthInSamples, 0, true, numCh > 1))
+        {
+            error = "Failed to decode sample: " + audioFile.getFullPathName();
+            return false;
+        }
         r.srcRate = reader->sampleRate > 0 ? reader->sampleRate : 44100.0;
         // A negative loop_start from a malformed SFZ would read far below
         // the buffer during the loop wrap - clamp BEFORE validating.
@@ -305,7 +311,7 @@ bool SamplerEngine::loadSfz (const juce::File& sfzFile, juce::String& error)
 void SamplerEngine::loadFromBuffer (const juce::AudioBuffer<float>& src, double srcRate,
                                     const juce::String& name, int rootNote)
 {
-    if (src.getNumSamples() <= 0)
+    if (src.getNumSamples() <= 0 || src.getNumChannels() <= 0)
         return;
 
     auto newBank = std::make_shared<Bank>();
@@ -383,6 +389,8 @@ void SamplerEngine::noteOn (int midiNote, float velocity, int autoOffSamples)
     ++rrCounter;   // advance the round-robin step per hit
 
     auto& v = *findFreeVoice();
+    if (v.active()) v.declick.begin (juce::jmax (1, (int) (0.003 * sr)));
+    else v.declick.reset();
     v.hold      = b;
     v.region    = r;
     v.pos       = (double) juce::jlimit (0, juce::jmax (0, r->data.getNumSamples() - 2),
@@ -390,12 +398,14 @@ void SamplerEngine::noteOn (int midiNote, float velocity, int autoOffSamples)
     v.note      = midiNote;
     v.releasing = false;
     v.env       = 1.0f;
-    v.fadeIn    = 64;
+    v.fadeInLength = juce::jmax (1, (int) (0.0008 * sr));
+    v.fadeIn    = v.fadeInLength;
     v.autoOff   = autoOffSamples;
     v.relCoeff  = std::exp (-1.0f / (float) (juce::jmax (0.01f, r->releaseSeconds) * sr));
     v.gain      = velocity * juce::Decibels::decibelsToGain (r->volumeDb);
     v.ratio     = std::pow (2.0, (midiNote - r->root + r->tuneCents / 100.0) / 12.0)
                   * (r->srcRate / sr);
+    v.reader.setRatio (v.ratio);
 }
 
 void SamplerEngine::noteOff (int midiNote)
@@ -411,54 +421,83 @@ void SamplerEngine::releaseAll()
         v.releasing = true;
 }
 
+void SamplerEngine::chokeAll() noexcept
+{
+    for (auto& v : voices)
+        if (v.active())
+        {
+            v.releasing = true;
+            // About 3 ms to inaudible at 48 kHz: immediate to the player,
+            // long enough to avoid a discontinuity click.
+            v.relCoeff = 0.93f;
+        }
+}
+
 void SamplerEngine::render (juce::AudioBuffer<float>& out, int numSamples)
 {
+    if(releaseRequested.exchange(false))releaseAll();
     const int numCh = juce::jmin (2, out.getNumChannels());
-    if (numCh == 0)
-        return;
+    numSamples = juce::jlimit (0, out.getNumSamples(), numSamples);
+    if (numCh == 0) return;
+    const juce::ScopedNoDenormals noDenormals;
 
     for (auto& v : voices)
     {
-        if (! v.active())
-            continue;
-
-        const auto& d = v.region->data;
-        const int srcCh  = d.getNumChannels();
+        if (! v.active()) continue;
+        const auto& region = *v.region;
+        const auto& d = region.data;
         const int srcLen = d.getNumSamples();
+        if (srcLen <= 0 || d.getNumChannels() == 0)
+        { v.region = nullptr; v.hold.reset(); continue; }
+        const float* srcL = d.getReadPointer (0);
+        const float* srcR = d.getReadPointer (juce::jmin (1, d.getNumChannels() - 1));
 
         for (int n = 0; n < numSamples; ++n)
         {
-            int i0 = (int) v.pos;
-            if (v.region->loop && i0 >= v.region->loopEnd - 1)
+            bool wrapped = false;
+            if (region.loop && v.pos >= region.loopEnd)
             {
-                v.pos -= (double) (v.region->loopEnd - v.region->loopStart);
-                i0 = (int) v.pos;
+                // Modulo handles short loops and large pitch ratios; one
+                // subtract is not enough when a read skips several periods.
+                const double loopLength = region.loopEnd - region.loopStart;
+                v.pos = region.loopStart + std::fmod (v.pos - region.loopStart, loopLength);
+                wrapped = true;
             }
-            if (i0 >= srcLen - 1 || v.env < 1.0e-4f)
-            {
-                v.region = nullptr;
-                v.hold.reset();
-                break;
-            }
+            if (v.pos >= srcLen || v.env < 1.0e-4f)
+            { v.region = nullptr; v.hold.reset(); break; }
 
-            const float frac = (float) (v.pos - (double) i0);
+            float sL = 0.0f, sR = 0.0f;
+            const bool inLoop = region.loop && v.pos >= region.loopStart;
+            v.reader.readStereo (srcL, srcR, v.pos,
+                                  inLoop ? region.loopStart : 0,
+                                  inLoop ? region.loopEnd : srcLen,
+                                  inLoop, sL, sR);
             float g = v.gain * v.env;
             if (v.fadeIn > 0)
             {
-                g *= 1.0f - (float) v.fadeIn / 64.0f;
+                g *= slyce::quality::smoothstep (1.0f - (float) v.fadeIn / v.fadeInLength);
                 --v.fadeIn;
             }
-            if (v.autoOff > 0 && --v.autoOff == 0)
-                v.releasing = true;
-            if (v.releasing)
-                v.env *= v.relCoeff;
-
-            for (int ch = 0; ch < numCh; ++ch)
+            if (! region.loop)
             {
-                const float* src = d.getReadPointer (juce::jmin (ch, srcCh - 1));
-                const float s = src[i0] + frac * (src[i0 + 1] - src[i0]);
-                out.addSample (ch, n, s * g);
+                const double remaining = (srcLen - v.pos) / juce::jmax (1.0e-9, v.ratio);
+                g *= slyce::quality::smoothstep ((float) (remaining / (0.003 * sr)));
             }
+            sL *= g; sR *= g;
+            // Preserve loop duration and pitch: a continuity correction rather
+            // than shortening the loop by overlapping its head and tail.
+            if (wrapped)
+            {
+                const double loopOut = (region.loopEnd - region.loopStart) / v.ratio;
+                const int fade = juce::jmax (1, (int) juce::jmin (0.003 * sr, loopOut * 0.1));
+                // Single-cycle waveform loops must retain their exact waveform.
+                if (loopOut > 0.025 * sr) v.declick.begin (fade, sL, sR);
+            }
+            v.declick.process (sL, sR);
+            out.addSample (0, n, sL);
+            if (numCh > 1) out.addSample (1, n, sR);
+            if (v.autoOff > 0 && --v.autoOff == 0) v.releasing = true;
+            if (v.releasing) v.env *= v.relCoeff;
             v.pos += v.ratio;
         }
     }

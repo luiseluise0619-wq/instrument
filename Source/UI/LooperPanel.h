@@ -41,6 +41,7 @@ private:
     juce::File writeMixToTempFile();       // for the DAW drag-out
 
     static constexpr int kLoadAudioId = 900000;   // per-track combo item id
+    static constexpr int kCurrentChopId = 899999; // use the sample loaded in Chop mode
 
     VocalChopAudioProcessor& proc;
 
@@ -48,6 +49,7 @@ private:
     {
         juce::ComboBox   instBox;        // this track's pre-picked sound
         juce::TextButton mainButton  { "Rec" };
+        juce::TextButton moreButton  { "..." };
         juce::TextButton rerecButton { "Re-rec" };
         juce::TextButton undoButton  { "Undo" };
         juce::TextButton clearButton { "Clr" };
@@ -62,6 +64,7 @@ private:
         juce::Rectangle<int> ringArea;   // square record pad + progress ring
         juce::Rectangle<int> waveArea;   // this track's recorded material
         int chosenInstrument = -1;       // -1 = keep whatever is loaded
+        bool usesCurrentChop = false;    // this track records the currently loaded vocal chop
     };
     TrackUI trackUI[LoopStation::kNumTracks];
 
@@ -76,11 +79,14 @@ private:
     juce::TextButton playAllButton  { "Play all" };
     juce::TextButton stopAllButton  { "Stop all" };
     juce::TextButton clearAllButton { "Clear all" };
+    juce::TextButton transportButton { "Play all" };
+    juce::TextButton actionsButton { "..." };
     juce::TextButton exportButton   { "Export WAV" };
     juce::TextButton addTrackButton { "+ Add track" };
     juce::TextButton metroButton    { "Click" };
     juce::TextButton tapButton      { "Tap" };
     juce::TextButton syncButton     { "Sync" };   // follow the host tempo
+    juce::TextButton midiButton     { "MIDI" };
 
     /** Press-and-drag to drop the loop mix into the DAW as a WAV. JUCE's
         external drag needs a real file on disk, so the mix is rendered to
@@ -90,9 +96,13 @@ private:
         using juce::TextButton::TextButton;
         std::function<juce::File()> makeFile;
 
-        void mouseDrag (const juce::MouseEvent&) override
+        void mouseDrag (const juce::MouseEvent& e) override
         {
             if (dragging || makeFile == nullptr)
+                return;
+
+            juce::TextButton::mouseDrag (e);
+            if (e.getDistanceFromDragStart() < 8)
                 return;
 
             dragging = true;
@@ -157,9 +167,9 @@ private:
             // ASCII only - this codebase renders UTF-8 literals as Latin-1.
             const juce::Font subFont (juce::FontOptions (
                 juce::jlimit (8.5f, 11.5f, r.getHeight() * 0.23f)));
-            juce::String sub ("Drop the loop mix straight onto the timeline");
-            for (auto* shorter : { "Drop the loop mix onto the timeline",
-                                   "Drop the mix on the timeline", "" })
+            juce::String sub ("30s max per track. Drag mix to DAW");
+            for (auto* shorter : { "30s max / track - drag to DAW",
+                                   "30s max per track", "" })
             {
                 if ((float) juce::GlyphArrangement::getStringWidthInt (subFont, sub)
                         <= lines.getWidth())
@@ -211,6 +221,8 @@ private:
 
     juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox instrumentBox;  // Featured + category submenus
+    int selectedTrack = 0;         // Top picker targets the last-selected track.
+    bool syncingInstrumentPickers = false;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;
     std::unique_ptr<juce::FileChooser> fileChooser;     // per-track audio import
     std::unique_ptr<juce::FileChooser> exportChooser;   // Export WAV save dialog

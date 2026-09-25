@@ -9,6 +9,7 @@ void GranularEngine::prepare (juce::dsp::ProcessSpec s)
     for (int ch = 0; ch < kMaxChannels; ++ch)
         history[ch].assign ((size_t) historyLen, 0.0f);
 
+    mixSmoothed.reset (spec.sampleRate, 0.025);
     setGrainSize (80.0f);
     reset();
 }
@@ -17,6 +18,7 @@ void GranularEngine::reset()
 {
     for (int ch = 0; ch < kMaxChannels; ++ch)
         std::fill (history[ch].begin(), history[ch].end(), 0.0f);
+    mixSmoothed.setCurrentAndTargetValue (0.0f);
     writeAbs = 0;
     hopCounter = 0;
     for (auto& g : grains)
@@ -31,7 +33,7 @@ void GranularEngine::setGrainSize (float ms)
 
 float GranularEngine::historyRead (int channel, long long absolutePos) const
 {
-    if (absolutePos < 0)
+    if (absolutePos < 0 || absolutePos < writeAbs - historyLen || absolutePos > writeAbs)
         return 0.0f;
     const int idx = (int) (absolutePos % historyLen);
     return history[channel][(size_t) idx];
@@ -64,14 +66,18 @@ void GranularEngine::process (juce::AudioBuffer<float>& buffer)
     if (numChannels == 0 || numSamples == 0 || historyLen == 0)
         return;
 
-    // Pure pass-through when disabled.
-    if (mix <= 0.0f)
+    mixSmoothed.setTargetValue (mix);
+    // Do not freeze live grains while bypassed and replay their old positions
+    // when Texture is raised again. Keep only fresh input history.
+    if (mix <= 0.0f && ! mixSmoothed.isSmoothing())
     {
+        for (auto& grain : grains) grain.active = false;
+        hopCounter = 0;
         // Still keep history current so enabling later has material to read.
         for (int n = 0; n < numSamples; ++n)
         {
-            for (int ch = 0; ch < numChannels; ++ch)
-                history[ch][(size_t) (writeAbs % historyLen)] = buffer.getSample (ch, n);
+            for (int ch = 0; ch < kMaxChannels; ++ch)
+                history[ch][(size_t) (writeAbs % historyLen)] = buffer.getSample (juce::jmin (ch, numChannels - 1), n);
             ++writeAbs;
         }
         return;
@@ -81,17 +87,18 @@ void GranularEngine::process (juce::AudioBuffer<float>& buffer)
 
     float* outL = buffer.getWritePointer (0);
     float* outR = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
-    const float dry = 1.0f - mix;
+
 
     for (int n = 0; n < numSamples; ++n)
     {
+        const float wetMix = mixSmoothed.getNextValue();
+        const float dry = 1.0f - wetMix;
         const float inL = outL[n];
         const float inR = outR != nullptr ? outR[n] : inL;
 
         // Write input into history.
         history[0][(size_t) (writeAbs % historyLen)] = inL;
-        if (numChannels > 1)
-            history[1][(size_t) (writeAbs % historyLen)] = inR;
+        history[1][(size_t) (writeAbs % historyLen)] = inR;
 
         // Schedule grains.
         if (--hopCounter <= 0)
@@ -102,6 +109,7 @@ void GranularEngine::process (juce::AudioBuffer<float>& buffer)
 
         // Render active grains.
         float wetL = 0.0f, wetR = 0.0f;
+        float overlapL = 0.0f, overlapR = 0.0f;
         for (auto& g : grains)
         {
             if (! g.active)
@@ -115,18 +123,22 @@ void GranularEngine::process (juce::AudioBuffer<float>& buffer)
 
             wetL += sL * win * g.panL;
             wetR += sR * win * g.panR;
+            overlapL += win * g.panL;
+            overlapR += win * g.panR;
 
             if (++g.age >= g.length)
                 g.active = false;
         }
 
-        // Compensate for grain overlap (roughly 2 grains overlapping).
-        wetL *= 0.5f;
-        wetR *= 0.5f;
+        // Follow the actual window overlap instead of assuming exactly two
+        // grains. The floor preserves fades and never boosts a nearly silent
+        // grain to full scale.
+        wetL /= juce::jmax (1.0f, overlapL);
+        wetR /= juce::jmax (1.0f, overlapR);
 
-        outL[n] = inL * dry + wetL * mix;
+        outL[n] = inL * dry + wetL * wetMix;
         if (outR != nullptr)
-            outR[n] = inR * dry + wetR * mix;
+            outR[n] = inR * dry + wetR * wetMix;
 
         ++writeAbs;
     }

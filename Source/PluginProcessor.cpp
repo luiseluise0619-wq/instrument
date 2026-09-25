@@ -1,7 +1,21 @@
 #include "PluginProcessor.h"
-#include "PluginEditor.h"
+#include "AudioEngine/FactoryInstruments.h"
+#include "AudioEngine/SampleStateCodec.h"
+namespace {
+struct ScopedAtomicPatch { std::atomic<bool>& flag; bool old;
+    explicit ScopedAtomicPatch(std::atomic<bool>& f):flag(f),old(f.exchange(true)){}
+    ~ScopedAtomicPatch(){flag.store(old);}
+};
+}
+using slyce::factory::kInstruments;
+using slyce::factory::kNumInstruments;
+using slyce::factory::voicedDefinition;
+#include "UI/Reference/ReferenceEditor.h"
+#include "UI/ThemeManager.h"
 #include "AudioEngine/SampleLoader.h"
 #include "BinaryData.h"
+#include <cmath>
+#include <limits>
 
 //==============================================================================
 VocalChopAudioProcessor::VocalChopAudioProcessor()
@@ -9,6 +23,14 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "PARAMETERS", createParameterLayout())
 {
+    for (auto& semi : sliceTransposeSemis)
+        semi.store (0.0f, std::memory_order_relaxed);
+    for (int i = 0; i < 6; ++i)
+        looperMidiCC[(size_t) i].store (20 + i, std::memory_order_relaxed);
+    const int defaults[] = { 26, 27, 28, 29, 30, 31, 32, 33, 34 };
+    for (int i = 0; i < 9; ++i)
+        looperMidiCC[(size_t) (6 + i)].store (defaults[i], std::memory_order_relaxed);
+
    #if SLYCE_DEMO_GATE
     // A purchase is proven by the online check performed from UnlockPanel.
     // Once that succeeds, we keep a small machine-bound ticket so the buyer
@@ -27,6 +49,7 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     driveParam     = apvts.getRawParameterValue ("drive");
     reverbParam    = apvts.getRawParameterValue ("reverb");
     delayParam     = apvts.getRawParameterValue ("delay");
+    fxBypassParam  = apvts.getRawParameterValue ("fxBypass");
     attackParam    = apvts.getRawParameterValue ("attack");
     decayParam     = apvts.getRawParameterValue ("decay");
     sustainParam   = apvts.getRawParameterValue ("sustain");
@@ -63,13 +86,22 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     macroHypeParam  = apvts.getRawParameterValue ("macroHype");
     macroSpaceParam = apvts.getRawParameterValue ("macroSpace");
     macroDirtParam  = apvts.getRawParameterValue ("macroDirt");
+    airMacroParam   = apvts.getRawParameterValue ("airVocalAir");
+    bodyMacroParam  = apvts.getRawParameterValue ("airVocalBody");
+    vowelMacroParam = apvts.getRawParameterValue ("airVocalVowel");
+    bloomMacroParam = apvts.getRawParameterValue ("airVocalBloom");
+    motionMacroParam = apvts.getRawParameterValue ("airVocalMotion");
+    airSpaceMacroParam = apvts.getRawParameterValue ("airVocalSpace");
 
     apvts.addParameterListener ("pitch", this);
     apvts.addParameterListener ("formant", this);
+    for (const auto& id : ownableFx()) apvts.addParameterListener(id,this);
 
     // Synth mode boots with a designed patch (Supersaw Lead) whenever the
     // user flips the engine over.
     applyEnginePatch (defaultInstrumentIndex());
+    loadAirVocalPresetBank (0);
+    startTimerHz (20);
 
     // First-run experience = the name promise: decode the embedded demo
     // vocal and slice it, so the very first key press CHOPS. No parameter
@@ -77,9 +109,11 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     // engine parameter's default is already Chop.
     {
         double sr = currentSampleRate;
-        if (auto demo = SampleLoader::decode (BinaryData::vocal_chop_demo_wav,
-                                              BinaryData::vocal_chop_demo_wavSize, sr))
+        if (auto demo = SampleLoader::decode (BinaryData::premium_glass_tide_a_1_wav,
+                                              BinaryData::premium_glass_tide_a_1_wavSize, sr))
         {
+            loadedSampleName = "Glass Tide - Sung Hooks";
+            currentDemo=0;
             sampleBuffer     = demo;
             loadedSampleRate = sr;
             reassignSampleToEngines();
@@ -89,10 +123,24 @@ VocalChopAudioProcessor::VocalChopAudioProcessor()
     }
 }
 
+int VocalChopAudioProcessor::getLooperMidiCC (int action) const
+{
+    return juce::isPositiveAndBelow (action, (int) looperMidiCC.size())
+        ? looperMidiCC[(size_t) action].load (std::memory_order_relaxed) : -1;
+}
+
+void VocalChopAudioProcessor::setLooperMidiCC (int action, int cc)
+{
+    if (juce::isPositiveAndBelow (action, (int) looperMidiCC.size()))
+        looperMidiCC[(size_t) action].store (juce::jlimit (0, 127, cc), std::memory_order_relaxed);
+}
+
 VocalChopAudioProcessor::~VocalChopAudioProcessor()
 {
+    stopTimer();
     apvts.removeParameterListener ("pitch", this);
     apvts.removeParameterListener ("formant", this);
+    for (const auto& id : ownableFx()) apvts.removeParameterListener(id,this);
 }
 
 juce::File VocalChopAudioProcessor::localLicenseFile()
@@ -246,7 +294,7 @@ VocalChopAudioProcessor::createParameterLayout()
 
     // Synth engine mode: play oscillators instead of sample slices.
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
-        "engine", "Engine", juce::StringArray { "Chop", "Synth", "Sampled", "Melody" }, 0));
+        "engine", "Engine", juce::StringArray { "Chop", "Synth", "Sampled", "Melody", "Vocal Kit", "Air Vocal" }, 0));
     params.push_back (std::make_unique<juce::AudioParameterChoice> (
         "synthWave", "Synth Wave",
         juce::StringArray { "Saw", "Square", "Sine", "Triangle" }, 0));
@@ -312,6 +360,28 @@ VocalChopAudioProcessor::createParameterLayout()
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         "synthGlide", "Glide", Range (0.0f, 1500.0f, 1.0f, 0.35f), 0.0f));
 
+    // APPENDED for host automation compatibility. These six parameters map
+    // one-for-one to the dedicated AIR VOCAL instrument macros.
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "airVocalAir", "AIR", Range (0.0f, 1.0f, 0.001f), 0.25f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "airVocalBody", "BODY", Range (0.0f, 1.0f, 0.001f), 0.55f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "airVocalVowel", "VOWEL", Range (0.0f, 1.0f, 0.001f), 0.35f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "airVocalBloom", "BLOOM", Range (0.0f, 1.0f, 0.001f), 0.35f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "airVocalMotion", "MOTION", Range (0.0f, 1.0f, 0.001f), 0.18f));
+    params.push_back (std::make_unique<juce::AudioParameterFloat> (
+        "airVocalSpace", "SPACE", Range (0.0f, 1.0f, 0.001f), 0.40f));
+
+    // APPENDED: a host-automatable, project-persistent true bypass.  Never
+    // emulate bypass by zeroing effect parameters: doing so destroys
+    // automation and prevents the previous sound being restored after an
+    // editor is closed and reopened.
+    params.push_back (std::make_unique<juce::AudioParameterBool> (
+        "fxBypass", "Creative FX Bypass", false));
+
     return { params.begin(), params.end() };
 }
 
@@ -328,6 +398,8 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     synthEngine.prepare (spec);
     samplerEngine.prepare (sampleRate, samplesPerBlock);
     melodyEngine.prepare (sampleRate, samplesPerBlock);
+    vocalKitEngine.prepare (sampleRate, samplesPerBlock);
+    airVocalEngine.prepare (sampleRate, samplesPerBlock);
     pitchFormant.prepare (sampleRate, samplesPerBlock, juce::jmax (1, getTotalNumOutputChannels()));
     granularEngine.prepare (spec);
     fxChain.prepare (spec);
@@ -337,8 +409,13 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     widthSmoothed.reset (sampleRate, 0.02);
     widthSmoothed.setCurrentAndTargetValue (widthParam != nullptr ? widthParam->load() : 1.0f);
 
+    outputGainSmoothed.reset (sampleRate, 0.020);
+    outputGainSmoothed.setCurrentAndTargetValue (
+        juce::Decibels::decibelsToGain (outputGainParam != nullptr ? outputGainParam->load() : 0.0f));
+
     noteToVoice.fill (-1);
     padKeyToVoice.fill (-1);
+    physicalHeld.fill(false); sustainDeferred.fill(false); sustainDown=false;
 
     // Transport/device changes must not resurrect an arp pattern or leave the
     // pump mid-duck (a stale phase makes the first bar after a restart lopsided).
@@ -349,21 +426,30 @@ void VocalChopAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     arpGateSamples = 0;
     arpIndex = 0; arpDir = 1; arpOctave = 0;
     pumpPhase = 0.0;
+    mappedSampleInputNote = -1;
+    mappedSamplePitchSemitones = 0.0f;
 
-    // Total plugin latency: the pitch/formant engine's inherent latency plus
-    // the limiter's look-ahead delay.
-    // Report only the limiter's tiny look-ahead. The stretch engine is fully
-    // BYPASSED at neutral pitch/formant, so a live player feels ~2 ms; when a
-    // pitch knob is in use its latency is audible but not host-compensated
-    // (re-reporting latency mid-play makes hosts glitch far worse).
-    setLatencySamples (limiter.getLatencySamples());
+    const bool pitchActive = std::abs(pitchParam->load()) > 0.01f
+                          || std::abs(formantParam->load()) > 0.01f;
+    const int latency = limiter.getLatencySamples() + (pitchActive ? pitchFormant.getLatencySamples() : 0);
+    desiredHostLatency.store(latency);
+    setLatencySamples(latency);
 
     reassignSampleToEngines();
+}
+
+void VocalChopAudioProcessor::timerCallback()
+{
+    const int wanted = desiredHostLatency.load(std::memory_order_relaxed);
+    if (wanted != getLatencySamples()) setLatencySamples(wanted);
+    looper.collectRetired();
 }
 
 void VocalChopAudioProcessor::releaseResources()
 {
     voicePool.releaseAll();
+    vocalKitEngine.releaseAll();
+    airVocalEngine.releaseAll();
 }
 
 bool VocalChopAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -386,6 +472,7 @@ void VocalChopAudioProcessor::reassignSampleToEngines()
         if (sampleBuffer != nullptr)
             melodyEngine.loadFromBuffer (*sampleBuffer, loadedSampleRate, "Melody",
                                          kRootNote);   // first keybed key = original pitch
+        else melodyEngine.clearBank();
     }
 }
 
@@ -480,12 +567,17 @@ void VocalChopAudioProcessor::rescanSlices()
         sliceEngine.setGridDivision (16);
         sliceEngine.rebuildSlices();
     }
+
+    const int n = sliceEngine.getNumSlices();
+    for (int i = n; i < (int) sliceTransposeSemis.size(); ++i)
+        sliceTransposeSemis[(size_t) i].store (0.0f, std::memory_order_relaxed);
 }
 
 //==============================================================================
 void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                             juce::MidiBuffer& midi)
 {
+    hostBpm.store(0.0); hostPpq.store(-1.0); hostPlaying.store(false);
     // Host transport: the looper metronome and the synced delay follow it.
     if (auto* ph = getPlayHead())
     {
@@ -502,6 +594,7 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         }
     }
 
+    looper.updateHostTempo(hostBpm.load(), hostPpq.load(), hostPlaying.load());
     juce::ScopedNoDenormals noDenormals;
 
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
@@ -522,6 +615,9 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                         : (int) synthWaveParam->load());
     synthEngine.setDetuneCents (synthDetuneParam->load());
     synthEngine.setOctave ((int) synthOctaveParam->load());
+    airVocalEngine.setMacros (airMacroParam->load(), bodyMacroParam->load(),
+                              vowelMacroParam->load(), bloomMacroParam->load(),
+                              motionMacroParam->load(), airSpaceMacroParam->load());
 
     // Adjustable synth modules: the knobs drive the patch every block, so
     // tweaking Unison / Sub / FM / Chorus reshapes the sound live.
@@ -562,51 +658,44 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         effWidth  = juce::jlimit (0.0f, 2.0f, widthParam->load()  + 0.50f * space);
     }
 
-    // 1) MIDI + pad-queue → slice / synth triggers.
-    handleMidi (midi, numSamples);
+    // MIDI timestamps are sample positions INSIDE this callback, not hints.
+    // Render up to an event, apply it, and only then render what follows.
+    desiredHostLatency.store(limiter.getLatencySamples()
+        + ((std::abs(pitchParam->load()) > 0.01f || std::abs(formantParam->load()) > 0.01f
+            || (isMelodyMode() && std::abs(mappedSamplePitchSemitones) > 0.01f))
+              ? pitchFormant.getLatencySamples() : 0), std::memory_order_relaxed);
     drainPadQueue();
-    advanceArp (numSamples);
-
-    // 2) Render both sources (the unused engine is simply silent, so
-    //    switching modes mid-note never clicks).
-    voicePool.renderNextBlock (buffer, numSamples);
-    synthEngine.render (buffer, numSamples);
-    // Leaving Sampled mode must actually silence it - long piano samples
-    // otherwise keep ringing over the newly picked instrument.
-    if (! isSamplerMode())
-        samplerEngine.releaseAll();
-    samplerEngine.render (buffer, numSamples);
-    if (! isMelodyMode())
-        melodyEngine.releaseAll();
-    melodyEngine.render (buffer, numSamples);
-
-    // 3) Pitch / formant transformation.
-    pitchFormant.process (buffer,
-                          pitchParam->load(),
-                          formantParam->load(),
-                          mixParam->load());
-
-    // 4) Granular texture (bypassed unless its mix is raised).
-    granularEngine.setGrainSize (grainSizeParam->load());
-    granularEngine.setMix (grainMixParam->load());
-    granularEngine.process (buffer);
-
-    // 5) Master FX chain.
-    applyMasterFXChain (buffer);
-
-    // 6) Stereo width.
-    applyStereoWidth (buffer);
-
-    // 7) Output gain trim (before the limiter so it protects the boosted signal).
-    const float gain = juce::Decibels::decibelsToGain (outputGainParam->load());
-    buffer.applyGain (gain);
-
-    // 8) Loop station: records the performance, then adds the stacked loop
-    //    (the limiter after us protects the sum).
-    looper.process (buffer, numSamples);
-
-    // 9) Brick-wall limiter.
-    limiter.process (buffer);
+    if (wholeSamplePreviewPending.exchange(false, std::memory_order_acq_rel))
+    {
+        // Whole-sample preview belongs to the same Vocal Chop choke group as
+        // the slice pads: starting either one replaces the previous phrase.
+        const int voice = voicePool.triggerMonophonicVoice (
+            0, std::numeric_limits<int>::max(), 0.9f, 0.0f, true);
+        clearVoiceMapping (voice);
+    }
+    int cursor = 0;
+    auto renderUntil = [&] (int end) {
+        while(cursor < end) {
+            advanceArp(cursor);
+            int count = juce::jmin(end-cursor, juce::jmax(1, (int)spec.maximumBlockSize));
+            if((isSynthMode() || isSamplerMode() || isMelodyMode())
+                && arpModeParam != nullptr && arpModeParam->load() > 0.5f) {
+                if(arpStepSamples > 0)count=juce::jmin(count, arpStepSamples);
+                if(arpNote >= 0 && arpGateSamples > 0)count=juce::jmin(count, arpGateSamples);
+            }
+            renderSegment(buffer,cursor,count);
+            if(arpStepSamples > 0)arpStepSamples-=count;
+            if(arpNote >= 0)arpGateSamples-=count;
+            cursor+=count;
+        }
+    };
+    for(const auto meta : midi) {
+        const int at=juce::jlimit(cursor,numSamples,meta.samplePosition);
+        renderUntil(at);
+        if(meta.numBytes > 0 && meta.numBytes <= 3)handleMidiMessage(meta.getMessage());
+    }
+    renderUntil(numSamples);
+    midi.clear();
 
     // 9b) Sidechain pump: the EDM signature. A tempo-locked duck applied to
     //     the whole mix - no external sidechain routing needed.
@@ -650,18 +739,12 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             pumpPhase = 0.0;
     }
 
-    // 10) Demo gate: without a license the output mutes for 2 s every 30 s
+    // 10) Demo gate: without a license the output mutes for 2 s every 60 s
     //     (short fades at the window edges so there is no click).
     //
-    //     The mute stays SHORT deliberately. Lengthening it makes the plugin
-    //     sound broken rather than limited, and the whole point of a demo is
-    //     that someone can judge how it sounds - a demo that sounds bad gets
-    //     judged as a bad plugin. The pressure to buy comes from
-    //     getStateInformation refusing to write instead: every voice is fully
-    //     auditionable, and no project can be finished.
     if (! licensed.load (std::memory_order_relaxed))
     {
-        const auto period  = (int64_t) (30.0 * currentSampleRate);
+        const auto period  = (int64_t) (60.0 * currentSampleRate);
         const auto muteLen = (int64_t) ( 2.0 * currentSampleRate);
         for (int n = 0; n < numSamples; ++n)
         {
@@ -711,24 +794,87 @@ void VocalChopAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     }
 }
 
-void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*numSamples*/)
+void VocalChopAudioProcessor::renderSegment(juce::AudioBuffer<float>& whole, int offset, int numSamples)
 {
-    for (const auto meta : midi)
+    if(numSamples <= 0 || whole.getNumChannels() == 0)return;
+    float* channels[2] { whole.getWritePointer(0, offset),
+        whole.getWritePointer(juce::jmin(1, whole.getNumChannels()-1), offset) };
+    juce::AudioBuffer<float> buffer(channels, juce::jmin(2, whole.getNumChannels()), numSamples);
+    // 2) Render both sources (the unused engine is simply silent, so
+    //    switching modes mid-note never clicks).
+    voicePool.renderNextBlock (buffer, numSamples);
+    synthEngine.render (buffer, numSamples);
+    // Leaving Sampled mode must actually silence it - long piano samples
+    // otherwise keep ringing over the newly picked instrument.
+    if (! isSamplerMode())
+        samplerEngine.releaseAll();
+    samplerEngine.render (buffer, numSamples);
+    if (! isMelodyMode())
+        melodyEngine.releaseAll();
+    melodyEngine.render (buffer, numSamples);
+    if (! isVocalKitMode())
+        vocalKitEngine.releaseAll();
+    vocalKitEngine.render (buffer, numSamples);
+    if (! isAirVocalMode())
+        airVocalEngine.releaseAll();
+    airVocalEngine.render (buffer, numSamples);
+
+    // 3) Pitch / formant transformation. In Mapped Sample mode the reader
+    // stays at C3/original speed and this pitch-only stage follows the key.
+    // Previously C4 consumed the source at 2x speed and cut a vocal in half.
+    const float mappedPitch = isMelodyMode() ? mappedSamplePitchSemitones : 0.0f;
+    pitchFormant.process (buffer,
+                          juce::jlimit (-36.0f, 36.0f,
+                                        pitchParam->load() + mappedPitch),
+                          formantParam->load(),
+                          mixParam->load());
+
+    // 4) Granular texture (bypassed unless its mix is raised).
+    granularEngine.setGrainSize (grainSizeParam->load());
+    granularEngine.setMix (grainMixParam->load());
+    granularEngine.process (buffer);
+
+    // 5) Master FX chain.
+    applyMasterFXChain (buffer);
+
+    // 6) Stereo width.
+    applyStereoWidth (buffer);
+
+    // 7) Output gain trim (before the limiter so it protects the boosted signal).
+    const float gain = juce::Decibels::decibelsToGain (outputGainParam->load());
+    outputGainSmoothed.setTargetValue (gain);
+    for (int n = 0; n < numSamples; ++n)
     {
-        // Note/CC messages only — building a MidiMessage from a large SysEx
-        // event would heap-allocate on the audio thread.
-        if (meta.numBytes > 3)
-            continue;
+        const float g = outputGainSmoothed.getNextValue();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.setSample (ch, n, buffer.getSample (ch, n) * g);
+    }
 
-        const auto msg = meta.getMessage();
+    // 8) Loop station: records the performance, then adds the stacked loop
+    //    (the limiter after us protects the sum).
+    looper.process (buffer, numSamples);
 
-        const int note = msg.getNoteNumber();
+    // 9) Brick-wall limiter.
+    limiter.process (buffer);
+
+}
+
+void VocalChopAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg)
+{
+        const int note = (msg.isNoteOn() || msg.isNoteOff()) ? msg.getNoteNumber() : -1;
 
         if (msg.isNoteOn() && msg.getVelocity() > 0)
         {
+            // Hardware and OS typing bridges can emit repeated note-ons while
+            // a key is physically held. Treat those as key-repeat, not as a
+            // request to restart a one-shot or to stack another gate voice.
+            if (juce::isPositiveAndBelow (note, 128) && physicalHeld[(size_t) note])
+                return;
+            if(juce::isPositiveAndBelow(note,128)) { physicalHeld[(size_t)note]=true; sustainDeferred[(size_t)note]=false; }
             // With the arp on, held notes feed the PATTERN instead of
             // sounding directly; advanceArp() plays them on the grid.
-            if (arpModeParam != nullptr && (int) arpModeParam->load() > 0)
+            if ((isSynthMode() || isSamplerMode() || isMelodyMode() || isAirVocalMode())
+                && arpModeParam != nullptr && (int) arpModeParam->load() > 0)
             {
                 if (juce::isPositiveAndBelow (note, 128))
                 {
@@ -743,7 +889,9 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
         {
             if (juce::isPositiveAndBelow (note, 128))
                 arpHeld[(size_t) note] = false;
-            routeNoteOff (note);
+            if(juce::isPositiveAndBelow(note,128))physicalHeld[(size_t)note]=false;
+            if(sustainDown && juce::isPositiveAndBelow(note,128))sustainDeferred[(size_t)note]=true;
+            else routeNoteOff (note);
         }
         else if (msg.isAllNotesOff() || msg.isAllSoundOff())
         {
@@ -757,23 +905,139 @@ void VocalChopAudioProcessor::handleMidi (const juce::MidiBuffer& midi, int /*nu
             synthEngine.releaseAll();
             samplerEngine.releaseAll();
             melodyEngine.releaseAll();
+            if (msg.isAllSoundOff()) vocalKitEngine.stopAll();
+            else                     vocalKitEngine.releaseAll();
+            if (msg.isAllSoundOff()) airVocalEngine.stopAll();
+            else                     airVocalEngine.releaseAll();
             noteToVoice.fill (-1);
             padKeyToVoice.fill (-1);
+            mappedSampleInputNote = -1;
+            mappedSamplePitchSemitones = 0.0f;
+            physicalHeld.fill(false); sustainDeferred.fill(false); sustainDown=false;
             arpHeld.fill (false);
             arpVel.fill (0.0f);
             arpNote = -1;
         }
-    }
+        else if (msg.isController())
+        {
+            const int cc = msg.getControllerNumber();
+            const int value = msg.getControllerValue();
+            if(cc == 64 || cc == 121) {
+                const bool down = cc == 64 && value >= 64;
+                if(sustainDown && !down)for(int n=0;n<128;++n) {
+                    if(sustainDeferred[(size_t)n] && !physicalHeld[(size_t)n])routeNoteOff(n);
+                    sustainDeferred[(size_t)n]=false;
+                }
+                sustainDown=down; return;
+            }
+            if (value < 64)
+                return; // footswitch/button release
+
+            int track = -1;
+            for (int i = 0; i < 6; ++i)
+                if (cc == getLooperMidiCC (i)) { track = i; break; }
+            if (track >= 0)
+            {
+                midiLooperTrack.store (track, std::memory_order_relaxed);
+                looper.tapMain (track);
+            }
+            // Legacy per-track footswitch ranges remain available alongside
+            // the configurable actions: stop 40-45, re-record 50-55, undo
+            // 80-85. This keeps existing controller templates working.
+            else if (cc >= 40 && cc <= 45)
+                looper.tapStopTrack (cc - 40);
+            else if (cc >= 50 && cc <= 55)
+                looper.tapReRecord (cc - 50);
+            else if (cc >= 80 && cc <= 85)
+                looper.tapUndo (cc - 80);
+            else if (cc == getLooperMidiCC (6))
+            {
+                looper.tapStopAll();
+            }
+            else if (cc == getLooperMidiCC (7))
+            {
+                looper.tapPlayAll();
+            }
+            else if (cc == getLooperMidiCC (8))
+            {
+                const int next = (midiLooperTrack.load (std::memory_order_relaxed)
+                                  + LoopStation::kNumTracks - 1) % LoopStation::kNumTracks;
+                midiLooperTrack.store (next, std::memory_order_relaxed);
+            }
+            else if (cc == getLooperMidiCC (9))
+            {
+                const int next = (midiLooperTrack.load (std::memory_order_relaxed) + 1)
+                               % LoopStation::kNumTracks;
+                midiLooperTrack.store (next, std::memory_order_relaxed);
+            }
+            else if (cc == getLooperMidiCC (10))
+            {
+                looper.tapMain (midiLooperTrack.load (std::memory_order_relaxed));
+            }
+            else if (cc == getLooperMidiCC (11))
+            {
+                looper.tapStopTrack (midiLooperTrack.load (std::memory_order_relaxed));
+            }
+            else if (cc == getLooperMidiCC (12))
+            {
+                looper.tapReRecord (midiLooperTrack.load (std::memory_order_relaxed));
+            }
+            else if (cc == getLooperMidiCC (13))
+            {
+                looper.tapUndo (midiLooperTrack.load (std::memory_order_relaxed));
+            }
+            else if (cc == getLooperMidiCC (14))
+            {
+                looper.tapClear (midiLooperTrack.load (std::memory_order_relaxed));
+            }
+        }
 }
 
 void VocalChopAudioProcessor::routeNoteOn (int note, float velocity, bool selfReleasing)
 {
+    // Only the CURRENT sample engine may speak. Switching from a chop/mapped
+    // vocal to any other playable area used to leave the old phrase ringing
+    // underneath until its natural end. Hard-stop the inactive sample paths
+    // at the next note; the active engine keeps its intended polyphony.
+    if (! isChopMode())
+        voicePool.stopAll();
+    if (! isMelodyMode())
+    {
+        melodyEngine.chokeAll();
+        mappedSampleInputNote = -1;
+    }
+    if (! isVocalKitMode())
+        vocalKitEngine.stopAll();
+    if (! isSynthMode())
+        synthEngine.chokeAll();
+    if (! isSamplerMode())
+        samplerEngine.chokeAll();
+    if (! isAirVocalMode())
+        airVocalEngine.stopAll();
+
     // Sampled/Melody modes without a loaded bank fall through to the synth
     // branch (isSynthMode() is true there too): keys must NEVER be silent.
-    if (isMelodyMode() && melodyEngine.hasBank())
+    if (isAirVocalMode())
     {
-        if (selfReleasing) melodyEngine.tapNote (note, velocity);
-        else               melodyEngine.noteOn  (note, velocity);
+        airVocalEngine.noteOn (note, velocity, selfReleasing);
+    }
+    else if (isVocalKitMode())
+    {
+        vocalKitEngine.noteOn (note, velocity, selfReleasing);
+        const int slot = vocalKitEngine.getLastTriggeredSlot();
+        if (slot >= 0) selectedSlice.store (slot, std::memory_order_relaxed);
+    }
+    else if (isMelodyMode() && melodyEngine.hasBank())
+    {
+        // A mapped vocal is one phrase played at different pitches, not a
+        // piano multisample. The next key replaces the previous phrase. Keep
+        // playback at the root rate; PitchFormant changes pitch afterwards
+        // without changing the phrase duration.
+        melodyEngine.chokeAll();
+        mappedSampleInputNote = note;
+        mappedSamplePitchSemitones = (float) (note - kRootNote);
+        if (selfReleasing) melodyEngine.tapNote (kRootNote, velocity);
+        else               melodyEngine.noteOn  (kRootNote, velocity);
     }
     else if (isSamplerMode() && samplerEngine.hasBank())
     {
@@ -807,7 +1071,15 @@ void VocalChopAudioProcessor::routeNoteOff (int note)
     // engine holds nothing for this note.
     synthEngine.noteOff (note);
     samplerEngine.noteOff (note);
-    melodyEngine.noteOff (note);
+    if (note == mappedSampleInputNote)
+    {
+        melodyEngine.noteOff (kRootNote);
+        mappedSampleInputNote = -1;
+    }
+    else
+        melodyEngine.noteOff (note);
+    vocalKitEngine.noteOff (note);
+    airVocalEngine.noteOff (note);
 
     if (juce::isPositiveAndBelow (note, 128) && noteToVoice[(size_t) note] >= 0)
     {
@@ -822,15 +1094,22 @@ double VocalChopAudioProcessor::currentBpm() const
     return host > 0.0 ? host : (double) looper.getMetroBpm();
 }
 
-void VocalChopAudioProcessor::advanceArp (int numSamples)
+void VocalChopAudioProcessor::advanceArp (int blockOffset)
 {
-    const int mode = arpModeParam != nullptr ? (int) arpModeParam->load() : 0;
+    const bool arpCapableEngine = isSynthMode() || isSamplerMode() || isMelodyMode() || isAirVocalMode();
+    const int mode = arpCapableEngine && arpModeParam != nullptr ? (int) arpModeParam->load() : 0;
 
     if (mode <= 0)
     {
         // Turning the arp off must not leave its last note hanging.
         if (arpNote >= 0) { routeNoteOff (arpNote); arpNote = -1; }
         arpStepSamples = 0;
+        arpLastStep = std::numeric_limits<int64_t>::min();
+        if (! arpCapableEngine)
+        {
+            arpHeld.fill (false);
+            arpVel.fill (0.0f);
+        }
         return;
     }
 
@@ -846,6 +1125,7 @@ void VocalChopAudioProcessor::advanceArp (int numSamples)
         if (arpNote >= 0) { routeNoteOff (arpNote); arpNote = -1; }
         arpStepSamples = 0;       // the next held note starts a step at once
         arpIndex = 0; arpDir = 1; arpOctave = 0;
+        arpLastStep = std::numeric_limits<int64_t>::min();
         return;
     }
 
@@ -861,10 +1141,10 @@ void VocalChopAudioProcessor::advanceArp (int numSamples)
     const int octaves = arpOctParam != nullptr
                           ? juce::jlimit (1, 3, (int) arpOctParam->load() + 1) : 1;
 
-    // Note-off for the current step's note (block granularity, like the pads).
+    // Note-off at the exact sample deadline.
     if (arpNote >= 0)
     {
-        arpGateSamples -= numSamples;
+        // The renderer has already advanced the exact number of samples.
         if (arpGateSamples <= 0)
         {
             routeNoteOff (arpNote);
@@ -875,9 +1155,11 @@ void VocalChopAudioProcessor::advanceArp (int numSamples)
     // Step boundary. With a rolling transport the grid comes from the host's
     // musical position, so the pattern sits on the DAW's beats no matter when
     // the chord was pressed; otherwise fall back to a free-running counter.
-    const double ppq = hostPpq.load();
+    const double ppq = hostPpq.load() + (hostPpq.load() >= 0.0 ?
+        blockOffset * currentBpm() / (60.0 * currentSampleRate) : 0.0);
     if (ppq >= 0.0 && hostPlaying.load())
     {
+        arpStepSamples = juce::jmax(1, (int)std::ceil(((std::floor(ppq/rateMult[rate])+1.0) * rateMult[rate] - ppq) * 60.0 * currentSampleRate / currentBpm() - 1.0e-7));
         const auto step = (int64_t) std::floor (ppq / rateMult[rate]);
         if (step == arpLastStep)
             return;
@@ -887,7 +1169,7 @@ void VocalChopAudioProcessor::advanceArp (int numSamples)
     {
         arpLastStep = std::numeric_limits<int64_t>::min();
 
-        arpStepSamples -= numSamples;
+        // Exact countdown is decremented after rendering, not before.
         if (arpStepSamples > 0)
             return;
 
@@ -974,8 +1256,14 @@ int VocalChopAudioProcessor::triggerSliceIndex (int sliceIndex, float velocity)
     SlicePoint slice;
     if (sliceEngine.tryGetSlice (sliceIndex, slice))
     {
-        const int voice = voicePool.triggerVoice (slice.startSample,
-                                                  slice.lengthSamples, velocity);
+        const float semi = getSliceTranspose (sliceIndex);
+        // Vocal chops are a single choke group. Every entry point (host MIDI,
+        // typing keyboard, on-screen key, slice card and arpeggiator) arrives
+        // here, so replacing the dedicated mono slot fixes all of them while
+        // Synth, Sampled, Melody and Drum Kit keep their existing polyphony.
+        const int voice = voicePool.triggerMonophonicVoice (slice.startSample,
+                                                            slice.lengthSamples, velocity,
+                                                            semi);
         // Ground truth for --keymap: the position in the audio this voice
         // actually began reading from. Relaxed - nothing synchronises on it.
         lastVoiceSlice.store (sliceIndex, std::memory_order_relaxed);
@@ -1006,6 +1294,11 @@ void VocalChopAudioProcessor::triggerSlicePad (int sliceIndex, float velocity)
     queuePadEvent (sliceIndex, velocity, padTap);
 }
 
+void VocalChopAudioProcessor::triggerSliceDirectPad (int sliceIndex, float velocity)
+{
+    queuePadEvent (sliceIndex, velocity, padDirectTap);
+}
+
 void VocalChopAudioProcessor::pressSlicePad (int sliceIndex, float velocity)
 {
     queuePadEvent (sliceIndex, velocity, padOn);
@@ -1021,6 +1314,206 @@ void VocalChopAudioProcessor::chokeSlicePad (int sliceIndex)
     queuePadEvent (sliceIndex, 0.0f, padChoke);
 }
 
+float VocalChopAudioProcessor::getSliceTranspose (int slice) const
+{
+    if (slice < 0 || slice >= (int) sliceTransposeSemis.size())
+        return 0.0f;
+    return sliceTransposeSemis[(size_t) slice].load (std::memory_order_relaxed);
+}
+
+void VocalChopAudioProcessor::setSliceTranspose (int slice, float semitones)
+{
+    const int n = sliceEngine.getNumSlices();
+    if (n <= 0 || slice < 0)
+        return;
+
+    slice = juce::jlimit (0, juce::jmin (n - 1, (int) sliceTransposeSemis.size() - 1), slice);
+    sliceTransposeSemis[(size_t) slice].store (juce::jlimit (-24.0f, 24.0f, semitones),
+                                               std::memory_order_relaxed);
+}
+
+void VocalChopAudioProcessor::nudgeSelectedSliceTranspose (float semitoneDelta)
+{
+    int s = selectedSlice;
+    if (s < 0)
+        s = 0;
+    setSliceTranspose (s, getSliceTranspose (s) + semitoneDelta);
+}
+
+namespace
+{
+    juce::AudioBuffer<float> renderSliceForExport (const juce::AudioBuffer<float>& src,
+                                                   SlicePoint slice,
+                                                   float semitones)
+    {
+        const int channels = juce::jmax (1, src.getNumChannels());
+        const double ratio = std::pow (2.0, (double) juce::jlimit (-24.0f, 24.0f, semitones) / 12.0);
+        const int outLen = juce::jmax (1, (int) std::ceil ((double) slice.lengthSamples / juce::jmax (1.0e-6, ratio)));
+        juce::AudioBuffer<float> out (channels, outLen);
+        out.clear();
+
+        const int srcEnd = juce::jmin (src.getNumSamples(), slice.startSample + slice.lengthSamples);
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            const float* in = src.getReadPointer (juce::jmin (ch, src.getNumChannels() - 1));
+            float* dst = out.getWritePointer (ch);
+            for (int i = 0; i < outLen; ++i)
+            {
+                const double pos = (double) slice.startSample + (double) i * ratio;
+                if (pos >= (double) srcEnd)
+                    break;
+                const int i0 = juce::jlimit (0, src.getNumSamples() - 1, (int) pos);
+                const int i1 = juce::jmin (i0 + 1, src.getNumSamples() - 1);
+                const float frac = (float) (pos - (double) i0);
+                float v = in[i0] + frac * (in[i1] - in[i0]);
+                const int fade = juce::jmin (128, outLen / 4);
+                if (fade > 1)
+                {
+                    if (i < fade) v *= (float) i / (float) fade;
+                    if (outLen - i < fade) v *= (float) (outLen - i) / (float) fade;
+                }
+                dst[i] = v;
+            }
+        }
+        return out;
+    }
+
+    bool writeWavFile (const juce::File& file,
+                       const juce::AudioBuffer<float>& buffer,
+                       double sampleRate,
+                       juce::String& error)
+    {
+        file.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::FileOutputStream> stream (file.createOutputStream());
+        if (stream == nullptr)
+        {
+            error = "Could not create " + file.getFullPathName();
+            return false;
+        }
+        std::unique_ptr<juce::AudioFormatWriter> writer (
+            wav.createWriterFor (stream.get(), sampleRate, (unsigned int) buffer.getNumChannels(), 24, {}, 0));
+        if (writer == nullptr)
+        {
+            error = "Could not create WAV writer for " + file.getFullPathName();
+            return false;
+        }
+        stream.release();
+        if (! writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples()))
+        {
+            error = "Failed writing " + file.getFullPathName();
+            return false;
+        }
+        return true;
+    }
+}
+
+bool VocalChopAudioProcessor::exportSlicesToFolder (const juce::File& folder,
+                                                    juce::String& error) const
+{
+    auto src = sampleBuffer;
+    if (src == nullptr || src->getNumSamples() <= 0)
+    {
+        error = "No sample loaded.";
+        return false;
+    }
+    if (! folder.createDirectory())
+    {
+        error = "Could not create export folder.";
+        return false;
+    }
+
+    const int n = sliceEngine.getNumSlices();
+    if (n <= 0)
+    {
+        error = "No slices to export.";
+        return false;
+    }
+
+    for (int i = 0; i < n; ++i)
+    {
+        auto sl = sliceEngine.getSlice (i);
+        if (! sl.has_value())
+            continue;
+        auto rendered = renderSliceForExport (*src, *sl, getSliceTranspose (i));
+        const auto semi = getSliceTranspose (i);
+        const juce::String index = (i + 1 < 10 ? "0" : "") + juce::String (i + 1);
+        const juce::String pitch = semi == 0.0f ? "0" : juce::String (semi, 1).replaceCharacter ('.', 'p');
+        auto out = folder.getChildFile ("slice_" + index + "_st" + pitch + ".wav");
+        if (! writeWavFile (out, rendered, loadedSampleRate, error))
+            return false;
+    }
+    return true;
+}
+
+bool VocalChopAudioProcessor::exportSliceToFile (int sliceIndex,
+                                                 const juce::File& file,
+                                                 juce::String& error) const
+{
+    auto src = sampleBuffer;
+    if (src == nullptr || src->getNumSamples() <= 0)
+    {
+        error = "No sample loaded.";
+        return false;
+    }
+
+    const auto slice = sliceEngine.getSlice (sliceIndex);
+    if (! slice.has_value())
+    {
+        error = "That slice is no longer available.";
+        return false;
+    }
+
+    const auto rendered = renderSliceForExport (*src, *slice, getSliceTranspose (sliceIndex));
+    return writeWavFile (file, rendered, loadedSampleRate, error);
+}
+
+bool VocalChopAudioProcessor::exportSlicesMergedToFile (const juce::File& file,
+                                                        juce::String& error) const
+{
+    auto src = sampleBuffer;
+    if (src == nullptr || src->getNumSamples() <= 0)
+    {
+        error = "No sample loaded.";
+        return false;
+    }
+    const int n = sliceEngine.getNumSlices();
+    if (n <= 0)
+    {
+        error = "No slices to export.";
+        return false;
+    }
+
+    std::vector<juce::AudioBuffer<float>> rendered;
+    int total = 0;
+    const int gap = (int) (loadedSampleRate * 0.035);
+    for (int i = 0; i < n; ++i)
+    {
+        auto sl = sliceEngine.getSlice (i);
+        if (! sl.has_value())
+            continue;
+        rendered.push_back (renderSliceForExport (*src, *sl, getSliceTranspose (i)));
+        total += rendered.back().getNumSamples() + gap;
+    }
+
+    if (rendered.empty())
+    {
+        error = "No valid slices to export.";
+        return false;
+    }
+
+    juce::AudioBuffer<float> merged (src->getNumChannels(), juce::jmax (1, total));
+    merged.clear();
+    int pos = 0;
+    for (auto& r : rendered)
+    {
+        for (int ch = 0; ch < merged.getNumChannels(); ++ch)
+            merged.copyFrom (ch, pos, r, juce::jmin (ch, r.getNumChannels() - 1), 0, r.getNumSamples());
+        pos += r.getNumSamples() + gap;
+    }
+    return writeWavFile (file, merged, loadedSampleRate, error);
+}
+
 void VocalChopAudioProcessor::drainPadQueue()
 {
     int start1, size1, start2, size2;
@@ -1030,6 +1523,15 @@ void VocalChopAudioProcessor::drainPadQueue()
 
     auto fire = [this, synth] (int idx, float vel, int type)
     {
+        // Slice cards carry a slice index directly. Do not reinterpret that
+        // index as a chromatic key offset (C# otherwise maps back to slice 0).
+        if (type == padDirectTap)
+        {
+            if (! synth && sliceEngine.getNumSlices() > 0)
+                triggerSliceIndex (idx, vel);
+            return;
+        }
+
         const int note = kRootNote + idx;   // same key mapping as MIDI
 
         if (type == padOff || type == padChoke)
@@ -1051,7 +1553,13 @@ void VocalChopAudioProcessor::drainPadQueue()
                     noteToVoice[(size_t) note] = -1;
                 }
                 synthEngine.noteOff (note);
-                melodyEngine.noteOff (note);
+                if (note == mappedSampleInputNote)
+                {
+                    melodyEngine.chokeAll();
+                    mappedSampleInputNote = -1;
+                }
+                else
+                    melodyEngine.noteOff (note);
                 samplerEngine.noteOff (note);
             }
             else
@@ -1072,7 +1580,8 @@ void VocalChopAudioProcessor::drainPadQueue()
         // A tap does not: the chord bar fires taps with no matching release,
         // so latching them left the chord stuck in the arp forever. Taps stay
         // one-shot hits and play straight through.
-        if (type == padOn && arpModeParam != nullptr && (int) arpModeParam->load() > 0
+        if (type == padOn && (isSynthMode() || isSamplerMode() || isMelodyMode())
+            && arpModeParam != nullptr && (int) arpModeParam->load() > 0
             && juce::isPositiveAndBelow (note, 128))
         {
             arpHeld[(size_t) note] = true;
@@ -1100,6 +1609,9 @@ void VocalChopAudioProcessor::drainPadQueue()
 
 void VocalChopAudioProcessor::applyMasterFXChain (juce::AudioBuffer<float>& buffer)
 {
+    if (fxBypassParam != nullptr && fxBypassParam->load() >= 0.5f)
+        return;
+
     fxChain.filter.process     (buffer, filterCutoffParam->load(),
                                 filterResoParam->load(),
                                 (int) filterTypeParam->load());
@@ -1153,6 +1665,7 @@ void VocalChopAudioProcessor::applyStereoWidth (juce::AudioBuffer<float>& buffer
 //==============================================================================
 std::shared_ptr<juce::AudioBuffer<float>> VocalChopAudioProcessor::getLoadedSample() const
 {
+    const juce::ScopedLock guard(sampleStateLock);
     return sampleBuffer;
 }
 
@@ -1167,7 +1680,10 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     // A slice selection belongs to the audio it was made from. Every path that
     // loads a sample comes through here, so clearing it once here covers the
     // drop target, the Load button, the demo vocal and a restored session.
+    const juce::ScopedLock sourceGuard(sampleStateLock);
     selectedSlice = -1;
+    for (auto& semi : sliceTransposeSemis)
+        semi.store (0.0f, std::memory_order_relaxed);
 
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
@@ -1182,8 +1698,17 @@ bool VocalChopAudioProcessor::loadSampleFromFile (const juce::File& file,
     // Loading a sample means the user wants to chop it - switch engines so
     // the keyboard immediately plays slices (state restore passes false).
     if (switchEngineToChop)
+    {
         if (auto* p = apvts.getParameter ("engine"))
             p->setValueNotifyingHost (0.0f);
+        // Rhythmic performance effects belong to the previous preset. A
+        // Festival/sidechain patch used to leave Pump or Arp latched onto the
+        // newly loaded vocal, making every chop duck/cut on the beat.
+        if (auto* p = apvts.getParameter ("arpMode"))
+            p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+        if (auto* p = apvts.getParameter ("pumpAmt"))
+            p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    }
 
     return true;
 }
@@ -1201,98 +1726,36 @@ namespace
     // flat list is a scroll, not a choice - and the question someone actually
     // arrives with is "I need a rhythmic chop" or "I need a pad", not "I need
     // the fourteenth one".
-    struct DemoVocal { const void* data; int size; const char* label; const char* group; };
+    struct DemoVocal { const void* data; int size; const char* label; const char* group; bool synthetic; };
 
     const DemoVocal kDemoVocals[] = {
-        // --- Chops: rhythmic syllables, made to be sliced ------------------
-        { BinaryData::vocal_chop_demo_wav, BinaryData::vocal_chop_demo_wavSize, "Vocal Chop",    "Chops" },
-        { BinaryData::vox_chant_wav,       BinaryData::vox_chant_wavSize,       "Chant Vox",     "Chops" },
-        { BinaryData::vox_stabs_wav,       BinaryData::vox_stabs_wavSize,       "Stab Vox",      "Chops" },
-        { BinaryData::vox_triplet_wav,     BinaryData::vox_triplet_wavSize,     "Triplet Chop",  "Chops" },
-        { BinaryData::vox_halftime_wav,    BinaryData::vox_halftime_wavSize,    "Half-Time Chop","Chops" },
-        { BinaryData::vox_garage_wav,      BinaryData::vox_garage_wavSize,      "Garage Chop",   "Chops" },
-        { BinaryData::vox_stutter_wav,     BinaryData::vox_stutter_wavSize,     "Stutter Vox",   "Chops" },
-        { BinaryData::vox_revchant_wav,    BinaryData::vox_revchant_wavSize,    "Reverse Chant", "Chops" },
-        { BinaryData::vox_word_wav,               BinaryData::vox_word_wavSize,           "Word Chop",        "Chops" },
-        { BinaryData::vox_hardcons_wav,           BinaryData::vox_hardcons_wavSize,       "Hard Consonant",   "Chops" },
-        { BinaryData::vox_whispchop_wav,          BinaryData::vox_whispchop_wavSize,      "Whisper Chop",     "Chops" },
-        { BinaryData::vox_onebar_wav,             BinaryData::vox_onebar_wavSize,         "One-Bar Loop",     "Chops" },
-        { BinaryData::vox_swung_wav,              BinaryData::vox_swung_wavSize,          "Swung Chop",       "Chops" },
-        { BinaryData::vox_dembow_wav,             BinaryData::vox_dembow_wavSize,         "Dembow Vox",       "Chops" },
-        { BinaryData::vox_neon_wav,               BinaryData::vox_neon_wavSize,           "Neon Chop",        "Chops" },
-        { BinaryData::vox_jersey_wav,             BinaryData::vox_jersey_wavSize,         "Jersey Chop",      "Chops" },
-        { BinaryData::vox_amapiano_wav,           BinaryData::vox_amapiano_wavSize,       "Amapiano Vox",     "Chops" },
-        { BinaryData::vox_latin_wav,              BinaryData::vox_latin_wavSize,          "Latin Chop",       "Chops" },
-        { BinaryData::vox_futurehouse_wav,        BinaryData::vox_futurehouse_wavSize,    "Future House",     "Chops" },
-        { BinaryData::vox_hookgrid_wav,           BinaryData::vox_hookgrid_wavSize,       "Hook Grid",        "Chops" },
-
-        // --- Hooks: sung phrases with a top line --------------------------
-        { BinaryData::vox_hook_wav,        BinaryData::vox_hook_wavSize,        "Sung Hook",     "Hooks" },
-        { BinaryData::vox_diva_wav,        BinaryData::vox_diva_wavSize,        "Diva Vox",      "Hooks" },
-        { BinaryData::vox_topline_wav,     BinaryData::vox_topline_wavSize,     "Pop Topline",   "Hooks" },
-        { BinaryData::vox_trapmel_wav,     BinaryData::vox_trapmel_wavSize,     "Trap Melody",   "Hooks" },
-        { BinaryData::vox_afro_wav,        BinaryData::vox_afro_wavSize,        "Afro Hook",     "Hooks" },
-        { BinaryData::vox_drill_wav,       BinaryData::vox_drill_wavSize,       "Drill Hook",    "Hooks" },
-        { BinaryData::vox_ballad_wav,      BinaryData::vox_ballad_wavSize,      "Ballad Line",   "Hooks" },
-        { BinaryData::vox_minor_wav,              BinaryData::vox_minor_wavSize,          "Minor Hook",       "Hooks" },
-        { BinaryData::vox_lament_wav,             BinaryData::vox_lament_wavSize,         "Lament",           "Hooks" },
-        { BinaryData::vox_talkbox_wav,            BinaryData::vox_talkbox_wavSize,        "Talkbox Lead",     "Hooks" },
-        { BinaryData::vox_rnbrun_wav,             BinaryData::vox_rnbrun_wavSize,         "R&B Run",          "Hooks" },
-        { BinaryData::vox_kpop_wav,               BinaryData::vox_kpop_wavSize,           "K-Pop Hook",       "Hooks" },
-        { BinaryData::vox_soul_wav,               BinaryData::vox_soul_wavSize,           "Soul Phrase",      "Hooks" },
-        { BinaryData::vox_falsetto_wav,           BinaryData::vox_falsetto_wavSize,       "Falsetto Hook",    "Hooks" },
-        { BinaryData::vox_alto_wav,               BinaryData::vox_alto_wavSize,           "Alto Harmony",     "Hooks" },
-        { BinaryData::vox_dancepop_wav,           BinaryData::vox_dancepop_wavSize,       "Dance Pop Hook",   "Hooks" },
-        { BinaryData::vox_popadlib_wav,           BinaryData::vox_popadlib_wavSize,       "Pop Adlibs",       "Hooks" },
-        { BinaryData::vox_slaphouse_wav,          BinaryData::vox_slaphouse_wavSize,      "Slap House Vox",   "Hooks" },
-        { BinaryData::vox_trance_wav,             BinaryData::vox_trance_wavSize,         "Trance Vocal",     "Hooks" },
-
-        // --- Textures: held beds, for pads and granular -------------------
-        { BinaryData::vox_choir_wav,       BinaryData::vox_choir_wavSize,       "Choir Vox",     "Textures" },
-        { BinaryData::vox_whisper_wav,     BinaryData::vox_whisper_wavSize,     "Whisper Vox",   "Textures" },
-        { BinaryData::vox_air_wav,         BinaryData::vox_air_wavSize,         "Airy Vox",      "Textures" },
-        { BinaryData::vox_vowelpad_wav,    BinaryData::vox_vowelpad_wavSize,    "Vowel Pad",     "Textures" },
-        { BinaryData::vox_nasal_wav,       BinaryData::vox_nasal_wavSize,       "Nasal Pad",     "Textures" },
-        { BinaryData::vox_hum_wav,         BinaryData::vox_hum_wavSize,         "Hum Bed",       "Textures" },
-        { BinaryData::vox_gospel_wav,      BinaryData::vox_gospel_wavSize,      "Gospel Stack",  "Textures" },
-        { BinaryData::vox_vocoder_wav,     BinaryData::vox_vocoder_wavSize,     "Vocoder Bed",   "Textures" },
-        { BinaryData::vox_sadpad_wav,             BinaryData::vox_sadpad_wavSize,         "Sad Pad",          "Textures" },
-        { BinaryData::vox_sustain_wav,            BinaryData::vox_sustain_wavSize,        "Sustain Bed",      "Textures" },
-        { BinaryData::vox_swell_wav,              BinaryData::vox_swell_wavSize,          "Swell Bed",        "Textures" },
-        { BinaryData::vox_ambient_wav,            BinaryData::vox_ambient_wavSize,        "Ambient Vox",      "Textures" },
-        { BinaryData::vox_cathedral_wav,          BinaryData::vox_cathedral_wavSize,      "Cathedral",        "Textures" },
-        { BinaryData::vox_ghost_wav,              BinaryData::vox_ghost_wavSize,          "Ghost Vox",        "Textures" },
-        { BinaryData::vox_monk_wav,               BinaryData::vox_monk_wavSize,           "Monk Drone",       "Textures" },
-        { BinaryData::vox_glasschoir_wav,         BinaryData::vox_glasschoir_wavSize,     "Glass Choir",      "Textures" },
-        { BinaryData::vox_tapewarp_wav,           BinaryData::vox_tapewarp_wavSize,       "Tape Warp Vox",    "Textures" },
-        { BinaryData::vox_oohstack_wav,           BinaryData::vox_oohstack_wavSize,       "Ooh Stack",        "Textures" },
-
-        // --- Percussion & FX: mouth drums, breaths, transitions -----------
-        { BinaryData::vox_beatbox_wav,     BinaryData::vox_beatbox_wavSize,     "Beatbox Loop",  "Percussion & FX" },
-        { BinaryData::vox_amen_wav,        BinaryData::vox_amen_wavSize,        "Mouth Break",   "Percussion & FX" },
-        { BinaryData::vox_mouthperc_wav,   BinaryData::vox_mouthperc_wavSize,   "Mouth Kit",     "Percussion & FX" },
-        { BinaryData::vox_clicks_wav,      BinaryData::vox_clicks_wavSize,      "Tongue Clicks", "Percussion & FX" },
-        { BinaryData::vox_breath_wav,      BinaryData::vox_breath_wavSize,      "Breath Hits",   "Percussion & FX" },
-        { BinaryData::vox_gasp_wav,        BinaryData::vox_gasp_wavSize,        "Gasps",         "Percussion & FX" },
-        { BinaryData::vox_rage_wav,        BinaryData::vox_rage_wavSize,        "Rage Shout",    "Percussion & FX" },
-        { BinaryData::vox_riser_wav,       BinaryData::vox_riser_wavSize,       "Riser Vox",     "Percussion & FX" },
-        { BinaryData::vox_downlifter_wav,  BinaryData::vox_downlifter_wavSize,  "Downlifter",    "Percussion & FX" },
-        { BinaryData::vox_shout_wav,              BinaryData::vox_shout_wavSize,          "Crowd Shout",      "Percussion & FX" },
-        { BinaryData::vox_choirhit_wav,           BinaryData::vox_choirhit_wavSize,       "Choir Hit",        "Percussion & FX" },
-        { BinaryData::vox_impact_wav,             BinaryData::vox_impact_wavSize,         "Vocal Impact",     "Percussion & FX" },
-        { BinaryData::vox_shortriser_wav,         BinaryData::vox_shortriser_wavSize,     "Short Riser",      "Percussion & FX" },
-        { BinaryData::vox_vowelperc_wav,          BinaryData::vox_vowelperc_wavSize,      "Vowel Perc",       "Percussion & FX" },
-        { BinaryData::vox_festival_wav,           BinaryData::vox_festival_wavSize,       "Festival Chant",   "Percussion & FX" },
-        { BinaryData::vox_edmdrop_wav,            BinaryData::vox_edmdrop_wavSize,        "EDM Drop Vox",     "Percussion & FX" },
-        { BinaryData::vox_bigroom_wav,            BinaryData::vox_bigroom_wavSize,        "Big Room Call",    "Percussion & FX" },
-        { BinaryData::vox_edmbreath_wav,          BinaryData::vox_edmbreath_wavSize,      "EDM Breath Fill",  "Percussion & FX" },
-
-        // --- Characters: a different voice, not a different phrase --------
-        { BinaryData::vox_kids_wav,        BinaryData::vox_kids_wavSize,        "Kids Vox",      "Characters" },
-        { BinaryData::vox_deep_wav,        BinaryData::vox_deep_wavSize,        "Deep Male",     "Characters" },
-        { BinaryData::vox_robot_wav,       BinaryData::vox_robot_wavSize,       "Robot Vox",     "Characters" },
-        { BinaryData::vox_opera_wav,       BinaryData::vox_opera_wavSize,       "Opera Vox",     "Characters" },
-        { BinaryData::vox_telephone_wav,          BinaryData::vox_telephone_wavSize,      "Telephone Vox",    "Characters" },
+        // Human-like sung banks extracted from user-supplied songs.  Only the
+        // separated vocal stem is used.  Each bank contains up to eight
+        // trimmed phrases; no drums, hats or accompaniment are embedded.
+        { BinaryData::premium_glass_tide_a_1_wav, BinaryData::premium_glass_tide_a_1_wavSize, "Glass Tide - Hooks", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_a_2_wav, BinaryData::premium_glass_tide_a_2_wavSize, "Glass Tide - Phrases", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_a_3_wav, BinaryData::premium_glass_tide_a_3_wavSize, "Glass Tide - Cuts 3", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_a_4_wav, BinaryData::premium_glass_tide_a_4_wavSize, "Glass Tide - Cuts 4", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_b_1_wav, BinaryData::premium_glass_tide_b_1_wavSize, "Glass Tide Alt - Hooks", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_b_2_wav, BinaryData::premium_glass_tide_b_2_wavSize, "Glass Tide Alt - Phrases", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_b_3_wav, BinaryData::premium_glass_tide_b_3_wavSize, "Glass Tide Alt - Cuts 3", "Sung Hooks", false },
+        { BinaryData::premium_glass_tide_b_4_wav, BinaryData::premium_glass_tide_b_4_wavSize, "Glass Tide Alt - Cuts 4", "Sung Hooks", false },
+        { BinaryData::premium_quiet_blue_a_1_wav, BinaryData::premium_quiet_blue_a_1_wavSize, "Quiet Blue - Air", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_a_2_wav, BinaryData::premium_quiet_blue_a_2_wavSize, "Quiet Blue - Lines", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_a_3_wav, BinaryData::premium_quiet_blue_a_3_wavSize, "Quiet Blue - Cuts 3", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_a_4_wav, BinaryData::premium_quiet_blue_a_4_wavSize, "Quiet Blue - Cuts 4", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_b_1_wav, BinaryData::premium_quiet_blue_b_1_wavSize, "Quiet Blue Alt - Air", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_b_2_wav, BinaryData::premium_quiet_blue_b_2_wavSize, "Quiet Blue Alt - Lines", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_b_3_wav, BinaryData::premium_quiet_blue_b_3_wavSize, "Quiet Blue Alt - Cuts 3", "Air & Emotion", false },
+        { BinaryData::premium_quiet_blue_b_4_wav, BinaryData::premium_quiet_blue_b_4_wavSize, "Quiet Blue Alt - Cuts 4", "Air & Emotion", false },
+        { BinaryData::premium_come_undo_me_1_wav, BinaryData::premium_come_undo_me_1_wavSize, "Come Undo Me - Hooks", "Intimate Phrases", false },
+        { BinaryData::premium_come_undo_me_2_wav, BinaryData::premium_come_undo_me_2_wavSize, "Come Undo Me - Lines", "Intimate Phrases", false },
+        { BinaryData::premium_come_undo_me_3_wav, BinaryData::premium_come_undo_me_3_wavSize, "Come Undo Me - Cuts 3", "Intimate Phrases", false },
+        { BinaryData::premium_come_undo_me_4_wav, BinaryData::premium_come_undo_me_4_wavSize, "Come Undo Me - Cuts 4", "Intimate Phrases", false },
+        { BinaryData::premium_dark_space_1_wav, BinaryData::premium_dark_space_1_wavSize, "Dark Space - Hooks", "Dark Phrases", false },
+        { BinaryData::premium_dark_space_2_wav, BinaryData::premium_dark_space_2_wavSize, "Dark Space - Lines", "Dark Phrases", false },
+        { BinaryData::premium_dark_space_3_wav, BinaryData::premium_dark_space_3_wavSize, "Dark Space - Cuts 3", "Dark Phrases", false },
+        { BinaryData::premium_dark_space_4_wav, BinaryData::premium_dark_space_4_wavSize, "Dark Space - Cuts 4", "Dark Phrases", false },
     };
 
     constexpr int kNumDemoVocals = (int) (sizeof (kDemoVocals) / sizeof (kDemoVocals[0]));
@@ -1302,7 +1765,7 @@ juce::StringArray VocalChopAudioProcessor::getDemoSampleNames()
 {
     juce::StringArray names;
     for (const auto& d : kDemoVocals)
-        names.add (d.label);
+        names.add (juce::String(d.label) + (d.synthetic ? " [SYN]" : ""));
     return names;
 }
 
@@ -1319,8 +1782,161 @@ juce::StringArray VocalChopAudioProcessor::getDemoSampleGroups()
     return groups;
 }
 
+bool VocalChopAudioProcessor::loadVocalKitSlot (int slot, const juce::File& file,
+                                                juce::String& error)
+{
+    juce::ignoreUnused (slot);
+    if (! loadSampleFromFile (file, false))
+    {
+        error = "Unsupported or unreadable audio file: " + file.getFullPathName();
+        return false;
+    }
+
+    // New workflow: one source is mapped chromatically over the keyboard.
+    // Keep the old VocalKit state reader for project compatibility, but do
+    // not create a new fifteen-independent-sample kit from user imports.
+    if (auto* p = apvts.getParameter ("engine"))
+        p->setValueNotifyingHost (p->convertTo0to1 (3.0f));
+    if (auto* p = apvts.getParameter ("arpMode"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = apvts.getParameter ("pumpAmt"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    sendChangeMessage();
+    return true;
+}
+
+void VocalChopAudioProcessor::auditionVocalKitSlot (int slot, float velocity)
+{
+    slot = juce::jlimit (0, VocalKitEngine::kNumSlots - 1, slot);
+    selectVocalKitSlot (slot);
+    queuePadEvent (slot, velocity, padTap);
+}
+
+void VocalChopAudioProcessor::loadFactoryVocalKit (int kitIndex)
+{
+    // The former Arcade-style factory kits placed a different recording on
+    // each key.  Factory vocal instruments now follow the same predictable
+    // model as user audio: one carefully chosen source, root C3, mapped
+    // chromatically across every key.
+    static constexpr int mappedSources[] = { 0, 1, 4 };
+    loadDemoSample (mappedSources[juce::jlimit (0, 2, kitIndex)]);
+    if (auto* p = apvts.getParameter ("engine"))
+        p->setValueNotifyingHost (p->convertTo0to1 (3.0f));
+    if (auto* p = apvts.getParameter ("arpMode"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = apvts.getParameter ("pumpAmt"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    sendChangeMessage();
+}
+
+void VocalChopAudioProcessor::restoreEmbeddedVocalKitSources()
+{
+    for (int slot = 0; slot < VocalKitEngine::kNumSlots; ++slot)
+    {
+        auto settings = vocalKitEngine.getSlotSettings (slot);
+        if (! settings.sourcePath.startsWith ("builtin:")) continue;
+        const int source = settings.sourcePath.fromFirstOccurrenceOf (":", false, false).getIntValue();
+        if (! juce::isPositiveAndBelow (source, kNumDemoVocals)) continue;
+        const auto& d = kDemoVocals[source];
+        double rate = currentSampleRate;
+        auto audio = SampleLoader::decode (d.data, d.size, rate);
+        if (! audio) continue;
+        vocalKitEngine.setSlotFromBuffer (slot, std::move (audio), rate,
+                                          settings.name.isNotEmpty() ? settings.name : d.label,
+                                          settings.sourcePath);
+        settings.missing = false;
+        vocalKitEngine.setSlotSettings (slot, settings);
+    }
+}
+
+juce::StringArray VocalChopAudioProcessor::getAirVocalPresetNames()
+{
+    return { "Glass Air", "Quiet Bloom", "Blue Halo",
+             "Intimate Cloud", "Dark Breath", "Frozen Tide" };
+}
+
+void VocalChopAudioProcessor::loadAirVocalPresetBank (int presetIndex)
+{
+    struct Raw { const void* data; int size; const char* name; int root; };
+    // Release banks contain only source-separated, cleaned vocal recordings.
+    // No accompaniment stem or retired procedural vowel is referenced here.
+    const Raw velvet { BinaryData::premium_glass_tide_a_1_wav, BinaryData::premium_glass_tide_a_1_wavSize, "Glass Tide Hooks", 60 };
+    const Raw silk   { BinaryData::premium_quiet_blue_a_1_wav, BinaryData::premium_quiet_blue_a_1_wavSize, "Quiet Blue Air", 60 };
+    const Raw prism  { BinaryData::premium_glass_tide_b_1_wav, BinaryData::premium_glass_tide_b_1_wavSize, "Glass Tide Alt", 60 };
+    const Raw cloud  { BinaryData::premium_quiet_blue_b_1_wav, BinaryData::premium_quiet_blue_b_1_wavSize, "Quiet Blue Alt", 60 };
+    const Raw noir   { BinaryData::premium_dark_space_1_wav, BinaryData::premium_dark_space_1_wavSize, "Dark Space", 55 };
+    const Raw glass  { BinaryData::premium_come_undo_me_1_wav, BinaryData::premium_come_undo_me_1_wavSize, "Come Undo Me", 60 };
+    const Raw aurora { BinaryData::premium_quiet_blue_a_2_wav, BinaryData::premium_quiet_blue_a_2_wavSize, "Quiet Blue Lines", 60 };
+    const Raw lunar  { BinaryData::premium_dark_space_2_wav, BinaryData::premium_dark_space_2_wavSize, "Dark Space Lines", 55 };
+
+    static constexpr int count = 6;
+    const int p = ((presetIndex % count) + count) % count;
+    const Raw* core[6][3] = {
+        { &velvet, &prism, &noir }, { &velvet, &noir, &aurora },
+        { &prism, &velvet, &noir }, { &noir, &prism, &velvet },
+        { &noir, &velvet, &prism }, { &glass, &prism, &velvet }
+    };
+    const Raw* air[6] = { &silk, &cloud, &silk, &cloud, &silk, &silk };
+    const AirVocalEngine::PresetShape shapes[6] = {
+        { 70, 780, .72f, .12f, .24f, .73f, 24, 10800 },
+        { 95, 960, .80f, .08f, .22f, .72f, 28, 8200 },
+        { 115, 1250, .68f, .14f, .38f, .80f, 32, 12500 },
+        { 520, 2300, .62f, .10f, .44f, .84f, 36, 8800 },
+        { 130, 1150, .78f, .16f, .28f, .76f, 27, 6500 },
+        { 760, 3200, .64f, .10f, .52f, .89f, 40, 9800 }
+    };
+
+    auto next = std::make_shared<AirVocalEngine::Bank>();
+    next->presetName = getAirVocalPresetNames()[p];
+    auto decode = [&] (const Raw& raw, float loopA, float loopB, float xf)
+    {
+        AirVocalEngine::Source source;
+        source.sampleRate = currentSampleRate;
+        source.audio = SampleLoader::decode (raw.data, raw.size, source.sampleRate);
+        source.rootNote = raw.root; source.name = raw.name;
+        source.loopStart = loopA; source.loopEnd = loopB; source.crossfadeMs = xf;
+        return source;
+    };
+    for (int i = 0; i < 3; ++i)
+        next->core[(size_t) i] = decode (*core[p][i], 0.18f + 0.015f * i,
+                                        0.82f - 0.02f * i, 72.0f + 11.0f * i);
+    next->air = decode (*air[p], 0.0f, 1.0f, 5.0f); // AIR is one-shot, never looped
+    airVocalEngine.setBank (next);
+    airVocalEngine.setPresetShape (shapes[p]);
+    currentAirVocalPreset.store (p);
+}
+
+void VocalChopAudioProcessor::applyAirVocalPreset (int presetIndex)
+{
+    const int p = ((presetIndex % 6) + 6) % 6;
+    loadAirVocalPresetBank (p);
+    static const float defaults[6][6] = {
+        { .22f,.58f,.28f,.28f,.12f,.34f }, { .12f,.74f,.18f,.34f,.10f,.30f },
+        { .24f,.52f,.05f,.38f,.16f,.55f }, { .18f,.50f,.62f,.78f,.30f,.62f },
+        { .30f,.68f,.72f,.42f,.14f,.38f }, { .20f,.46f,.88f,.86f,.42f,.76f }
+    };
+    static const char* ids[6] = { "airVocalAir", "airVocalBody", "airVocalVowel",
+                                  "airVocalBloom", "airVocalMotion", "airVocalSpace" };
+    ScopedAtomicPatch guard (applyingPatch);
+    for (int i = 0; i < 6; ++i)
+        if (auto* param = apvts.getParameter (ids[i]))
+            param->setValueNotifyingHost (param->convertTo0to1 (defaults[p][i]));
+    if (auto* param = apvts.getParameter ("engine"))
+        param->setValueNotifyingHost (param->convertTo0to1 (5.0f));
+    if (auto* param = apvts.getParameter ("arpMode"))
+        param->setValueNotifyingHost (param->convertTo0to1 (0.0f));
+    if (auto* param = apvts.getParameter ("pumpAmt"))
+        param->setValueNotifyingHost (param->convertTo0to1 (0.0f));
+    // HALO is internal. Avoid hiding a clear dry source under the generic
+    // master reverb when the preset is selected.
+    if (auto* param = apvts.getParameter ("reverb"))
+        param->setValueNotifyingHost (param->convertTo0to1 (0.06f));
+    sendChangeMessage();
+}
+
 bool VocalChopAudioProcessor::loadDemoSample (int index)
 {
+    const juce::ScopedLock sourceGuard(sampleStateLock);
     // Wrap, so stepping walks off either end and comes back round rather than
     // stopping dead on the first or last vocal.
     const int which = ((index % kNumDemoVocals) + kNumDemoVocals) % kNumDemoVocals;
@@ -1329,7 +1945,12 @@ bool VocalChopAudioProcessor::loadDemoSample (int index)
     if (! loadSampleFromMemory (d.data, d.size))
         return false;
 
-    loadedSampleName = d.label;
+    if (auto* p = apvts.getParameter ("arpMode"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = apvts.getParameter ("pumpAmt"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+
+    loadedSampleName = juce::String(d.label) + (d.synthetic ? " [SYN]" : "");
     currentDemo      = which;
     demoCycle        = which + 1;   // a plain Demo press continues from here
     return true;
@@ -1346,6 +1967,11 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
     auto buffer = SampleLoader::decode (data, sizeBytes, sr);
     if (buffer == nullptr)
         return false;
+
+    const juce::ScopedLock sourceGuard(sampleStateLock);
+    selectedSlice = -1;
+    for (auto& semi : sliceTransposeSemis)
+        semi.store (0.0f, std::memory_order_relaxed);
 
     sampleBuffer     = buffer;
     loadedSampleRate = sr;
@@ -1365,6 +1991,7 @@ bool VocalChopAudioProcessor::loadSampleFromMemory (const void* data, int sizeBy
 //==============================================================================
 bool VocalChopAudioProcessor::editSample (SampleEdit op, float a, float b)
 {
+    const juce::ScopedLock sourceGuard(sampleStateLock);
     auto src = sampleBuffer;
     if (src == nullptr || src->getNumSamples() < 64)
         return false;
@@ -1428,9 +2055,25 @@ bool VocalChopAudioProcessor::editSample (SampleEdit op, float a, float b)
             out->copyFrom (ch, 0, *src, ch, 0, total);
         const float peak = out->getMagnitude (0, total);
         if (peak > 1.0e-6f)
-            out->applyGain (0.98f / peak);
+            out->applyGain (0.89125094f / peak);
     }
 
+    if(op == SampleEdit::Cut || op == SampleEdit::Trim) {
+        const int edge=juce::jmin(out->getNumSamples()/4, (int)(loadedSampleRate*0.003));
+        for(int ch=0;ch<chans;++ch)for(int n=0;n<edge;++n) {
+            const float w=(float)n/(float)juce::jmax(1,edge-1);
+            out->getWritePointer(ch)[n]*=w;
+            out->getWritePointer(ch)[out->getNumSamples()-1-n]*=w;
+        }
+        if(op == SampleEdit::Cut && s>0 && s<out->getNumSamples()) {
+            const int blend=juce::jmin(edge,juce::jmin(s,out->getNumSamples()-s));
+            for(int ch=0;ch<chans;++ch)for(int n=0;n<blend;++n) {
+                const float w=(float)n/(float)juce::jmax(1,blend-1);
+                out->getWritePointer(ch)[s-blend+n]*=(1.0f-w);
+                out->getWritePointer(ch)[s+n]*=w;
+            }
+        }
+    }
     prevSampleBuffer = sampleBuffer;
     prevSampleRate   = loadedSampleRate;
     sampleBuffer     = out;
@@ -1443,6 +2086,7 @@ bool VocalChopAudioProcessor::editSample (SampleEdit op, float a, float b)
 
 bool VocalChopAudioProcessor::undoSampleEdit()
 {
+    const juce::ScopedLock sourceGuard(sampleStateLock);
     if (prevSampleBuffer == nullptr)
         return false;
     std::swap (sampleBuffer, prevSampleBuffer);
@@ -1455,17 +2099,30 @@ bool VocalChopAudioProcessor::undoSampleEdit()
 }
 
 //==============================================================================
-void VocalChopAudioProcessor::parameterChanged (const juce::String& id, float newValue)
+void VocalChopAudioProcessor::parameterChanged (const juce::String& id, float /*newValue*/)
 {
-    if (id == "pitch")   pitchFormant.setPitch (newValue);
-    if (id == "formant") pitchFormant.setFormant (newValue);
+    // processBlock reads the atomic APVTS values and updates PitchFormant on
+    // the audio thread. Writing its plain floats from this callback races with
+    // audio rendering when a host/message-thread automation change arrives.
 
     // A change that did NOT come from applyInstrument / applyPreset is the
     // user's own. Remember it, so stepping to the next instrument stops
     // wiping it out.
-    if (! applyingPatch && ownableFx().contains (id))
-        userOwnsFx.insert (id);
+    if (! applyingPatch.load(std::memory_order_relaxed))
+        userOwnedFx.fetch_or(fxOwnershipBit(id), std::memory_order_relaxed);
 }
+
+unsigned VocalChopAudioProcessor::fxOwnershipBit(const juce::String& id)
+{
+    if(id == "drive")return 1u;
+    if(id == "reverb")return 2u;
+    if(id == "delay")return 4u;
+    if(id == "pingpong")return 8u;
+    if(id == "width")return 16u;
+    return 0u;
+}
+bool VocalChopAudioProcessor::ownsFx(const juce::String& id) const
+{ return (userOwnedFx.load(std::memory_order_relaxed) & fxOwnershipBit(id)) != 0; }
 
 /** The OUTPUT FX. These are the mix, not the instrument: someone who has
     turned the reverb down has said something about how loud the room should
@@ -1529,8 +2186,8 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
     // Only instrument STEPPING preserves the user's mix; otherwise picking
     // "Choir Pad" would land you with the previous patch's dry reverb and no
     // way to get the preset's actual sound.
-    userOwnsFx.clear();
-    const juce::ScopedValueSetter<bool> patching (applyingPatch, true);
+    userOwnedFx.store(0);
+    const ScopedAtomicPatch patching (applyingPatch);
 
     auto set = [this] (const juce::String& id, float value)
     {
@@ -1636,476 +2293,6 @@ void VocalChopAudioProcessor::applyPreset (int presetIndex)
 //==============================================================================
 namespace
 {
-    /** One designed instrument: the synth-engine architecture plus the public
-        knob defaults. Kept as plain data so adding instruments is one line. */
-    struct InstrumentDef
-    {
-        const char* category;
-        const char* name;
-        // Engine patch --------------------------------------------------------
-        int   unison;  float spread, sub, noise, fm, fmRatio, vibHz, vibCents;
-        float fltHz, fltEnvOct, fltEnvMs;
-        // Public knobs --------------------------------------------------------
-        int   wave, octave; float detune;
-        float atk, dec, sus, rel;
-        float drive, reverb, delay, pingpong, width;
-    };
-
-    // wave: 0 Saw, 1 Square, 2 Sine, 3 Triangle
-    static const InstrumentDef kInstruments[] = {
-    // cat      name              uni sprd  sub   noise fm    fmRat vibHz vibC  fltHz  envOct envMs | wav oct det   atk   dec   sus   rel   drv   rev   dly   pp   wid
-    { "INIT",  "Init Synth",       1, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 20000, 0.0f,  200, 0,  0,  7.0f,  5,   120, 0.75f,  60, 0.00f, 0.15f, 0.0f, 0, 1.0f },
-
-    { "BASS",  "Neon Bass",        3, 0.5f, 0.6f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   220, 3.0f,  140, 0, -1, 14.0f,  0,   220, 0.80f,  80, 0.30f, 0.00f, 0.0f, 0, 0.9f },
-    { "BASS",  "Sub 808",          1, 0.0f, 1.0f, 0.03f,0.0f, 2.0f, 0.0f, 0.0f,   900, 2.0f,   60, 2, -2,  0.0f,  0,   900, 0.00f, 300, 0.45f, 0.00f, 0.0f, 0, 0.6f },
-    { "BASS",  "Reese Bass",       5, 0.85f,0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   450, 1.0f,  400, 0, -1, 28.0f, 10,   300, 0.90f, 120, 0.25f, 0.10f, 0.0f, 0, 1.0f },
-    { "BASS",  "Wobble Growl",     3, 0.6f, 0.4f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   300, 2.5f,  500, 1, -1, 18.0f,  5,   350, 0.85f, 120, 0.40f, 0.05f, 0.0f, 0, 1.0f },
-    { "BASS",  "Pluck Bass",       1, 0.0f, 0.4f, 0.05f,0.0f, 2.0f, 0.0f, 0.0f,   250, 3.5f,   90, 0, -1,  5.0f,  0,   160, 0.20f,  80, 0.20f, 0.05f, 0.0f, 0, 0.9f },
-    { "BASS",  "Analog Warm",      1, 0.0f, 0.5f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 1.5f,  250, 3, -1,  4.0f,  2,   250, 0.70f, 120, 0.10f, 0.10f, 0.0f, 0, 0.9f },
-    { "BASS",  "FM Knock",         1, 0.0f, 0.3f, 0.0f, 0.6f, 2.0f, 0.0f, 0.0f,   500, 2.0f,   80, 2, -1,  0.0f,  0,   200, 0.00f, 100, 0.20f, 0.05f, 0.0f, 0, 0.8f },
-    { "BASS",  "Moog Bass",        1, 0.0f, 0.6f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   480, 2.2f,  180, 0, -1,  4.0f,  1,   180, 0.70f,  90, 0.12f, 0.05f, 0.0f, 0, 0.9f },
-    { "BASS",  "Future Bass",      5, 0.7f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  1200, 1.6f,  220, 0, -1, 22.0f,  5,   300, 0.50f, 150, 0.15f, 0.20f, 0.10f, 0, 1.3f },
-    { "BASS",  "Deep House",       1, 0.0f, 0.8f, 0.02f,0.0f, 2.0f, 0.0f, 0.0f,   350, 1.8f,  120, 1, -1,  0.0f,  2,   240, 0.35f, 110, 0.08f, 0.05f, 0.0f, 0, 0.85f },
-    { "BASS",  "Neuro Bass",       1, 0.0f, 0.4f, 0.00f, 0.70f, 3.5f, 0.0f, 0.0f,   320, 3.2f,  260, 2, -1,  0.0f,  2,   300, 0.60f, 120, 0.45f, 0.05f, 0.0f, 0, 0.8f },
-    { "BASS",  "Garage Sub",       1, 0.0f, 1.0f, 0.00f, 0.25f, 1.0f, 0.0f, 0.0f,   240, 1.6f,  140, 2, -2,  0.0f,  1,   350, 0.55f, 140, 0.20f, 0.03f, 0.0f, 0, 0.6f },
-    { "BASS",  "Slap Funk",        1, 0.0f, 0.5f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,   500, 3.8f,   90, 1, -1,  3.0f,  1,   220, 0.15f,  80, 0.30f, 0.06f, 0.0f, 0, 0.7f },
-    { "BASS",  "Dark Reese",       4, 0.6f, 0.3f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   650, 0.8f,  600, 0, -1, 28.0f,  3,   400, 0.80f, 150, 0.35f, 0.08f, 0.0f, 0, 0.9f },
-    { "BASS",  "Rubber Bass",      1, 0.0f, 0.5f, 0.00f, 0.50f, 2.0f, 0.0f, 0.0f,   420, 3.0f,  130, 2, -1,  0.0f,  1,   260, 0.20f,  90, 0.25f, 0.05f, 0.0f, 0, 0.7f },
-    { "BASS",  "Acid Bass",        1, 0.0f, 0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   220, 3.6f,  160, 0, -1,  0.0f,  1,   240, 0.30f,  70, 0.40f, 0.04f, 0.0f, 0, 0.6f },
-    { "BASS",  "Gnarl Bass",    2, 0.3f, 0.4f, 0.00f, 0.65f, 2.0f, 4.5f,  8.0f,  300, 2.5f,  420, 3, -1, 10.0f,  1,  380, 0.60f, 140, 0.50f, 0.05f, 0.0f, 0, 1.0f },
-    { "BASS",  "Memphis 808",   1, 0.0f, 0.8f, 0.00f, 0.50f, 1.0f, 0.0f,  0.0f,  700, 1.5f,  300, 2, -2,  0.0f,  0,  900, 0.30f, 300, 0.60f, 0.04f, 0.0f, 0, 0.8f },
-    { "BASS",  "Trap Knock",    1, 0.0f, 1.0f, 0.00f, 0.30f, 3.0f, 0.0f,  0.0f,  200, 2.0f,   80, 2, -2,  0.0f,  0, 1200, 0.40f, 250, 0.25f, 0.03f, 0.0f, 0, 0.7f },
-    { "BASS",  "Outrun Bass",   2, 0.2f, 0.5f, 0.00f, 0.00f, 2.0f, 0.0f,  0.0f,  900, 2.0f,  160, 0, -1,  6.0f,  1,  260, 0.20f, 120, 0.22f, 0.05f, 0.0f, 0, 0.9f },
-    { "BASS",  "Octave Disco",  1, 0.0f, 0.4f, 0.00f, 0.00f, 2.0f, 0.0f,  0.0f, 1200, 1.8f,  120, 1, -1,  0.0f,  1,  200, 0.15f, 100, 0.18f, 0.04f, 0.0f, 0, 0.8f },
-    { "BASS",  "Psy Stomp",     1, 0.0f, 0.3f, 0.00f, 0.00f, 2.0f, 0.0f,  0.0f,  500, 1.8f,   90, 0, -1,  0.0f,  0,  140, 0.00f,  70, 0.30f, 0.03f, 0.0f, 0, 0.7f },
-    { "BASS",  "Dusty Bass",    1, 0.0f, 0.5f, 0.04f, 0.00f, 2.0f, 0.0f,  0.0f,  600, 1.0f,  350, 3, -1,  0.0f,  8,  500, 0.60f, 220, 0.15f, 0.10f, 0.0f, 0, 0.8f },
-    { "BASS",  "Lately Bass",   1, 0.0f, 0.4f, 0.00f, 0.70f, 1.0f, 0.0f,  0.0f,  800, 2.5f,  120, 2, -1,  0.0f,  0,  350, 0.35f, 150, 0.20f, 0.06f, 0.0f, 0, 0.8f },
-    { "BASS",  "Talk Bass",     1, 0.0f, 0.3f, 0.00f, 0.50f, 3.0f, 5.0f, 12.0f,  900, 1.2f,  250, 3, -1,  0.0f,  2,  300, 0.65f, 130, 0.30f, 0.05f, 0.0f, 0, 0.9f },
-    { "BASS",  "Pedal Organ",   1, 0.0f, 0.9f, 0.00f, 0.20f, 2.0f, 0.0f,  0.0f, 1400, 0.5f,  100, 2, -1,  0.0f,  2,  120, 1.00f,  90, 0.15f, 0.08f, 0.0f, 0, 0.9f },
-    { "BASS",  "Rust Bass",     3, 0.3f, 0.3f, 0.20f, 0.00f, 2.0f, 0.0f,  0.0f,  700, 1.5f,  300, 0, -1, 15.0f,  1,  400, 0.55f, 180, 0.70f, 0.06f, 0.0f, 0, 1.0f },
-    { "BASS",  "Liquid Sub",    1, 0.0f, 0.6f, 0.00f, 0.10f, 2.0f, 0.0f,  0.0f,  300, 0.8f,  400, 2, -2,  0.0f,  5,  350, 0.85f, 250, 0.08f, 0.06f, 0.0f, 0, 0.7f },
-    { "BASS",  "Syn Jazz Bass",  1, 0.0f, 0.5f, 0.05f, 0.00f, 2.0f, 0.0f,  0.0f,  350, 1.5f,  180, 3, -1,  0.0f,  3,  700, 0.25f, 150, 0.10f, 0.12f, 0.0f, 0, 0.8f },
-    { "BASS",  "Rage 808",      1, 0.0f, 1.0f, 0.05f, 0.30f, 1.0f, 0.0f, 0.0f,   500, 2.5f,  150, 2, -2,  0.0f,  0, 1400, 0.30f, 250, 0.55f, 0.05f, 0.0f, 0, 0.8f },
-    { "BASS",  "Growl 808",     1, 0.0f, 0.7f, 0.00f, 0.60f, 2.5f, 0.0f, 0.0f,   400, 3.0f,  300, 2, -2,  0.0f,  0, 1000, 0.40f, 220, 0.60f, 0.05f, 0.0f, 0, 0.85f },
-    { "BASS",  "Bounce Bass",   1, 0.0f, 0.6f, 0.03f, 0.00f, 2.0f, 0.0f, 0.0f,   700, 2.8f,  110, 1, -1,  4.0f,  0,  300, 0.20f, 120, 0.35f, 0.08f, 0.0f, 0, 0.9f },
-    { "BASS",  "Seoul Bass",    1, 0.0f, 0.75f,0.00f, 0.15f, 1.0f, 0.0f, 0.0f,   450, 1.5f,  250, 2, -1,  0.0f,  2,  450, 0.50f, 200, 0.15f, 0.10f, 0.0f, 0, 0.85f },
-
-    { "BASS",  "Donk Bass",     1, 0.00f,0.3f, 0.00f, 0.75f, 1.0f, 0.0f, 0.0f,  1400, 2.5f,   90, 2, -1,  0.0f,   0,  220, 0.10f,  90, 0.30f, 0.06f, 0.00f, 0, 0.8f },
-    { "BASS",  "Hoover Bass",   5, 0.80f,0.4f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,   800, 1.5f,  300, 0, -1, 26.0f,   5,  350, 0.75f, 160, 0.35f, 0.10f, 0.00f, 0, 1.0f },
-    { "BASS",  "UK Bass",       2, 0.30f,0.7f, 0.00f, 0.30f, 2.0f, 0.0f, 0.0f,   500, 2.0f,  180, 1, -1,  8.0f,   1,  300, 0.45f, 130, 0.25f, 0.06f, 0.00f, 0, 0.8f },
-    { "BASS",  "Growl Sub",     1, 0.00f,0.9f, 0.00f, 0.40f, 2.0f, 0.0f, 0.0f,   350, 1.2f,  450, 2, -2,  0.0f,   3,  500, 0.70f, 220, 0.30f, 0.05f, 0.00f, 0, 0.65f },
-    { "BASS",  "Metal Bass",    3, 0.40f,0.3f, 0.00f, 0.55f, 3.5f, 0.0f, 0.0f,   600, 2.2f,  240, 0, -1, 14.0f,   1,  320, 0.60f, 140, 0.50f, 0.08f, 0.00f, 0, 0.95f },
-    { "BASS",  "Drift Phonk",    1, 0.00f,0.9f, 0.03f, 0.40f, 1.0f, 0.0f, 0.0f,   500, 1.2f,  400, 2, -2,  0.0f,  0, 1000, 0.50f, 400, 0.55f, 0.10f, 0.00f, 0, 0.8f },
-    { "BASS",  "Jersey Boom",    1, 0.00f,1.0f, 0.00f, 0.35f, 2.0f, 0.0f, 0.0f,   300, 2.2f,  100, 2, -2,  0.0f,  0,  700, 0.25f, 260, 0.35f, 0.06f, 0.00f, 0, 0.7f },
-    { "BASS",  "Hyper Sub",      2, 0.20f,1.0f, 0.00f, 0.20f, 2.0f, 0.0f, 0.0f,   600, 1.8f,  150, 2, -2,  8.0f,  0,  500, 0.60f, 200, 0.30f, 0.05f, 0.00f, 0, 0.8f },
-    { "BASS",  "Afro Log Bass",  1, 0.00f,0.85f,0.02f, 0.30f, 1.0f, 0.0f, 0.0f,   420, 1.6f,  180, 2, -2,  0.0f,  0,  600, 0.20f, 320, 0.20f, 0.10f, 0.00f, 0, 0.8f },
-    { "BASS",  "Reggaeton Sub",  1, 0.00f,1.00f,0.00f, 0.15f, 2.0f, 0.0f, 0.0f,   260, 1.4f,  120, 2, -2,  0.0f,  0,  520, 0.45f, 240, 0.25f, 0.05f, 0.00f, 0, 0.7f },
-    { "BASS",  "Club Rumble",    2, 0.15f,0.90f,0.02f, 0.20f, 2.0f, 0.0f, 0.0f,   340, 1.8f,  260, 2, -2,  5.0f,  0,  800, 0.55f, 380, 0.30f, 0.08f, 0.00f, 0, 0.75f },
-    { "BASS",  "Drill Slide",    1, 0.00f,0.95f,0.00f, 0.40f, 1.0f, 5.5f, 22.0f,  300, 2.0f,  200, 2, -2,  0.0f,  0, 1000, 0.45f, 400, 0.35f, 0.06f, 0.00f, 0, 0.7f },
-    // Named for the job rather than the tone, because that is how anyone
-    // building a track searches for them.
-    { "BASS",  "Sidechain Bass", 1, 0.00f,0.80f,0.00f, 0.20f, 1.0f, 0.0f,  0.0f,  600, 1.6f,  180, 2, -1,  0.0f, 90,  260, 0.55f, 150, 0.15f, 0.05f, 0.00f, 0, 0.8f },
-    { "BASS",  "Reese Growl",    5, 0.55f,0.45f,0.02f, 0.10f, 2.0f, 4.0f,  9.0f,  900, 1.4f,  320, 0, -1, 26.0f,  4,  600, 0.75f, 260, 0.45f, 0.08f, 0.00f, 0, 0.9f },
-    { "BASS",  "Silicon Sub",    1, 0.00f,0.90f,0.00f, 0.08f, 1.0f, 0.0f,  0.0f,  320, 1.1f,  260, 2, -2,  0.0f,  2,  520, 0.72f, 260, 0.08f, 0.06f, 0.00f, 0, 0.75f },
-    { "BASS",  "Glass Bass",     2, 0.18f,0.55f,0.01f, 0.18f, 2.0f, 0.0f,  0.0f,  780, 1.4f,  180, 2, -1,  5.0f,  1,  340, 0.52f, 160, 0.12f, 0.10f, 0.04f, 0, 0.9f },
-    { "DRUMS", "Drum Kit",     1, 0.00f,0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,   0,  500, 0.00f, 200, 0.30f, 0.02f, 0.00f, 0, 0.7f },
-    { "DRUMS", "Kick 808",      1, 0.0f, 0.0f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,  0,  500, 0.00f, 200, 0.30f, 0.02f, 0.0f, 0, 0.7f },
-    { "DRUMS", "Kick Punch",    1, 0.0f, 0.0f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  4000, 0.0f,  200, 2, -1,  0.0f,  0,  260, 0.00f, 120, 0.45f, 0.02f, 0.0f, 0, 0.7f },
-    { "DRUMS", "Snare 808",     1, 0.0f, 0.15f,0.85f, 0.00f, 2.0f, 0.0f, 0.0f,  7000, 0.6f,  120, 2,  0,  0.0f,  0,  220, 0.00f, 140, 0.25f, 0.12f, 0.0f, 0, 1.0f },
-    { "DRUMS", "Snare Tight",   1, 0.0f, 0.10f,0.90f, 0.00f, 2.0f, 0.0f, 0.0f,  9000, 0.4f,   90, 2,  0,  0.0f,  0,  150, 0.00f, 100, 0.30f, 0.08f, 0.0f, 0, 1.0f },
-    { "DRUMS", "Clap",          1, 0.0f, 0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f,  6500, 0.3f,  110, 2,  0,  0.0f,  8,  190, 0.00f, 160, 0.20f, 0.22f, 0.0f, 0, 1.15f },
-    { "DRUMS", "Hat Closed",    1, 0.0f, 0.0f, 0.75f, 0.90f, 7.31f,0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,   55, 0.00f,  45, 0.15f, 0.03f, 0.0f, 0, 1.0f },
-    { "DRUMS", "Hat Open",      1, 0.0f, 0.0f, 0.75f, 0.90f, 7.31f,0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,  420, 0.00f, 320, 0.15f, 0.08f, 0.0f, 0, 1.1f },
-    { "DRUMS", "Rim Perc",      1, 0.0f, 0.20f,0.35f, 0.60f, 3.7f, 0.0f, 0.0f,  8000, 0.8f,   60, 2,  0,  0.0f,  0,   90, 0.00f,  70, 0.25f, 0.10f, 0.0f, 0, 1.0f },
-
-    { "DRUMS", "Tom Low",       1, 0.00f,0.0f, 0.08f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2, -1,  0.0f,   0,  420, 0.00f, 180, 0.15f, 0.10f, 0.00f, 0, 0.85f },
-    { "DRUMS", "Tom High",      1, 0.00f,0.0f, 0.08f, 0.00f, 2.0f, 0.0f, 0.0f,  3500, 0.0f,  200, 2,  0,  0.0f,   0,  300, 0.00f, 140, 0.12f, 0.10f, 0.00f, 0, 0.9f },
-    { "DRUMS", "Perc 909",      1, 0.00f,0.0f, 0.95f, 0.00f, 2.0f, 0.0f, 0.0f,  5000, 0.4f,   90, 2,  0,  0.0f,   0,  160, 0.00f, 110, 0.10f, 0.12f, 0.00f, 0, 1.05f },
-    { "DRUMS", "Cowbell 808",   1, 0.00f,0.0f, 0.05f, 0.60f, 1.48f,0.0f, 0.0f,  5500, 0.0f,  200, 1,  0,  0.0f,   0,  180, 0.00f, 120, 0.10f, 0.06f, 0.00f, 0, 1.0f },
-    { "DRUMS", "Shaker",        1, 0.00f,0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,   5,   90, 0.05f,  70, 0.00f, 0.06f, 0.00f, 0, 1.0f },
-    { "DRUMS", "Tambo Jingle",  1, 0.00f,0.0f, 0.95f, 0.55f, 7.3f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,   0,  170, 0.00f, 130, 0.00f, 0.15f, 0.00f, 0, 1.1f },
-    { "DRUMS", "Syn Conga",     1, 0.00f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2800, 0.0f,  200, 2,  0,  0.0f,   0,  210, 0.00f, 110, 0.08f, 0.10f, 0.00f, 0, 0.9f },
-    { "DRUMS", "Clave",         1, 0.00f,0.0f, 0.04f, 0.00f, 2.0f, 0.0f, 0.0f,  2500, 0.0f,  200, 2,  1,  0.0f,   0,   90, 0.00f,  70, 0.05f, 0.10f, 0.00f, 0, 0.9f },
-    { "DRUMS", "Woodblock",      1, 0.00f,0.0f, 0.10f, 0.30f, 5.0f, 0.0f, 0.0f,  3500, 0.8f,   40, 3,  0,  0.0f,  0,   90, 0.00f,  70, 0.10f, 0.10f, 0.00f, 0, 0.9f },
-    { "DRUMS", "Finger Snap",    1, 0.00f,0.0f, 0.85f, 0.00f, 2.0f, 0.0f, 0.0f,  2800, 1.2f,   50, 2,  0,  0.0f,  0,  110, 0.00f,  90, 0.15f, 0.12f, 0.00f, 0, 1.0f },
-    { "DRUMS", "Hat Tight",      1, 0.00f,0.0f, 0.70f, 0.95f, 8.7f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,   32, 0.00f,  26, 0.18f, 0.02f, 0.00f, 0, 0.9f },
-    { "DRUMS", "Hat Roll",       1, 0.00f,0.0f, 0.72f, 0.92f, 9.3f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  2,  0.0f,  0,   22, 0.00f,  18, 0.20f, 0.02f, 0.00f, 0, 0.85f },
-    { "DRUMS", "Hat Pedal",      1, 0.00f,0.0f, 0.65f, 0.85f, 6.1f, 0.0f, 0.0f, 12000, 0.6f,   80, 2,  1,  0.0f,  0,   70, 0.00f,  55, 0.14f, 0.03f, 0.00f, 0, 0.9f },
-    { "DRUMS", "Hat Sizzle",     1, 0.00f,0.0f, 0.80f, 0.88f, 11.0f,0.0f, 0.0f, 20000, 0.0f,  200, 2,  2,  0.0f,  0,  700, 0.10f, 520, 0.10f, 0.14f, 0.05f, 0, 1.2f },
-    { "DRUMS", "Hat Trap Open",  1, 0.00f,0.0f, 0.78f, 0.90f, 7.9f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,  620, 0.00f, 480, 0.22f, 0.10f, 0.00f, 0, 1.15f },
-    { "DRUMS", "Ride Ping",      1, 0.00f,0.0f, 0.45f, 0.80f, 5.4f, 0.0f, 0.0f, 14000, 0.3f,  400, 2,  1,  0.0f,  0,  900, 0.20f, 800, 0.08f, 0.20f, 0.05f, 0, 1.2f },
-    { "DRUMS", "Crash Splash",   1, 0.00f,0.0f, 0.95f, 0.70f, 6.8f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0, 1400, 0.05f,1200, 0.12f, 0.30f, 0.10f, 0, 1.4f },
-    { "DRUMS", "Tambourine",     1, 0.00f,0.0f, 0.88f, 0.60f, 9.9f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,  0,  160, 0.00f, 130, 0.10f, 0.12f, 0.00f, 0, 1.1f },
-    { "DRUMS", "Perc Click",     1, 0.00f,0.0f, 0.25f, 0.55f, 6.5f, 0.0f, 0.0f, 11000, 1.0f,   30, 2,  1,  0.0f,  0,   40, 0.00f,  32, 0.20f, 0.06f, 0.00f, 0, 0.95f },
-    { "DRUMS", "Rim Snap",       1, 0.00f,0.10f,0.55f, 0.45f, 4.2f, 0.0f, 0.0f,  9000, 0.9f,   45, 2,  0,  0.0f,  0,   80, 0.00f,  60, 0.28f, 0.10f, 0.00f, 0, 1.0f },
-    { "DRUMS", "Amapiano Shaker",1, 0.00f,0.0f, 0.92f, 0.40f, 8.1f, 0.0f, 0.0f, 18000, 0.0f,  200, 2,  1,  0.0f,  0,  120, 0.00f,  95, 0.08f, 0.10f, 0.00f, 0, 1.1f },
-    { "DRUMS", "Afro Conga",     1, 0.00f,0.25f,0.20f, 0.35f, 2.4f, 0.0f, 0.0f,  2600, 1.4f,   90, 2, -1,  0.0f,  0,  260, 0.00f, 200, 0.18f, 0.10f, 0.00f, 0, 0.95f },
-    { "DRUMS", "Reggaeton Perc", 1, 0.00f,0.15f,0.30f, 0.50f, 3.1f, 0.0f, 0.0f,  5200, 1.1f,   70, 2,  0,  0.0f,  0,  150, 0.00f, 120, 0.22f, 0.12f, 0.00f, 0, 1.0f },
-    { "DRUMS", "Festival Kick",  1, 0.00f,0.95f,0.10f, 0.55f, 0.5f, 0.0f, 0.0f,   400, 3.2f,   45, 2, -2,  0.0f,  0,  130, 0.00f,  90, 0.35f, 0.04f, 0.00f, 0, 0.8f },
-    { "DRUMS", "Trap Snare",     1, 0.00f,0.10f,0.80f, 0.25f, 2.4f, 0.0f, 0.0f,  6500, 0.9f,   60, 2,  0,  0.0f,  0,  180, 0.00f, 140, 0.20f, 0.14f, 0.05f, 0, 1.1f },
-    { "DRUMS", "Drum Machine",   1, 0.00f,0.35f,0.45f, 0.35f, 1.6f, 0.0f, 0.0f,  4200, 1.4f,   70, 2,  0,  0.0f,  0,  160, 0.00f, 120, 0.18f, 0.10f, 0.00f, 0, 1.0f },
-    { "DRUMS", "Big Drums",      2, 0.30f,0.70f,0.35f, 0.40f, 1.0f, 0.0f, 0.0f,  3000, 1.8f,  110, 2, -1,  6.0f,  0,  320, 0.05f, 280, 0.28f, 0.30f, 0.08f, 0, 1.3f },
-    { "DRUMS", "Drum Fill",      1, 0.00f,0.40f,0.40f, 0.45f, 1.3f, 0.0f, 0.0f,  4800, 1.6f,   90, 2,  0,  0.0f,  0,  240, 0.00f, 190, 0.22f, 0.18f, 0.06f, 0, 1.15f },
-    { "VOCAL", "Vox Choir",     5, 0.85f,0.0f, 0.08f, 0.00f, 2.0f, 4.5f, 8.0f,  1800, 0.4f,  500, 0,  0, 12.0f, 260,  700, 0.85f, 700, 0.00f, 0.55f, 0.00f, 0, 1.5f },
-    { "VOCAL", "Vox Ahh",       4, 0.70f,0.0f, 0.06f, 0.00f, 2.0f, 5.0f,10.0f,  2600, 0.6f,  300, 0,  0, 10.0f, 120,  500, 0.85f, 450, 0.00f, 0.45f, 0.00f, 0, 1.35f },
-    { "VOCAL", "Vox Ooh",       3, 0.60f,0.0f, 0.05f, 0.00f, 2.0f, 4.5f, 8.0f,   950, 0.4f,  350, 3,  0,  8.0f, 150,  600, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.25f },
-    { "VOCAL", "Vox Lead",      2, 0.30f,0.0f, 0.04f, 0.15f, 2.0f, 5.5f,14.0f,  2800, 1.0f,  220, 0,  0,  7.0f,  25,  300, 0.90f, 260, 0.10f, 0.30f, 0.10f, 0, 1.1f },
-    { "VOCAL", "Vox Pluck",     3, 0.50f,0.0f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  2400, 2.0f,  120, 0,  0,  8.0f,   0,  240, 0.05f, 220, 0.05f, 0.35f, 0.12f, 0, 1.2f },
-    { "VOCAL", "Vox Stab",      5, 0.70f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2600, 1.5f,  180, 0,  0, 12.0f,   2,  320, 0.15f, 240, 0.05f, 0.40f, 0.15f, 0, 1.3f },
-    { "VOCAL", "Chop Vox",      4, 0.60f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 1.8f,  140, 0,  0, 10.0f,   2,  180, 0.10f, 160, 0.08f, 0.30f, 0.20f, 0, 1.25f },
-    { "VOCAL", "Robot Vox",     1, 0.00f,0.0f, 0.02f, 0.55f, 1.0f, 0.0f, 0.0f,  1600, 1.0f,  260, 1,  0,  0.0f,   5,  260, 0.70f, 180, 0.25f, 0.20f, 0.10f, 0, 1.0f },
-    { "VOCAL", "Talkbox Vox",   1, 0.00f,0.1f, 0.00f, 0.50f, 3.0f, 5.0f,10.0f,  1200, 1.2f,  250, 3,  0,  0.0f,   8,  300, 0.65f, 200, 0.30f, 0.25f, 0.05f, 0, 1.0f },
-    { "VOCAL", "Vox Hum",       1, 0.00f,0.15f,0.04f, 0.00f, 2.0f, 4.0f, 6.0f,   750, 0.3f,  400, 2,  0,  0.0f, 200,  600, 0.90f, 500, 0.00f, 0.35f, 0.00f, 0, 1.0f },
-    { "VOCAL", "Whisper Air",   2, 0.60f,0.0f, 0.60f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 0,  0, 10.0f, 300,  900, 0.80f, 900, 0.00f, 0.70f, 0.10f, 0, 1.6f },
-    { "VOCAL", "Angel Choir",   6, 0.90f,0.0f, 0.10f, 0.00f, 2.0f, 4.0f, 7.0f,  2200, 0.3f,  700, 0,  0, 14.0f, 500, 1000, 0.85f,1100, 0.00f, 0.75f, 0.10f, 0, 1.6f },
-    { "VOCAL", "Beatbox Kick",  1, 0.00f,0.0f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,  2500, 0.0f,  200, 2, -1,  0.0f,   0,  320, 0.00f, 140, 0.20f, 0.03f, 0.00f, 0, 0.7f },
-    { "VOCAL", "Beatbox Snare", 1, 0.00f,0.1f, 0.95f, 0.00f, 2.0f, 0.0f, 0.0f,  4500, 0.5f,  100, 2,  0,  0.0f,   0,  200, 0.00f, 120, 0.10f, 0.10f, 0.00f, 0, 1.0f },
-    { "VOCAL", "Beatbox Hat",   1, 0.00f,0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f, 20000, 0.0f,  200, 2,  1,  0.0f,   0,   70, 0.00f,  55, 0.05f, 0.02f, 0.00f, 0, 1.0f },
-
-    { "VOCAL", "Diva Vox",      5, 0.75f,0.0f, 0.05f, 0.00f, 2.0f, 5.5f,12.0f,  3200, 0.8f,  250, 0,  0, 11.0f,  60,  400, 0.85f, 380, 0.05f, 0.40f, 0.10f, 0, 1.4f },
-    { "VOCAL", "Deep Choir",    5, 0.85f,0.15f,0.07f, 0.00f, 2.0f, 4.0f, 7.0f,  1200, 0.3f,  600, 0, -1, 12.0f, 350,  800, 0.85f, 850, 0.00f, 0.60f, 0.00f, 0, 1.5f },
-    { "VOCAL", "Vox Ahh Wide",   6, 0.90f,0.0f, 0.07f, 0.00f, 2.0f, 4.8f, 9.0f,  2400, 0.5f,  450, 0,  0, 14.0f, 200,  650, 0.85f, 600, 0.00f, 0.50f, 0.05f, 0, 1.55f },
-    { "VOCAL", "Vox Hum Ooh",    2, 0.30f,0.2f, 0.05f, 0.00f, 2.0f, 4.2f, 6.0f,   800, 0.3f,  500, 2,  0,  4.0f, 250,  700, 0.90f, 600, 0.00f, 0.35f, 0.00f, 0, 1.1f },
-    { "VOCAL", "Vox Chant Low",  4, 0.65f,0.2f, 0.06f, 0.00f, 2.0f, 4.0f, 6.0f,  1400, 0.4f,  550, 0, -1, 10.0f, 300,  750, 0.85f, 700, 0.00f, 0.50f, 0.00f, 0, 1.4f },
-    { "VOCAL", "Vox Doo Choir",  4, 0.70f,0.1f, 0.05f, 0.00f, 2.0f, 4.5f, 8.0f,  1100, 0.5f,  350, 3,  0,  9.0f, 100,  550, 0.85f, 450, 0.00f, 0.40f, 0.05f, 0, 1.3f },
-    { "VOCAL", "Vox Siren Air",  3, 0.60f,0.0f, 0.30f, 0.00f, 2.0f, 5.5f,20.0f,  2800, 0.6f,  300, 0,  1, 12.0f, 150,  800, 0.80f, 750, 0.00f, 0.60f, 0.15f, 0, 1.5f },
-    // A reverse vocal is a swell, not a hit: the whole shape is the long
-    // attack, so it is the one voice here where atk dwarfs everything else.
-    { "VOCAL", "Reverse Vocal",  4, 0.70f,0.0f, 0.08f, 0.00f, 2.0f, 4.0f, 8.0f,  3000, 0.8f,  600, 0,  0, 12.0f, 900,  200, 0.00f,  60, 0.00f, 0.45f, 0.20f, 1, 1.5f },
-    { "VOCAL", "Vocal Adlib",    2, 0.35f,0.0f, 0.06f, 0.00f, 2.0f, 5.5f,16.0f,  3400, 0.9f,  220, 0,  1,  8.0f,  20,  260, 0.35f, 300, 0.05f, 0.40f, 0.25f, 1, 1.3f },
-    { "VOCAL", "Vocal Harmony",  6, 0.85f,0.0f, 0.05f, 0.00f, 2.0f, 4.5f, 7.0f,  2600, 0.5f,  400, 0,  0, 16.0f, 120,  500, 0.85f, 520, 0.00f, 0.50f, 0.10f, 0, 1.55f },
-    { "VOCAL", "Vocal Loop",     3, 0.50f,0.0f, 0.05f, 0.00f, 2.0f, 4.8f,10.0f,  2800, 0.7f,  260, 0,  0, 10.0f,  10,  340, 0.55f, 320, 0.04f, 0.35f, 0.18f, 1, 1.35f },
-    { "VOCAL", "Formant Vocal",  2, 0.30f,0.0f, 0.04f, 0.35f, 3.0f, 5.0f,12.0f,  2200, 1.2f,  260, 0,  0,  7.0f,  15,  300, 0.60f, 280, 0.10f, 0.30f, 0.15f, 0, 1.2f },
-    { "HITS",  "Neon 84 Lead",  5, 0.70f,0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  4500, 0.6f,  250, 0,  0, 14.0f,   5,  300, 0.80f, 250, 0.15f, 0.35f, 0.20f, 0, 1.4f },
-    { "HITS",  "Trap Flute",    1, 0.00f,0.0f, 0.10f, 0.00f, 2.0f, 4.5f, 9.0f,  3200, 0.3f,  300, 2,  0,  0.0f,  60,  250, 0.85f, 300, 0.00f, 0.40f, 0.15f, 0, 1.1f },
-    { "HITS",  "Moody Keys",    2, 0.30f,0.05f,0.02f, 0.15f, 2.0f, 0.0f, 0.0f,  1800, 0.9f,  320, 3,  0,  6.0f,   8,  900, 0.35f, 700, 0.05f, 0.50f, 0.20f, 0, 1.25f },
-    { "HITS",  "Isla Pluck",    2, 0.30f,0.0f, 0.02f, 0.35f, 3.0f, 0.0f, 0.0f,  2800, 2.0f,  120, 0,  0,  7.0f,   0,  260, 0.05f, 220, 0.08f, 0.30f, 0.15f, 0, 1.15f },
-    { "HITS",  "Tropic Flute",  1, 0.00f,0.0f, 0.08f, 0.30f, 2.0f, 4.0f, 7.0f,  2600, 0.5f,  220, 2,  0,  0.0f,  25,  300, 0.75f, 260, 0.00f, 0.35f, 0.20f, 1, 1.2f },
-    { "HITS",  "Whisper Bass",  1, 0.00f,0.9f, 0.02f, 0.20f, 1.0f, 0.0f, 0.0f,   300, 1.0f,  300, 2, -2,  0.0f,   4,  500, 0.60f, 250, 0.10f, 0.05f, 0.00f, 0, 0.7f },
-    { "HITS",  "Chart 808",     1, 0.00f,0.9f, 0.00f, 0.40f, 1.0f, 0.0f, 0.0f,   500, 1.8f,  200, 2, -2,  0.0f,   0, 1000, 0.35f, 350, 0.35f, 0.05f, 0.00f, 0, 0.75f },
-    { "HITS",  "Emo Lead",      3, 0.50f,0.0f, 0.03f, 0.20f, 2.0f, 5.0f,10.0f,  2600, 0.8f,  300, 0,  0, 12.0f,  30,  400, 0.80f, 400, 0.12f, 0.45f, 0.25f, 0, 1.3f },
-    { "HITS",  "Funk Brass",    4, 0.40f,0.1f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 2.2f,  160, 0,  0, 10.0f,   4,  280, 0.55f, 180, 0.25f, 0.20f, 0.05f, 0, 1.2f },
-    { "HITS",  "Boogie Bass",   1, 0.00f,0.5f, 0.00f, 0.45f, 2.0f, 0.0f, 0.0f,   900, 2.6f,  110, 1, -1,  0.0f,   1,  220, 0.20f, 100, 0.20f, 0.06f, 0.00f, 0, 0.85f },
-    { "HITS",  "Sunny Pluck",   3, 0.50f,0.0f, 0.00f, 0.25f, 2.0f, 0.0f, 0.0f,  3000, 1.8f,  140, 3,  0,  9.0f,   2,  320, 0.10f, 280, 0.05f, 0.40f, 0.25f, 0, 1.3f },
-    { "HITS",  "Stadium Lead",  6, 0.80f,0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  5500, 0.8f,  220, 0,  0, 18.0f,   6,  280, 0.80f, 260, 0.18f, 0.35f, 0.20f, 0, 1.5f },
-    { "HITS",  "Wave Keys",     2, 0.40f,0.1f, 0.03f, 0.20f, 1.0f, 0.0f, 0.0f,  1500, 0.7f,  400, 3,  0,  8.0f,  15,  700, 0.50f, 550, 0.06f, 0.45f, 0.15f, 0, 1.25f },
-    { "HITS",  "Retro Pop Poly",4, 0.60f,0.1f, 0.02f, 0.00f, 2.0f, 4.0f, 5.0f,  2400, 0.4f,  450, 0,  0, 12.0f,  90,  600, 0.80f, 600, 0.00f, 0.45f, 0.10f, 0, 1.4f },
-    { "HITS",  "Anthem Brass",  5, 0.50f,0.15f,0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  1800, 1.8f,  220, 0,  0, 14.0f,   8,  320, 0.75f, 220, 0.30f, 0.25f, 0.05f, 0, 1.3f },
-    { "HITS",  "Smooth EP",     1, 0.00f,0.1f, 0.00f, 0.35f, 1.0f, 0.0f, 0.0f,  1700, 0.9f,  300, 2,  0,  4.0f,   6,  850, 0.45f, 480, 0.04f, 0.30f, 0.10f, 0, 1.15f },
-    { "HITS",  "Hit Pad",       5, 0.80f,0.1f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  1600, 0.3f,  700, 0,  0, 13.0f, 350,  900, 0.85f, 900, 0.00f, 0.60f, 0.10f, 0, 1.5f },
-    { "HITS",  "K-Pop Pluck",   4, 0.60f,0.0f, 0.02f, 0.30f, 3.0f, 0.0f, 0.0f,  3400, 2.2f,  110, 0,  0, 10.0f,   0,  240, 0.08f, 200, 0.10f, 0.35f, 0.25f, 1, 1.35f },
-
-    { "HITS",  "Hook Marimba",  1, 0.00f,0.0f, 0.02f, 0.50f, 4.0f, 0.0f, 0.0f,  2800, 1.5f,  120, 2,  0,  0.0f,   0,  300, 0.05f, 240, 0.05f, 0.30f, 0.12f, 0, 1.2f },
-    { "HITS",  "Log Drum",      1, 0.00f,0.6f, 0.00f, 0.50f, 1.0f, 0.0f, 0.0f,   800, 2.0f,   90, 2, -1,  0.0f,   0,  350, 0.10f, 200, 0.15f, 0.10f, 0.00f, 0, 0.9f },
-    { "HITS",  "Future Chords", 7, 0.90f,0.1f, 0.02f, 0.00f, 2.0f, 0.0f, 0.0f,  3500, 0.8f,  300, 0,  0, 20.0f,  15,  400, 0.60f, 350, 0.10f, 0.40f, 0.15f, 0, 1.6f },
-    { "HITS",  "Cloud Bell",    2, 0.30f,0.0f, 0.02f, 0.45f, 3.5f, 0.0f, 0.0f,  4000, 0.3f,  400, 2,  0,  6.0f,   4,  900, 0.10f, 800, 0.00f, 0.60f, 0.25f, 1, 1.4f },
-    { "HITS",  "Phonk Cowbell", 1, 0.00f,0.1f, 0.04f, 0.60f, 1.48f,0.0f, 0.0f,  3500, 0.4f,  150, 1,  0,  0.0f,   0,  200, 0.08f, 130, 0.30f, 0.10f, 0.05f, 0, 1.0f },
-    { "HITS",  "Piano Stab",    2, 0.30f,0.05f,0.02f, 0.20f, 2.0f, 0.0f, 0.0f,  3000, 1.2f,  200, 3,  0,  6.0f,   2,  350, 0.10f, 260, 0.08f, 0.30f, 0.10f, 0, 1.25f },
-    { "HITS",  "Dancehall Pluck",1,0.00f,0.1f, 0.02f, 0.30f, 2.0f, 0.0f, 0.0f,  2400, 1.8f,  130, 1,  0,  0.0f,   0,  220, 0.06f, 180, 0.10f, 0.25f, 0.15f, 0, 1.1f },
-    { "HITS",  "Drill 808",     1, 0.00f,0.9f, 0.00f, 0.35f, 1.0f, 0.0f, 0.0f,   450, 1.5f,  250, 2, -2,  0.0f,   0,  900, 0.40f, 320, 0.30f, 0.04f, 0.00f, 0, 0.75f },
-    { "HITS",  "Slap House",    1, 0.00f,0.7f, 0.00f, 0.40f, 2.0f, 0.0f, 0.0f,   700, 2.2f,  130, 1, -1,  0.0f,   1,  240, 0.20f, 110, 0.25f, 0.06f, 0.00f, 0, 0.85f },
-    { "HITS",  "Sped-Up Pluck", 3, 0.50f,0.0f, 0.02f, 0.30f, 2.0f, 0.0f, 0.0f,  3400, 2.4f,   90, 0,  0,  9.0f,   0,  160, 0.05f, 140, 0.10f, 0.30f, 0.20f, 1, 1.3f },
-    { "HITS",  "Tape Rewind",    2, 0.40f,0.0f, 0.15f, 0.50f, 3.5f, 6.0f,25.0f,  2000, 1.5f,  600, 0,  0, 20.0f, 100,  700, 0.30f, 500, 0.20f, 0.40f, 0.20f, 1, 1.3f },
-    { "HITS",  "Laser Zap",      1, 0.00f,0.0f, 0.05f, 0.80f, 7.0f, 0.0f, 0.0f,  6000, 3.0f,   90, 2,  1,  0.0f,  0,  200, 0.00f, 150, 0.15f, 0.25f, 0.15f, 1, 1.1f },
-    { "HITS",  "Riser Sweep",    4, 0.70f,0.00f,0.35f, 0.20f, 2.0f, 7.0f, 40.0f, 6000, 3.0f, 1500, 0,  0, 20.0f,900, 1800, 0.60f,1200, 0.20f, 0.45f, 0.20f, 1, 1.45f },
-    { "HITS",  "Downlifter",     3, 0.60f,0.30f,0.30f, 0.25f, 2.0f, 0.0f,  0.0f, 4000, 4.0f,  900, 0, -1, 18.0f,  0, 1400, 0.20f, 900, 0.25f, 0.40f, 0.15f, 1, 1.4f },
-    { "HITS",  "Vocal Chop Hit", 4, 0.65f,0.00f,0.06f, 0.00f, 2.0f, 5.0f, 10.0f, 2600, 1.6f,  200, 0,  0, 12.0f,  2,  300, 0.20f, 240, 0.08f, 0.38f, 0.18f, 1, 1.3f },
-    { "LEAD",  "Supersaw Lead",    7, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  9000, 0.0f,  200, 0,  0, 22.0f,  2,   150, 0.85f, 200, 0.00f, 0.30f, 0.20f, 0, 1.6f },
-    { "LEAD",  "Retro Lead",       1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 5.5f, 14.0f, 7000, 0.0f,  200, 1,  0,  6.0f,  3,   100, 0.70f, 150, 0.00f, 0.15f, 0.25f, 0, 1.0f },
-    { "LEAD",  "Acid Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   700, 3.0f,  200, 0,  0,  3.0f,  0,   180, 0.55f,  90, 0.35f, 0.10f, 0.15f, 0, 1.0f },
-    { "LEAD",  "Chip Lead",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 6.0f,  8.0f, 20000, 0.0f, 200, 1,  0,  0.0f,  0,    80, 0.60f,  60, 0.00f, 0.10f, 0.15f, 0, 1.0f },
-    { "LEAD",  "Scream Lead",      5, 0.6f, 0.0f, 0.0f, 0.0f, 2.0f, 5.0f, 10.0f, 4000, 1.0f,  800, 0,  0, 20.0f,  5,   200, 0.80f, 200, 0.50f, 0.25f, 0.20f, 0, 1.3f },
-    { "LEAD",  "PWM Lead",         3, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 4.8f,  6.0f, 5200, 0.8f,  300, 1,  0, 12.0f,  8,   200, 0.75f, 180, 0.10f, 0.20f, 0.18f, 0, 1.2f },
-    { "LEAD",  "Velvet Lead",      1, 0.0f, 0.15f,0.0f, 0.0f, 2.0f, 4.2f,  7.0f, 2600, 0.6f,  400, 3,  0,  4.0f, 25,   300, 0.85f, 260, 0.00f, 0.30f, 0.15f, 0, 1.05f },
-    { "LEAD",  "Hard Lead",        5, 0.7f, 0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2600, 1.5f,  300, 1,  0, 22.0f,  2,   250, 0.80f, 180, 0.60f, 0.20f, 0.15f, 0, 1.2f },
-    { "LEAD",  "Italo Lead",       2, 0.4f, 0.0f, 0.00f, 0.00f, 2.0f, 5.5f, 10.0f, 3200, 0.8f,  250, 1,  0,  9.0f,  4,   200, 0.75f, 220, 0.15f, 0.25f, 0.35f, 1, 1.2f },
-    { "LEAD",  "Flute Lead",       1, 0.0f, 0.0f, 0.15f, 0.00f, 2.0f, 5.0f, 14.0f, 4000, 0.5f,  200, 2,  0,  0.0f, 40,   300, 0.80f, 260, 0.05f, 0.30f, 0.20f, 0, 0.9f },
-    { "LEAD",  "Rude Lead",        2, 0.2f, 0.1f, 0.00f, 0.00f, 2.0f, 4.5f,  8.0f, 1800, 2.0f,  400, 0,  0,  6.0f,  2,   300, 0.70f, 160, 0.70f, 0.15f, 0.10f, 0, 0.8f },
-    { "LEAD",  "Dream Lead",       6, 0.9f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.6f,  500, 0,  0, 16.0f, 25,   350, 0.70f, 500, 0.10f, 0.40f, 0.35f, 1, 1.6f },
-    { "LEAD",  "Wire Lead",        1, 0.0f, 0.0f, 0.00f, 0.55f, 7.0f, 4.8f,  6.0f, 5000, 1.0f,  350, 2,  0,  0.0f,  3,   300, 0.65f, 240, 0.20f, 0.25f, 0.30f, 1, 1.1f },
-    { "LEAD",  "Midnight Lead", 3, 0.5f, 0.0f, 0.00f, 0.00f, 2.0f, 5.5f, 10.0f, 2800, 1.0f,  250, 0,  0, 12.0f,  5,  300, 0.75f, 250, 0.15f, 0.25f, 0.35f, 1, 1.3f },
-    { "LEAD",  "Idol Pluck",    4, 0.6f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f,  0.0f, 1200, 2.5f,  200, 0,  0, 10.0f,  1,  260, 0.00f, 200, 0.10f, 0.25f, 0.30f, 1, 1.4f },
-    { "LEAD",  "Funk Worm",     1, 0.0f, 0.2f, 0.00f, 0.00f, 2.0f, 5.5f, 15.0f,  600, 2.8f,  180, 1,  0,  0.0f,  2,  220, 0.70f, 120, 0.25f, 0.08f, 0.10f, 0, 1.0f },
-    { "LEAD",  "Grime Hoover",  6, 0.7f, 0.2f, 0.05f, 0.00f, 2.0f, 0.0f,  0.0f, 1500, 1.5f,  300, 0, -1, 30.0f,  3,  400, 0.80f, 200, 0.50f, 0.15f, 0.15f, 0, 1.5f },
-    { "LEAD",  "Haze Lead",     1, 0.0f, 0.0f, 0.00f, 0.15f, 2.0f, 4.5f,  6.0f, 1800, 0.5f,  600, 2,  0,  0.0f, 200,  500, 0.80f, 800, 0.05f, 0.60f, 0.30f, 1, 1.4f },
-    { "LEAD",  "Glide Solo",    1, 0.0f, 0.1f, 0.00f, 0.00f, 2.0f, 5.8f, 14.0f, 2200, 1.2f,  300, 0,  0,  0.0f, 15,  350, 0.85f, 180, 0.20f, 0.20f, 0.25f, 0, 1.0f },
-    { "LEAD",  "Solo Brass",    2, 0.2f, 0.0f, 0.00f, 0.00f, 2.0f, 5.0f,  8.0f,  900, 2.0f,  350, 0,  0,  8.0f, 40,  400, 0.80f, 300, 0.30f, 0.25f, 0.10f, 0, 1.1f },
-    { "LEAD",  "NES Round",     1, 0.0f, 0.0f, 0.00f, 0.00f, 2.0f, 6.0f, 12.0f, 4000, 0.0f,  100, 3,  0,  0.0f,  1,  150, 0.90f, 100, 0.05f, 0.10f, 0.15f, 0, 0.8f },
-    { "LEAD",  "Goa Lead",      2, 0.3f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f,  0.0f, 1800, 2.0f,  220, 0,  0, 10.0f,  1,  240, 0.40f, 160, 0.30f, 0.20f, 0.40f, 1, 1.2f },
-    { "LEAD",  "Mainstage",     7, 0.8f, 0.1f, 0.00f, 0.00f, 2.0f, 0.0f,  0.0f, 6000, 0.5f,  200, 0,  0, 35.0f,  4,  300, 0.85f, 350, 0.20f, 0.30f, 0.30f, 1, 1.7f },
-    { "LEAD",  "Silk Lead",     1, 0.0f, 0.0f, 0.00f, 0.25f, 2.0f, 5.5f, 12.0f, 2000, 0.8f,  400, 2,  0,  0.0f, 10,  350, 0.80f, 400, 0.08f, 0.35f, 0.30f, 1, 1.2f },
-    { "LEAD",  "Epic Horn",     3, 0.3f, 0.1f, 0.00f, 0.00f, 2.0f, 4.5f,  6.0f,  700, 1.8f,  600, 0, -1,  6.0f, 60,  700, 0.90f, 500, 0.20f, 0.45f, 0.15f, 0, 1.3f },
-    { "LEAD",  "Vowel Lead",    1, 0.0f, 0.0f, 0.00f, 0.55f, 5.0f, 5.2f, 14.0f, 1100, 1.2f,  400, 3,  0,  0.0f, 20,  400, 0.75f, 300, 0.15f, 0.30f, 0.25f, 1, 1.2f },
-    { "LEAD",  "Rage Bell",     5, 0.8f, 0.0f, 0.05f, 0.35f, 3.5f, 0.0f, 0.0f,  3500, 1.0f,  400, 1,  0, 30.0f,  1,  600, 0.30f, 400, 0.45f, 0.35f, 0.25f, 1, 1.5f },
-    { "LEAD",  "Rage Lead",     7, 0.9f, 0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2800, 1.5f,  300, 0,  0, 38.0f,  3,  350, 0.55f, 250, 0.55f, 0.25f, 0.20f, 0, 1.5f },
-
-    { "LEAD",  "Laser Lead",    1, 0.00f,0.0f, 0.00f, 0.50f, 4.0f, 6.0f,10.0f,  6000, 2.0f,  150, 0,  0,  4.0f,   1,  140, 0.65f, 110, 0.20f, 0.18f, 0.20f, 0, 1.0f },
-    { "LEAD",  "Whistle Lead",  1, 0.00f,0.0f, 0.02f, 0.00f, 2.0f, 5.5f,12.0f,  8000, 0.0f,  200, 2,  1,  0.0f,  40,  200, 0.85f, 180, 0.00f, 0.25f, 0.10f, 0, 1.0f },
-    { "LEAD",  "Saw Stack",     7, 0.90f,0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  7000, 0.5f,  250, 0,  0, 20.0f,   8,  220, 0.80f, 220, 0.15f, 0.25f, 0.15f, 0, 1.5f },
-    { "LEAD",  "Festival Lead", 6, 0.80f,0.3f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  5000, 1.0f,  200, 0,  0, 18.0f,   3,  260, 0.75f, 240, 0.20f, 0.30f, 0.20f, 0, 1.45f },
-    { "LEAD",  "Neon Lead",     3, 0.50f,0.0f, 0.00f, 0.25f, 2.0f, 5.0f, 8.0f,  3500, 1.2f,  220, 1,  0, 10.0f,  15,  300, 0.80f, 260, 0.15f, 0.30f, 0.25f, 0, 1.2f },
-    { "LEAD",  "Phonk Whistle",  1, 0.00f,0.0f, 0.00f, 0.30f, 4.0f, 5.5f,18.0f,  4500, 0.6f,  200, 2,  1,  0.0f, 10,  300, 0.80f, 250, 0.10f, 0.35f, 0.15f, 0, 1.0f },
-    { "LEAD",  "Drill Flute",    1, 0.00f,0.0f, 0.08f, 0.15f, 2.0f, 5.0f,10.0f,  3200, 0.4f,  250, 3,  1,  0.0f, 30,  350, 0.75f, 300, 0.05f, 0.40f, 0.20f, 0, 1.1f },
-    { "LEAD",  "Rave Hoover",    5, 0.80f,0.2f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  1500, 1.8f,  350, 0,  0, 35.0f,  5,  400, 0.70f, 250, 0.45f, 0.20f, 0.10f, 0, 1.3f },
-    { "LEAD",  "Afro Marimba",   2, 0.25f,0.05f,0.02f, 0.55f, 3.0f, 0.0f, 0.0f,  3200, 1.6f,  180, 2,  0,  5.0f,  0,  420, 0.05f, 320, 0.05f, 0.28f, 0.12f, 0, 1.15f },
-    { "LEAD",  "Amapiano Lead",  3, 0.45f,0.10f,0.03f, 0.30f, 2.0f, 4.5f,  6.0f, 2600, 1.2f,  260, 0,  0, 12.0f,  6,  380, 0.55f, 300, 0.10f, 0.35f, 0.18f, 1, 1.3f },
-    { "LEAD",  "K-Pop Saw",      6, 0.80f,0.15f,0.02f, 0.00f, 2.0f, 4.8f,  7.0f, 3600, 1.4f,  240, 0,  0, 24.0f,  4,  300, 0.75f, 260, 0.22f, 0.30f, 0.15f, 0, 1.45f },
-    { "LEAD",  "Hyperpop Squeak",2, 0.30f,0.00f,0.02f, 0.70f, 5.0f, 6.5f, 26.0f, 5200, 1.0f,  160, 1,  1,  9.0f,  2,  220, 0.60f, 180, 0.35f, 0.30f, 0.22f, 1, 1.25f },
-    { "LEAD",  "Drill Bell Lead",2, 0.25f,0.00f,0.01f, 0.75f, 7.0f, 0.0f,  0.0f, 4800, 0.9f,  300, 2,  1,  6.0f,  0,  700, 0.10f, 560, 0.08f, 0.40f, 0.20f, 1, 1.3f },
-    { "SYNTH", "Analog Poly",      3, 0.6f, 0.2f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  1800, 1.2f,  300, 0,  0, 12.0f,  8,   300, 0.65f, 300, 0.05f, 0.25f, 0.10f, 0, 1.2f },
-    { "SYNTH", "PWM Strings",      5, 0.8f, 0.0f, 0.0f, 0.0f, 2.0f, 4.0f,  4.0f, 3000, 0.0f,  200, 1,  0, 18.0f, 120,  400, 0.80f, 600, 0.00f, 0.35f, 0.00f, 0, 1.4f },
-    { "SYNTH", "Hoover",           5, 0.9f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2500, 1.0f,  500, 0, -1, 35.0f, 15,   250, 0.75f, 350, 0.15f, 0.25f, 0.10f, 0, 1.4f },
-    { "SYNTH", "80s Poly",         3, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2200, 1.5f,  250, 1,  0, 14.0f, 10,   350, 0.60f, 400, 0.05f, 0.30f, 0.12f, 0, 1.3f },
-    { "SYNTH", "FM Digital",       1, 0.0f, 0.0f, 0.0f, 0.45f,3.0f, 0.0f, 0.0f,  8000, 0.0f,  200, 2,  0,  4.0f,  3,   500, 0.35f, 350, 0.00f, 0.30f, 0.10f, 0, 1.1f },
-    { "SYNTH", "Trance Saw",       7, 0.9f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  3800, 1.2f,  350, 0,  0, 18.0f,  6,   400, 0.55f, 240, 0.10f, 0.25f, 0.30f, 1, 1.5f },
-    { "SYNTH", "Rave Stab",        3, 0.6f, 0.2f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2400, 2.4f,  140, 0,  0, 14.0f,  0,   220, 0.15f, 120, 0.18f, 0.20f, 0.10f, 0, 1.25f },
-    { "SYNTH", "Techno Stab",      3, 0.5f, 0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   480, 3.0f,  150, 0, -1, 14.0f,  1,   280, 0.05f, 200, 0.35f, 0.30f, 0.20f, 1, 1.1f },
-    { "SYNTH", "French Chord",     5, 0.8f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  1100, 1.8f,  180, 0,  0, 15.0f,  1,   320, 0.15f, 160, 0.20f, 0.15f, 0.10f, 0, 1.5f },
-    { "SYNTH", "Ambient Drone",    5, 0.7f, 0.4f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,   850, 0.0f, 3000, 0, -1, 10.0f, 450,  800, 0.90f, 1800, 0.10f, 0.65f, 0.25f, 1, 1.7f },
-    { "SYNTH", "Glass Keys",       1, 0.0f, 0.0f, 0.00f, 0.50f, 4.0f, 0.0f, 0.0f,  6000, 0.8f,  400, 2,  0,  0.0f,  1,   700, 0.25f, 500, 0.05f, 0.35f, 0.25f, 1, 1.3f },
-    { "SYNTH", "Ice Pluck",        2, 0.4f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   900, 4.0f,  110, 3,  0,  7.0f,  1,   240, 0.00f, 300, 0.05f, 0.35f, 0.45f, 1, 1.4f },
-    { "SYNTH", "Soft Organ",       1, 0.0f, 0.7f, 0.00f, 0.00f, 2.0f, 6.0f,  5.0f, 3500, 0.0f,  200, 2,  0,  0.0f,  5,   100, 0.95f, 120, 0.10f, 0.25f, 0.00f, 0, 1.0f },
-    { "SYNTH", "Cold Strings",     6, 0.8f, 0.0f, 0.04f, 0.00f, 2.0f, 0.0f, 0.0f,  1600, 0.4f,  900, 0,  0, 13.0f, 220,  600, 0.80f, 900, 0.10f, 0.45f, 0.15f, 0, 1.6f },
-    { "SYNTH", "Lo-Fi Keys",       2, 0.3f, 0.0f, 0.07f, 0.00f, 2.0f, 0.8f,  6.0f, 1400, 1.2f,  350, 3,  0,  5.0f,  2,   850, 0.35f, 400, 0.15f, 0.30f, 0.20f, 0, 1.1f },
-    { "SYNTH", "Modular Blip",   1, 0.0f, 0.0f, 0.00f, 0.30f, 3.0f, 0.0f, 0.0f,   900, 3.0f,   90, 2,  0,  0,  1.0f,  140, 0.00f,  120, 0.05f, 0.10f, 0.45f, 1, 1.0f },
-    { "SYNTH", "Squelch 303",    1, 0.0f, 0.1f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   420, 3.5f,  300, 1, -1,  0,  0.5f,  260, 0.35f,  120, 0.55f, 0.08f, 0.15f, 0, 0.8f },
-    { "SYNTH", "Bigroom Stab",   7, 0.8f, 0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  5000, 1.5f,  200, 0,  0, 30,  1.0f,  300, 0.10f,  200, 0.25f, 0.30f, 0.10f, 0, 1.4f },
-    { "SYNTH", "2-Step Chord",   3, 0.6f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 1.2f,  180, 1,  0, 10,  1.0f,  220, 0.15f,  180, 0.10f, 0.20f, 0.25f, 1, 1.2f },
-    { "SYNTH", "8-Bit Poly",     1, 0.0f, 0.0f, 0.00f, 0.00f, 2.0f, 5.5f, 8.0f,  8000, 0.0f,  200, 1,  0,  0,  1.0f,  400, 0.60f,  100, 0.10f, 0.15f, 0.20f, 1, 0.9f },
-    { "SYNTH", "Mall Keys",      2, 0.5f, 0.1f, 0.00f, 0.45f, 2.0f, 0.8f, 10.0f, 3200, 0.8f,  500, 2,  0,  8,  2.0f,  700, 0.50f,  500, 0.05f, 0.35f, 0.30f, 1, 1.5f },
-    { "SYNTH", "CS-80 Brass",    4, 0.6f, 0.1f, 0.00f, 0.00f, 2.0f, 5.0f, 6.0f,  1400, 1.0f,  800, 0,  0, 14, 90.0f,  600, 0.80f,  400, 0.30f, 0.35f, 0.10f, 0, 1.3f },
-    { "SYNTH", "Gabber Stab",    1, 0.0f, 0.4f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   900, 2.5f,  150, 1, -1,  0,  0.5f,  250, 0.10f,  150, 0.85f, 0.15f, 0.05f, 0, 0.8f },
-    { "SYNTH", "Tech Blip",      1, 0.0f, 0.0f, 0.00f, 0.20f, 1.0f, 0.0f, 0.0f,  2500, 1.5f,   60, 2,  0,  0,  0.5f,   90, 0.00f,   80, 0.05f, 0.12f, 0.35f, 1, 1.0f },
-    { "SYNTH", "Gate Dream",     7, 0.9f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  4500, 0.8f,  400, 0,  0, 22,  2.0f,  300, 0.65f,  300, 0.10f, 0.30f, 0.45f, 1, 1.5f },
-    { "SYNTH", "Italo Arp",      2, 0.4f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  3000, 1.8f,  220, 0,  0,  8,  1.0f,  260, 0.20f,  180, 0.10f, 0.20f, 0.40f, 1, 1.1f },
-    { "SYNTH", "Night Drive",    3, 0.5f, 0.3f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  1000, 0.6f,  600, 0, -1, 10,  8.0f,  500, 0.75f,  350, 0.20f, 0.30f, 0.20f, 0, 1.2f },
-    { "SYNTH", "Dembow Pluck",   3, 0.5f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  1800, 2.0f,  160, 0,  0, 12,  1.0f,  200, 0.10f,  160, 0.12f, 0.18f, 0.22f, 1, 1.2f },
-    { "SYNTH", "Hyper Saw",      7, 1.0f, 0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  9000, 0.5f,  300, 0,  0, 40,  1.0f,  400, 0.70f,  250, 0.35f, 0.25f, 0.15f, 0, 1.6f },
-    { "SYNTH", "Dark Rage",      5, 0.7f, 0.3f, 0.05f, 0.00f, 2.0f, 0.0f, 0.0f,  1200, 1.8f,  500, 0, -1, 26.0f,  5,  500, 0.45f, 350, 0.50f, 0.30f, 0.15f, 0, 1.4f },
-    { "SYNTH", "Soul Chords",    3, 0.5f, 0.1f, 0.00f, 0.20f, 1.0f, 0.0f, 0.0f,  2200, 0.6f,  400, 3,  0,  8.0f, 10,  700, 0.45f, 400, 0.05f, 0.35f, 0.15f, 0, 1.35f },
-
-    { "SYNTH", "Analog Strings",5, 0.80f,0.0f, 0.04f, 0.00f, 2.0f, 4.5f, 6.0f,  2600, 0.2f,  400, 0,  0, 14.0f, 280,  700, 0.85f, 700, 0.00f, 0.45f, 0.00f, 0, 1.45f },
-    { "SYNTH", "Digital Ice",   3, 0.60f,0.0f, 0.03f, 0.45f, 6.0f, 0.0f, 0.0f,  6000, 0.3f,  300, 2,  1,  8.0f,  40,  500, 0.70f, 500, 0.00f, 0.50f, 0.25f, 1, 1.4f },
-    { "SYNTH", "Glass Sync",    2, 0.40f,0.0f, 0.00f, 0.55f, 3.0f, 0.0f, 0.0f,  4500, 1.5f,  280, 1,  0,  9.0f,  10,  380, 0.60f, 300, 0.20f, 0.35f, 0.15f, 0, 1.2f },
-    { "SYNTH", "Warm Poly",     3, 0.50f,0.15f,0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.6f,  320, 0,  0, 10.0f,  45,  450, 0.80f, 420, 0.05f, 0.30f, 0.10f, 0, 1.25f },
-    { "SYNTH", "Hard Sync",     2, 0.30f,0.0f, 0.00f, 0.65f, 2.5f, 0.0f, 0.0f,  3000, 2.2f,  240, 0,  0, 12.0f,   2,  260, 0.55f, 180, 0.35f, 0.20f, 0.10f, 0, 1.1f },
-    { "SYNTH", "Trance Gate",    5, 0.70f,0.1f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2500, 1.2f,  200, 0,  0, 18.0f,  2,  180, 0.60f, 160, 0.15f, 0.30f, 0.25f, 1, 1.3f },
-    { "SYNTH", "Vapor Wash",     4, 0.85f,0.1f, 0.10f, 0.00f, 2.0f, 3.5f, 9.0f,  1400, 0.5f,  700, 3,  0, 16.0f, 400,  900, 0.80f, 900, 0.05f, 0.65f, 0.20f, 1, 1.5f },
-    { "SYNTH", "Future Chord",   5, 0.75f,0.10f,0.02f, 0.20f, 2.0f, 4.2f,  6.0f, 2800, 1.5f,  260, 0,  0, 20.0f,  6,  420, 0.65f, 340, 0.18f, 0.35f, 0.15f, 1, 1.4f },
-    { "SYNTH", "Drill Dark Pad", 4, 0.70f,0.20f,0.05f, 0.15f, 2.0f, 3.0f,  5.0f, 1200, 0.6f,  700, 0, -1, 16.0f,300, 1000, 0.80f, 900, 0.10f, 0.50f, 0.10f, 0, 1.4f },
-    { "SYNTH", "Wavetable Lead", 3, 0.45f,0.00f,0.01f, 0.55f, 3.0f, 4.5f,  6.0f, 5200, 1.2f,  260, 0,  0, 10.0f,  3,  260, 0.70f, 220, 0.18f, 0.25f, 0.20f, 0, 1.25f },
-    { "SYNTH", "Chord Synth",    5, 0.75f,0.05f,0.01f, 0.00f, 2.0f, 0.0f,  0.0f, 3200, 0.7f,  340, 0,  0, 16.0f, 12,  420, 0.70f, 400, 0.06f, 0.40f, 0.15f, 0, 1.45f },
-    { "SYNTH", "Arp Synth",      2, 0.35f,0.05f,0.01f, 0.20f, 2.0f, 0.0f,  0.0f, 3800, 1.8f,  120, 0,  0,  8.0f,  0,  180, 0.10f, 150, 0.08f, 0.30f, 0.30f, 1, 1.25f },
-    { "SYNTH", "Dark Synth",     4, 0.60f,0.35f,0.03f, 0.10f, 2.0f, 3.5f,  6.0f, 1100, 0.8f,  500, 0, -1, 14.0f, 40,  700, 0.65f, 600, 0.15f, 0.40f, 0.12f, 0, 1.3f },
-    { "PIANO", "Syn Grand",      1, 0.0f, 0.05f,0.02f,0.0f, 2.0f, 0.0f, 0.0f,  3200, 1.2f,  700, 3,  0,  3.0f,  1,   900, 0.22f, 260, 0.00f, 0.20f, 0.00f, 0, 1.0f },
-    { "PIANO", "Syn Bright",     1, 0.0f, 0.0f, 0.03f,0.12f,1.0f, 0.0f, 0.0f,  5200, 1.0f,  500, 3,  0,  4.0f,  1,   750, 0.28f, 220, 0.05f, 0.18f, 0.00f, 0, 1.05f },
-    { "PIANO", "Syn Soft Key",       1, 0.0f, 0.08f,0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2000, 0.8f,  900, 2,  0,  2.0f,  2,  1100, 0.18f, 350, 0.00f, 0.30f, 0.00f, 0, 1.0f },
-    { "PIANO", "House Keys",      3, 0.4f, 0.0f, 0.0f, 0.10f,2.0f, 0.0f, 0.0f,  4500, 1.0f,  300, 0,  0,  8.0f,  1,   500, 0.40f, 180, 0.08f, 0.20f, 0.10f, 0, 1.15f },
-    { "PIANO", "Syn Upright",    2, 0.2f, 0.10f,0.05f,0.12f,3.0f, 0.0f, 0.0f,  2200, 1.6f,  350, 0,  0,  4.0f,  2,  1000, 0.22f, 380, 0.10f, 0.25f, 0.00f, 0, 1.1f },
-    { "PIANO", "Syn Felt",       2, 0.2f, 0.20f,0.08f,0.05f,2.0f, 0.0f, 0.0f,  1200, 0.9f,  500, 3,  0,  3.0f,  4,  1100, 0.25f, 600, 0.00f, 0.40f, 0.08f, 0, 1.15f },
-    { "PIANO", "Syn Honky",     3, 0.3f, 0.08f,0.06f,0.15f,3.0f, 0.0f, 0.0f,  2600, 1.7f,  320, 0,  0, 14.0f,  3,   950, 0.20f,  350, 0.15f, 0.22f, 0.00f, 0, 1.15f },
-    { "PIANO", "Noir Keys",     2, 0.2f, 0.18f,0.04f,0.10f,2.0f, 0.0f, 0.0f,   900, 1.2f,  500, 0,  0,  4.0f,  4,  1300, 0.15f,  900, 0.08f, 0.50f, 0.12f, 0, 1.2f },
-    { "PIANO", "Syn Pop Key",      3, 0.25f,0.12f,0.05f,0.18f,3.0f, 0.0f, 0.0f,  3200, 1.8f,  300, 0,  0,  8.0f,  2,   900, 0.25f,  320, 0.12f, 0.28f, 0.08f, 0, 1.25f },
-    { "PIANO", "Ballad Keys",   2, 0.2f, 0.12f,0.03f,0.08f,2.0f, 0.0f, 0.0f,  1800, 1.4f,  420, 0,  0,  3.0f,  4,  1200, 0.30f,  700, 0.05f, 0.40f, 0.10f, 0, 1.1f },
-    { "PIANO", "Syn Tack",     2, 0.2f, 0.05f,0.12f,0.25f,5.0f, 0.0f, 0.0f,  4200, 2.0f,  180, 0,  0, 10.0f,  1,   700, 0.12f,  250, 0.20f, 0.18f, 0.00f, 0, 1.0f },
-    { "PIANO", "Ghost Keys",    2, 0.35f,0.15f,0.06f,0.10f,2.0f, 0.8f, 6.0f,  1400, 1.3f,  600, 0,  0,  6.0f,  5,  1400, 0.30f, 1600, 0.05f, 0.75f, 0.35f, 1, 1.5f },
-
-    { "PIANO", "Royal Grand",   2, 0.15f,0.08f,0.015f,0.10f, 3.5f, 0.0f, 0.0f,  3200, 1.3f,  260, 3,  0,  2.5f,   1, 1400, 0.22f, 500, 0.02f, 0.30f, 0.04f, 0, 1.2f },
-    { "PIANO", "Concert Bright",2, 0.20f,0.05f,0.02f, 0.14f, 3.5f, 0.0f, 0.0f,  4200, 1.5f,  220, 3,  0,  3.0f,   1, 1200, 0.20f, 450, 0.05f, 0.32f, 0.05f, 0, 1.25f },
-    { "PIANO", "Felt Piano",     1, 0.10f,0.10f,0.03f, 0.10f, 2.0f, 0.0f, 0.0f,  1500, 1.2f,  400, 3,  0,  2.0f,  1,  900, 0.30f, 500, 0.00f, 0.35f, 0.05f, 0, 1.0f },
-    { "PIANO", "Toy Piano",      1, 0.00f,0.0f, 0.02f, 0.55f, 5.0f, 0.0f, 0.0f,  4000, 1.0f,  200, 2,  1,  0.0f,  0,  600, 0.10f, 400, 0.05f, 0.30f, 0.10f, 0, 0.9f },
-    { "PIANO", "Emotional Piano",2, 0.20f,0.05f,0.01f, 0.30f, 2.0f, 0.0f, 0.0f,  2400, 0.8f,  420, 3,  0,  4.0f,  3, 1200, 0.20f, 900, 0.02f, 0.55f, 0.15f, 0, 1.3f },
-    { "PIANO", "Piano Chord",    3, 0.35f,0.05f,0.01f, 0.25f, 2.0f, 0.0f, 0.0f,  2800, 1.0f,  380, 3,  0,  6.0f,  2,  900, 0.30f, 700, 0.04f, 0.40f, 0.12f, 0, 1.35f },
-    { "GUITAR","Syn Nylon",     1, 0.0f, 0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  140, 3,  0,  3.0f,  0,   380, 0.10f, 200, 0.00f, 0.25f, 0.08f, 0, 1.0f },
-    { "GUITAR","Syn Steel",     1, 0.0f, 0.0f, 0.05f,0.15f,2.0f, 0.0f, 0.0f,  2600, 1.8f,  160, 0,  0,  5.0f,  0,   420, 0.12f, 220, 0.05f, 0.22f, 0.06f, 0, 1.05f },
-    { "GUITAR","Syn Clean Gtr",     1, 0.0f, 0.0f, 0.0f, 0.08f,1.0f, 0.0f, 0.0f,  2400, 1.2f,  250, 3,  0,  2.0f,  1,   550, 0.30f, 250, 0.06f, 0.18f, 0.10f, 0, 1.1f },
-    { "GUITAR","Syn Mute Gtr",     1, 0.0f, 0.10f,0.02f,0.0f, 2.0f, 0.0f, 0.0f,   900, 1.5f,   60, 3,  0,  0.0f,  0,   140, 0.05f,  90, 0.10f, 0.08f, 0.00f, 0, 0.95f },
-    { "GUITAR","Funk Gtr Syn",      1, 0.0f, 0.0f, 0.02f,0.0f, 2.0f, 0.0f, 0.0f,  1600, 2.2f,   80, 1,  0,  2.0f,  0,   160, 0.08f, 100, 0.12f, 0.10f, 0.05f, 0, 1.0f },
-    { "GUITAR","Syn 12-String",        4, 0.5f, 0.0f, 0.07f,0.10f,2.0f, 0.0f, 0.0f,  2600, 1.8f,  180, 3,  0,  9.0f,  1,   850, 0.12f, 400, 0.08f, 0.30f, 0.10f, 0, 1.35f },
-    { "GUITAR","Syn Jazz Gtr",         1, 0.0f, 0.25f,0.03f,0.0f, 2.0f, 0.0f, 0.0f,  1100, 1.3f,  150, 3,  0,  0.0f,  1,   700, 0.15f, 300, 0.12f, 0.18f, 0.00f, 0, 1.0f },
-    { "GUITAR","Syn Spanish",  2, 0.3f, 0.10f,0.08f,0.30f,3.0f, 0.0f, 0.0f,  2400, 1.9f,  120, 3,  0,  6.0f,  0,   500, 0.10f,  260, 0.10f, 0.30f, 0.00f, 0, 1.1f },
-    { "GUITAR","Chorus Gtr",   2, 0.4f, 0.08f,0.02f,0.35f,2.0f, 0.9f, 8.0f,  3000, 1.5f,  200, 3,  0, 10.0f,  0,   800, 0.25f,  400, 0.05f, 0.30f, 0.15f, 1, 1.4f },
-    { "GUITAR","Crunch Syn",  2, 0.25f,0.10f,0.04f,0.10f,2.0f, 0.0f, 0.0f,  1600, 1.6f,  140, 0,  0,  8.0f,  0,   450, 0.20f,  200, 0.60f, 0.15f, 0.00f, 0, 1.0f },
-    { "GUITAR","Drive Lead Gtr", 1, 0.0f, 0.15f,0.03f,0.12f,2.0f, 5.5f,12.0f,  1300, 1.4f,  220, 0,  0,  0.0f,  0,   600, 0.30f,  300, 0.70f, 0.25f, 0.20f, 1, 0.9f },
-    { "GUITAR","Syn Slide",   1, 0.0f, 0.12f,0.02f,0.40f,2.0f, 4.5f,18.0f,  2000, 1.5f,  250, 3,  0,  0.0f,  5,   900, 0.30f,  500, 0.20f, 0.35f, 0.10f, 0, 1.0f },
-    { "GUITAR","Chime Syn", 2, 0.3f, 0.05f,0.02f,0.50f,3.5f, 0.0f, 0.0f,  5000, 1.8f,   90, 3,  1,  5.0f,  0,   700, 0.05f,  500, 0.05f, 0.40f, 0.20f, 1, 1.3f },
-    { "GUITAR","Syn Bass Gtr",    1, 0.0f, 0.40f,0.03f,0.30f,2.0f, 0.0f, 0.0f,   700, 1.7f,  150, 3, -1,  0.0f,  0,   500, 0.25f,  180, 0.25f, 0.05f, 0.00f, 0, 0.7f },
-
-    { "GUITAR","Pop Mute Gtr",  1, 0.00f,0.05f,0.03f, 0.30f, 2.0f, 0.0f, 0.0f,  2100, 1.6f,  110, 3,  0,  0.0f,   0,  190, 0.04f, 150, 0.10f, 0.18f, 0.08f, 0, 1.05f },
-    { "GUITAR","Tropic Gtr",    2, 0.25f,0.0f, 0.02f, 0.35f, 2.0f, 0.0f, 0.0f,  2600, 1.4f,  140, 3,  0,  5.0f,   0,  260, 0.06f, 220, 0.06f, 0.28f, 0.12f, 0, 1.15f },
-    { "GUITAR","Syn Acoustic",  2, 0.20f,0.0f, 0.04f, 0.30f, 3.0f, 0.0f, 0.0f,  3400, 1.1f,  180, 3,  0,  4.0f,   1,  700, 0.12f, 380, 0.03f, 0.25f, 0.06f, 0, 1.2f },
-    { "GUITAR","Muted Chug",     1, 0.00f,0.2f, 0.03f, 0.25f, 2.0f, 0.0f, 0.0f,   900, 2.5f,   70, 0, -1,  3.0f,  0,  120, 0.10f,  90, 0.45f, 0.05f, 0.00f, 0, 0.8f },
-    { "GUITAR","Nylon Soft",     1, 0.10f,0.05f,0.02f, 0.20f, 2.0f, 0.0f, 0.0f,  1800, 1.5f,  200, 3,  0,  2.0f,  1,  700, 0.15f, 450, 0.00f, 0.30f, 0.06f, 0, 1.0f },
-    { "GUITAR","Disco Guitar",   2, 0.25f,0.05f,0.02f, 0.30f, 3.0f, 0.0f, 0.0f,  3200, 2.4f,  110, 3,  0,  5.0f,  0,  200, 0.05f, 160, 0.12f, 0.22f, 0.20f, 1, 1.2f },
-    { "GUITAR","Guitar Loop",    2, 0.20f,0.05f,0.02f, 0.25f, 2.0f, 0.0f, 0.0f,  2600, 1.8f,  160, 3,  0,  4.0f,  1,  420, 0.20f, 340, 0.08f, 0.28f, 0.15f, 0, 1.15f },
-    { "GUITAR","Glass Nylon",    1, 0.08f,0.02f,0.01f, 0.18f, 2.0f, 0.0f, 0.0f,  2400, 1.4f,  180, 3,  0,  2.0f,  1,  620, 0.14f, 360, 0.00f, 0.32f, 0.10f, 0, 1.08f },
-    { "GUITAR","Air Steel",      2, 0.24f,0.00f,0.03f, 0.16f, 2.0f, 0.0f, 0.0f,  3400, 1.6f,  170, 3,  0,  5.0f,  1,  720, 0.16f, 440, 0.02f, 0.30f, 0.12f, 0, 1.22f },
-    { "GUITAR","Pearl Muted Gtr",1, 0.00f,0.10f,0.02f, 0.10f, 2.0f, 0.0f, 0.0f,  1300, 2.2f,   85, 3,  0,  0.0f,  0,  170, 0.08f, 120, 0.08f, 0.12f, 0.04f, 0, 0.96f },
-    { "GUITAR","Clean Chorus Gtr",3,0.42f,0.02f,0.02f, 0.16f, 2.0f, 0.8f, 6.0f,  3200, 1.2f,  240, 3,  0,  8.0f,  2,  780, 0.26f, 520, 0.04f, 0.36f, 0.18f, 1, 1.42f },
-    { "GUITAR","Dream Strum",    3, 0.36f,0.04f,0.03f, 0.12f, 2.0f, 0.6f, 5.0f,  2600, 1.2f,  320, 3,  0,  9.0f,  6,  900, 0.34f, 620, 0.02f, 0.44f, 0.18f, 0, 1.34f },
-    { "GUITAR","Indie Jangle",   4, 0.50f,0.00f,0.04f, 0.10f, 2.0f, 0.0f, 0.0f,  3800, 1.6f,  160, 3,  0, 11.0f,  1,  520, 0.20f, 340, 0.08f, 0.26f, 0.15f, 0, 1.35f },
-    { "GUITAR","Tape Guitar",    2, 0.28f,0.08f,0.10f, 0.12f, 2.0f, 0.5f, 4.5f, 1900, 1.0f,  260, 3,  0,  5.0f,  6,  760, 0.22f, 480, 0.12f, 0.34f, 0.12f, 0, 1.18f },
-    { "GUITAR","Lo-Fi Guitar",   1, 0.12f,0.08f,0.12f, 0.08f, 2.0f, 0.4f, 5.0f, 1500, 0.8f,  300, 3,  0,  3.0f,  8,  820, 0.28f, 520, 0.14f, 0.38f, 0.14f, 0, 1.08f },
-    { "GUITAR","Dream Lead Gtr", 2, 0.25f,0.08f,0.02f, 0.22f, 2.0f, 4.0f,10.0f, 2600, 1.3f,  240, 3,  0,  6.0f,  8,  900, 0.42f, 560, 0.16f, 0.42f, 0.16f, 1, 1.18f },
-    { "GUITAR","Soft Slide Gtr", 1, 0.10f,0.08f,0.02f, 0.28f, 2.0f, 3.0f,14.0f, 2200, 1.0f,  260, 3,  0,  2.0f, 15, 1100, 0.38f, 700, 0.08f, 0.44f, 0.14f, 0, 1.12f },
-    { "GUITAR","Palm Mute Pop",  1, 0.00f,0.12f,0.02f, 0.12f, 2.0f, 0.0f, 0.0f,  1050, 2.4f,   70, 3,  0,  0.0f,  0,  130, 0.05f,  90, 0.10f, 0.10f, 0.04f, 0, 0.92f },
-    { "GUITAR","Wide 12-String", 5, 0.62f,0.00f,0.05f, 0.12f, 2.0f, 0.0f, 0.0f,  3600, 1.4f,  210, 3,  0, 12.0f,  1,  820, 0.18f, 500, 0.05f, 0.34f, 0.18f, 1, 1.50f },
-    { "GUITAR","Neo Soul Gtr",   2, 0.25f,0.10f,0.02f, 0.18f, 2.0f, 0.5f, 4.0f,  1800, 1.0f,  220, 3,  0,  4.0f,  3,  720, 0.28f, 420, 0.08f, 0.30f, 0.12f, 0, 1.18f },
-    { "GUITAR","Bright Pick Gtr",1, 0.08f,0.00f,0.02f, 0.14f, 2.0f, 0.0f, 0.0f,  4200, 1.8f,  120, 3,  0,  2.0f,  0,  360, 0.12f, 220, 0.02f, 0.18f, 0.10f, 0, 1.08f },
-    { "GUITAR","Ambient Guitar",4, 0.62f,0.02f,0.04f, 0.16f, 2.0f, 0.8f, 8.0f,  2600, 0.6f,  700, 3,  0, 10.0f, 80, 1100, 0.72f,1300, 0.00f, 0.68f, 0.28f, 1, 1.55f },
-    { "PAD",   "Dream Pad",        5, 1.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2600, 0.0f,  200, 0,  0, 18.0f, 450,  800, 0.80f, 1000, 0.00f, 0.60f, 0.00f, 0, 1.6f },
-    { "PAD",   "Warm Strings",     5, 0.7f, 0.0f, 0.0f, 0.0f, 2.0f, 4.5f,  6.0f, 3400, 0.0f,  200, 0,  0, 12.0f, 220,  500, 0.85f, 500, 0.00f, 0.45f, 0.00f, 0, 1.3f },
-    { "PAD",   "Dark Pad",         5, 0.8f, 0.3f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   900, 0.0f,  200, 0, -1, 15.0f, 600, 1000, 0.85f, 1200, 0.00f, 0.70f, 0.00f, 0, 1.4f },
-    { "PAD",   "Glass Pad",        3, 0.8f, 0.0f, 0.0f, 0.35f,2.0f, 0.0f, 0.0f,  5000, 0.0f,  200, 2,  0, 10.0f, 400,  800, 0.75f, 900, 0.00f, 0.65f, 0.10f, 0, 1.5f },
-    { "PAD",   "Choir Air",        5, 0.9f, 0.0f, 0.06f,0.0f, 2.0f, 4.0f,  5.0f, 3000, 0.0f,  200, 2,  0, 14.0f, 350,  700, 0.85f, 800, 0.00f, 0.70f, 0.00f, 0, 1.5f },
-    { "PAD",   "Analog Sweep",     5, 0.8f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   400, 2.5f, 3000, 0,  0, 16.0f, 500,  900, 0.85f, 1200, 0.10f, 0.55f, 0.00f, 0, 1.5f },
-    { "PAD",   "Ocean Pad",        3, 0.9f, 0.2f, 0.10f,0.0f, 2.0f, 0.0f, 0.0f,  1800, 0.0f,  200, 2,  0, 10.0f, 800,  900, 0.85f, 1400, 0.00f, 0.70f, 0.15f, 0, 1.6f },
-    { "PAD",   "Cinema Strings",   7, 0.8f, 0.0f, 0.0f, 0.0f, 2.0f, 4.6f,  5.0f, 3800, 0.0f,  200, 0,  0,  9.0f, 350,  600, 0.90f, 800, 0.00f, 0.50f, 0.00f, 0, 1.45f },
-    { "PAD",   "Vapor Pad",        5, 0.85f,0.0f, 0.04f,0.0f, 2.0f, 0.0f, 0.0f,  1500, 0.5f, 1500, 1,  0, 16.0f, 600,  800, 0.80f, 1200, 0.05f, 0.60f, 0.35f, 1, 1.55f },
-    { "PAD",   "Shimmer Pad",      5, 0.9f, 0.10f,0.05f,0.25f,3.0f, 0.0f, 0.0f,  3200, 1.0f, 2500, 0,  0, 14.0f, 350,  900, 0.85f, 1800, 0.00f, 0.70f, 0.30f, 1, 1.7f },
-    { "PAD",   "Tape Strings",     4, 0.7f, 0.15f,0.12f,0.0f, 2.0f, 0.5f,  8.0f, 2400, 0.5f, 1200, 0,  0, 10.0f, 280,  800, 0.80f, 1200, 0.15f, 0.50f, 0.10f, 0, 1.4f },
-    { "PAD",   "Cathedral",        6, 0.8f, 0.20f,0.06f,0.08f,2.0f, 4.5f,  6.0f, 1400, 0.8f, 2000, 3,  0,  8.0f, 450, 1000, 0.90f, 2000, 0.00f, 0.70f, 0.05f, 0, 1.6f },
-    { "PAD",   "Velvet Pad",       3, 0.6f, 0.40f,0.0f, 0.0f, 2.0f, 0.0f, 0.0f,   900, 0.4f, 1500, 3, -1,  7.0f, 320,  900, 0.85f, 1500, 0.10f, 0.50f, 0.00f, 0, 1.3f },
-    { "PAD",   "Aurora Pad",       5, 0.85f,0.10f,0.04f,0.15f,2.0f, 0.3f,  5.0f, 1600, 1.5f, 2800, 1,  0, 12.0f, 400, 1100, 0.80f, 1700, 0.00f, 0.60f, 0.35f, 1, 1.7f },
-    { "PAD",   "Solar Winds",      2, 0.5f, 0.15f,0.35f,0.0f, 2.0f, 0.0f, 0.0f,  5000, 0.0f,  200, 2,  0,  6.0f, 500, 1000, 0.75f, 2000, 0.00f, 0.65f, 0.20f, 1, 1.8f },
-    { "PAD",   "Ensemble Str",   5, 0.8f, 0.05f,0.05f, 0.00f, 2.0f, 5.5f, 5.0f,  2600, 0.0f,  200, 0,  0, 16, 350.0f, 600, 0.85f,  900, 0.00f, 0.50f, 0.10f, 0, 1.5f },
-    { "PAD",   "Soft Brass",     4, 0.6f, 0.1f, 0.00f, 0.00f, 2.0f, 4.5f, 4.0f,  1500, 0.8f,  900, 0,  0, 12, 250.0f, 700, 0.80f,  700, 0.15f, 0.45f, 0.10f, 0, 1.3f },
-    { "PAD",   "Boys Choir",     3, 0.6f, 0.0f, 0.08f, 0.25f, 5.0f, 4.5f, 7.0f,  2000, 0.0f,  200, 3,  0, 10, 400.0f, 700, 0.85f, 1200, 0.00f, 0.60f, 0.10f, 0, 1.4f },
-    { "PAD",   "Grain Cloud",    6, 1.0f, 0.0f, 0.25f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.0f,  200, 3,  0, 28, 700.0f, 900, 0.80f, 1600, 0.00f, 0.65f, 0.30f, 1, 1.7f },
-    { "PAD",   "Frost Pad",      4, 0.8f, 0.0f, 0.12f, 0.00f, 2.0f, 0.0f, 0.0f,  1300, 0.0f,  200, 3,  0, 18, 500.0f, 800, 0.80f, 1400, 0.00f, 0.60f, 0.25f, 1, 1.6f },
-    { "PAD",   "Juno Warmth",    3, 0.7f, 0.25f,0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  1700, 0.3f,  800, 0,  0, 12, 300.0f, 600, 0.85f,  900, 0.05f, 0.45f, 0.10f, 0, 1.4f },
-    { "PAD",   "Hollow Glass",   2, 0.6f, 0.0f, 0.00f, 0.50f, 3.0f, 0.0f, 0.0f,  3000, 0.0f,  200, 2,  0,  8, 400.0f, 800, 0.75f, 1300, 0.00f, 0.55f, 0.30f, 1, 1.5f },
-    { "PAD",   "Nebula Drone",   5, 0.9f, 0.3f, 0.15f, 0.00f, 2.0f, 0.0f, 0.0f,  1100, 0.0f,  200, 3, -1, 20, 900.0f, 1000, 0.90f, 2000, 0.00f, 0.70f, 0.35f, 0, 1.7f },
-    { "PAD",   "E-Bow Swell",    2, 0.5f, 0.0f, 0.00f, 0.30f, 2.0f, 0.0f, 0.0f,  2400, 0.6f, 1500, 3,  0,  6, 800.0f, 900, 0.80f, 1100, 0.10f, 0.55f, 0.30f, 1, 1.3f },
-    { "PAD",   "Seraph Pad",     5, 0.8f, 0.0f, 0.05f, 0.00f, 2.0f, 5.0f, 5.0f,  3500, 0.0f,  200, 0,  0, 16, 500.0f, 800, 0.85f, 1600, 0.00f, 0.65f, 0.15f, 0, 1.6f },
-    { "PAD",   "Tension Bed",    4, 0.7f, 0.1f, 0.20f, 0.00f, 2.0f, 0.0f, 0.0f,   900, 1.2f, 2500, 0, -1, 26, 600.0f, 800, 0.85f, 1200, 0.15f, 0.55f, 0.10f, 0, 1.4f },
-    { "PAD",   "Submerged",      3, 0.7f, 0.35f,0.00f, 0.30f, 0.5f, 0.6f, 12.0f,  700, 0.0f,  200, 2,  0, 10, 600.0f, 800, 0.85f, 1500, 0.00f, 0.65f, 0.30f, 0, 1.5f },
-    { "PAD",   "Sunset Haze",    4, 0.7f, 0.2f, 0.00f, 0.00f, 2.0f, 0.7f, 6.0f,  1900, 0.0f,  200, 3,  0, 14, 400.0f, 700, 0.85f, 1300, 0.05f, 0.50f, 0.20f, 0, 1.5f },
-    { "PAD",   "Retro Cosmos",   3, 0.6f, 0.0f, 0.00f, 0.00f, 2.0f, 5.5f, 12.0f, 2100, 0.4f, 1200, 1,  0, 12, 350.0f, 700, 0.80f, 1000, 0.10f, 0.55f, 0.35f, 1, 1.4f },
-    { "PAD",   "Bass Pad",       3, 0.5f, 0.8f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,   600, 0.3f,  200, 0, -2, 10.0f, 350,  800, 0.85f, 1200, 0.10f, 0.35f, 0.00f, 0, 1.1f },
-    { "PAD",   "Sub Drone",      2, 0.4f, 1.0f, 0.03f, 0.00f, 2.0f, 0.0f, 0.0f,   350, 0.0f,  200, 2, -2,  6.0f, 450,  900, 0.90f, 1500, 0.05f, 0.30f, 0.00f, 0, 1.0f },
-    { "PAD",   "Soul Pad",       4, 0.7f, 0.2f, 0.05f, 0.15f, 1.0f, 0.0f, 0.0f,  1600, 0.4f,  900, 3,  0,  9.0f, 400,  800, 0.85f, 1300, 0.00f, 0.55f, 0.15f, 0, 1.5f },
-
-    { "PAD",   "Nebula Pad",    6, 0.90f,0.1f, 0.08f, 0.00f, 2.0f, 0.0f, 0.0f,  1800, 0.3f,  900, 0,  0, 16.0f, 600, 1200, 0.85f,1200, 0.00f, 0.75f, 0.15f, 1, 1.6f },
-    { "PAD",   "Ice Pad",       4, 0.70f,0.0f, 0.06f, 0.35f, 6.0f, 0.0f, 0.0f,  4000, 0.0f,  200, 2,  1, 10.0f, 500, 1000, 0.85f,1100, 0.00f, 0.70f, 0.20f, 1, 1.55f },
-    { "PAD",   "Analog Wash",   5, 0.85f,0.2f, 0.05f, 0.00f, 2.0f, 4.0f, 5.0f,  1500, 0.2f,  800, 0,  0, 14.0f, 450,  900, 0.85f, 950, 0.00f, 0.65f, 0.10f, 0, 1.5f },
-    { "PAD",   "Deep Space",    3, 0.70f,0.5f, 0.10f, 0.00f, 2.0f, 0.0f, 0.0f,   900, 0.4f, 1200, 0, -1, 12.0f, 700, 1500, 0.85f,1400, 0.00f, 0.80f, 0.20f, 0, 1.55f },
-    { "PAD",   "Dusk Pad",      4, 0.75f,0.1f, 0.05f, 0.15f, 2.0f, 4.5f, 6.0f,  1400, 0.3f,  700, 3,  0, 11.0f, 400,  900, 0.85f, 900, 0.00f, 0.60f, 0.10f, 0, 1.45f },
-    { "PAD",   "Polar Lights",     6, 0.90f,0.1f, 0.08f, 0.00f, 2.0f, 3.0f, 6.0f,  1600, 0.4f,  900, 0,  0, 20.0f, 900, 1400, 0.85f,1600, 0.00f, 0.70f, 0.15f, 1, 1.6f },
-    { "PAD",   "Cinema Swell",   5, 0.80f,0.2f, 0.06f, 0.00f, 2.0f, 0.0f, 0.0f,   800, 1.5f, 1600, 0, -1, 15.0f,1400, 1800, 0.90f,1500, 0.10f, 0.65f, 0.10f, 0, 1.5f },
-    { "PAD",   "Big Pad",        7, 0.95f,0.15f,0.04f, 0.00f, 2.0f, 0.0f, 0.0f,  2600, 0.6f,  900, 0,  0, 24.0f, 600, 1200, 0.90f,1100, 0.05f, 0.60f, 0.15f, 0, 1.7f },
-    { "PAD",   "Spatial Pad",    5, 0.78f,0.05f,0.03f, 0.00f, 2.0f, 3.0f, 4.0f,  2200, 0.3f,  900, 0,  0, 14.0f, 520,  900, 0.86f,1400, 0.00f, 0.64f, 0.12f, 0, 1.55f },
-    { "PAD",   "Liquid Air",     4, 0.72f,0.00f,0.08f, 0.10f, 2.0f, 2.5f, 5.0f,  2800, 0.2f, 1100, 3,  0, 10.0f, 700, 1100, 0.82f,1700, 0.00f, 0.70f, 0.18f, 1, 1.7f },
-    { "PAD",   "Glass Cloud",    5, 0.82f,0.00f,0.04f, 0.18f, 2.5f, 0.0f, 0.0f,  3000, 0.4f, 1200, 2,  0, 12.0f, 600, 1000, 0.80f,1500, 0.00f, 0.68f, 0.20f, 1, 1.6f },
-    // The pump is the sound, so it lives in the envelope: a fast dip and a
-    // 90 ms climb back, which is what a compressor keyed off a kick does.
-    { "PAD",   "Sidechain Pad",  6, 0.85f,0.10f,0.03f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.5f,  700, 0,  0, 18.0f,  90,  380, 0.55f, 300, 0.04f, 0.50f, 0.18f, 0, 1.6f },
-    { "PLUCK", "Crystal Pluck",    1, 0.0f, 0.0f, 0.10f,0.0f, 2.0f, 0.0f, 0.0f,   500, 4.0f,  120, 3,  0,  7.0f,  0,   200, 0.00f, 140, 0.00f, 0.25f, 0.30f, 1, 1.2f },
-    { "PLUCK", "Syn Kalimba",          1, 0.0f, 0.0f, 0.02f,0.5f, 4.2f, 0.0f, 0.0f,  3000, 2.0f,  100, 2,  0,  0.0f,  0,   250, 0.00f, 150, 0.00f, 0.30f, 0.10f, 0, 1.1f },
-    { "PLUCK", "Syn Marimba",          1, 0.0f, 0.0f, 0.0f, 0.25f,3.0f, 0.0f, 0.0f,  2500, 2.0f,   90, 2,  0,  0.0f,  0,   220, 0.00f, 160, 0.00f, 0.30f, 0.05f, 0, 1.0f },
-    { "PLUCK", "Trance Pluck",     1, 0.0f, 0.0f, 0.03f,0.0f, 2.0f, 0.0f, 0.0f,   700, 3.6f,  110, 0,  0,  6.0f,  0,   190, 0.00f, 150, 0.08f, 0.25f, 0.35f, 1, 1.2f },
-    { "PLUCK", "Syn Harp",             1, 0.0f, 0.0f, 0.05f,0.10f,2.0f, 0.0f, 0.0f,  2200, 1.8f,  300, 3,  0,  3.0f,  0,   600, 0.00f, 420, 0.00f, 0.35f, 0.10f, 0, 1.15f },
-    { "PLUCK", "Syn Koto",             1, 0.0f, 0.0f, 0.08f,0.18f,3.0f, 0.0f, 0.0f,  1800, 2.5f,  160, 3,  0,  0.0f,  1,   380, 0.00f, 320, 0.10f, 0.30f, 0.12f, 0, 1.1f },
-    { "PLUCK", "Syn Pizz",        2, 0.3f, 0.10f,0.06f,0.0f, 2.0f, 0.0f, 0.0f,  1200, 2.0f,  120, 0,  0,  5.0f,  1,   260, 0.00f, 240, 0.05f, 0.35f, 0.00f, 0, 1.2f },
-    { "PLUCK", "Syn Music Box",        1, 0.0f, 0.0f, 0.0f, 0.40f,3.5f, 0.0f, 0.0f,  6000, 1.5f,  200, 2,  1,  0.0f,  0,   550, 0.00f, 600, 0.00f, 0.45f, 0.15f, 1, 1.2f },
-    { "PLUCK", "Neon Pluck",       3, 0.6f, 0.20f,0.0f, 0.12f,2.0f, 0.0f, 0.0f,   900, 3.5f,   90, 1,  0,  8.0f,  0,   300, 0.00f, 260, 0.20f, 0.25f, 0.40f, 1, 1.4f },
-    { "PLUCK", "Syn Dulcimer",         2, 0.30f,0.00f,0.04f,0.15f,3.0f, 0.0f, 0.0f,  3400, 2.2f,  220, 3,  0,  6.0f,  0,   620, 0.00f, 500, 0.05f, 0.30f, 0.12f, 0, 1.20f },
-    { "PLUCK", "Syn Steel Pan",        1, 0.00f,0.00f,0.00f,0.50f,2.0f, 5.0f, 6.0f,  2600, 2.0f,  180, 2,  0,  0.0f,  0,   550, 0.00f, 480, 0.08f, 0.35f, 0.10f, 0, 1.10f },
-    { "PLUCK", "Syn Banjo",      1, 0.00f,0.00f,0.10f,0.18f,5.0f, 0.0f, 0.0f,  3800, 3.2f,   90, 0,  0,  0.0f,  0,   320, 0.00f, 240, 0.15f, 0.15f, 0.00f, 0, 1.00f },
-    { "PLUCK", "Syn Sitar",       2, 0.35f,0.00f,0.06f,0.20f,5.0f, 0.0f, 0.0f,  2400, 3.0f,  260, 0,  0,  9.0f,  0,   680, 0.10f, 600, 0.45f, 0.30f, 0.20f, 1, 1.20f },
-    { "PLUCK", "Tropic Pluck",     3, 0.60f,0.10f,0.00f,0.00f,1.0f, 0.0f, 0.0f,   800, 3.2f,  140, 1,  0,  8.0f,  0,   380, 0.00f, 300, 0.05f, 0.25f, 0.35f, 1, 1.30f },
-    { "PLUCK", "Mallet Choir",     4, 0.50f,0.00f,0.00f,0.30f,4.0f, 0.0f, 0.0f,  2800, 1.8f,  200, 3,  0, 10.0f,  0,   480, 0.00f, 420, 0.00f, 0.40f, 0.12f, 0, 1.35f },
-    { "PLUCK", "Water Drop",       1, 0.00f,0.00f,0.00f,0.30f,0.5f, 0.0f, 0.0f,   600, 4.0f,   60, 2,  0,  0.0f,  0,   200, 0.00f, 180, 0.00f, 0.30f, 0.30f, 1, 1.10f },
-    { "PLUCK", "Rubber Toy",       1, 0.00f,0.10f,0.00f,0.50f,1.5f, 0.0f, 0.0f,   900, 2.2f,  110, 3,  0,  0.0f,  0,   260, 0.05f, 200, 0.20f, 0.15f, 0.08f, 0, 1.00f },
-    { "PLUCK", "Syn Gamelan",          1, 0.00f,0.00f,0.00f,0.60f,3.5f, 0.0f, 0.0f,  3200, 1.6f,  240, 2,  0,  0.0f,  0,   700, 0.00f, 950, 0.00f, 0.45f, 0.10f, 0, 1.25f },
-    { "PLUCK", "Felt Mallet",      1, 0.00f,0.20f,0.02f,0.10f,4.0f, 0.0f, 0.0f,  1100, 1.5f,  160, 3,  0,  0.0f,  2,   520, 0.05f, 480, 0.00f, 0.35f, 0.08f, 0, 1.10f },
-    { "PLUCK", "Organ Pluck",      2, 0.40f,0.50f,0.00f,0.00f,1.0f, 0.0f, 0.0f,  1300, 2.0f,  130, 1,  0,  5.0f,  0,   300, 0.15f, 220, 0.10f, 0.20f, 0.18f, 1, 1.15f },
-    { "PLUCK", "Soul Pluck",       1, 0.00f,0.05f,0.06f,0.20f,2.0f, 0.0f, 0.0f,  1500, 1.8f,  180, 3,  0,  4.0f,  0,   450, 0.05f, 300, 0.05f, 0.30f, 0.18f, 1, 1.2f },
-
-    { "PLUCK", "Dance Pluck",   3, 0.50f,0.0f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2600, 2.2f,  110, 0,  0, 10.0f,   0,  200, 0.00f, 170, 0.10f, 0.30f, 0.20f, 0, 1.2f },
-    { "PLUCK", "Water Pluck",   2, 0.40f,0.0f, 0.02f, 0.40f, 3.0f, 0.0f, 0.0f,  3200, 2.5f,   90, 2,  0,  7.0f,   0,  240, 0.00f, 220, 0.00f, 0.40f, 0.25f, 1, 1.25f },
-    { "PLUCK", "Bubble Pluck",  1, 0.00f,0.0f, 0.00f, 0.55f, 2.0f, 0.0f, 0.0f,  2000, 3.0f,   70, 2,  0,  0.0f,   0,  160, 0.00f, 140, 0.05f, 0.30f, 0.20f, 0, 1.1f },
-    { "PLUCK", "Glass Pluck",   2, 0.30f,0.0f, 0.00f, 0.50f, 5.0f, 0.0f, 0.0f,  5000, 1.8f,  120, 2,  1,  6.0f,   0,  300, 0.00f, 260, 0.00f, 0.45f, 0.25f, 0, 1.3f },
-    { "PLUCK", "Amapiano Log",   1, 0.00f,0.6f, 0.02f, 0.40f, 2.0f, 0.0f, 0.0f,   900, 2.2f,  140, 2, -1,  0.0f,  0,  450, 0.10f, 250, 0.25f, 0.20f, 0.00f, 0, 0.9f },
-    { "PLUCK", "Droplet Pluck",    2, 0.40f,0.0f, 0.03f, 0.55f, 3.5f, 0.0f, 0.0f,  2600, 2.5f,  100, 2,  0,  6.0f,  0,  300, 0.05f, 260, 0.05f, 0.45f, 0.25f, 1, 1.2f },
-    { "PLUCK", "Jersey Bounce",  2, 0.30f,0.30f,0.02f, 0.45f, 2.0f, 0.0f, 0.0f,  1800, 2.4f,  120, 2, -1,  6.0f,  0,  260, 0.05f, 200, 0.25f, 0.18f, 0.08f, 0, 1.0f },
-    { "PLUCK", "Afro Kalimba",   2, 0.35f,0.00f,0.02f, 0.60f, 4.0f, 0.0f, 0.0f,  3400, 1.8f,  160, 2,  0,  5.0f,  0,  520, 0.05f, 400, 0.05f, 0.32f, 0.15f, 1, 1.2f },
-    { "PLUCK", "Latin Guitar Pl",2, 0.20f,0.05f,0.03f, 0.25f, 2.0f, 0.0f, 0.0f,  2200, 2.0f,  140, 3,  0,  4.0f,  1,  340, 0.10f, 260, 0.10f, 0.25f, 0.10f, 0, 1.05f },
-    { "PLUCK", "Aero Pluck",     2, 0.34f,0.00f,0.01f, 0.18f, 2.0f, 0.0f, 0.0f,  2400, 2.2f,  120, 3,  0,  5.0f,  0,  280, 0.04f, 240, 0.02f, 0.34f, 0.18f, 1, 1.25f },
-    { "PLUCK", "Pearl Pluck",    1, 0.00f,0.00f,0.00f, 0.24f, 3.0f, 0.0f, 0.0f,  3000, 1.8f,  180, 2,  0,  3.0f,  0,  420, 0.00f, 360, 0.00f, 0.38f, 0.16f, 0, 1.15f },
-    { "KEYS",  "EP Keys",          1, 0.0f, 0.0f, 0.0f, 0.45f,1.0f, 0.0f, 0.0f,  6500, 0.0f,  200, 2,  0,  4.0f,  2,   450, 0.40f, 260, 0.00f, 0.30f, 0.12f, 0, 1.1f },
-    { "KEYS",  "Liquid Glass Keys",1, 0.08f,0.00f,0.00f, 0.24f, 2.0f, 0.0f, 0.0f,  4200, 0.5f,  320, 2,  0,  2.0f,  2,   820, 0.38f, 420, 0.00f, 0.42f, 0.12f, 0, 1.2f },
-    { "KEYS",  "Pearl EP",         1, 0.00f,0.06f,0.00f, 0.20f, 4.0f, 0.0f, 0.0f,  3300, 0.5f,  360, 3,  0,  3.0f,  4,   980, 0.42f, 520, 0.04f, 0.36f, 0.10f, 0, 1.15f },
-    { "KEYS",  "Soft Keys",        1, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  5200, 0.0f,  200, 3,  0,  5.0f,  5,   300, 0.60f, 250, 0.00f, 0.30f, 0.00f, 0, 1.0f },
-    { "KEYS",  "House Organ",      1, 0.0f, 0.8f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  20000, 0.0f, 200, 1,  0,  4.0f,  0,    50, 1.00f,  60, 0.05f, 0.15f, 0.10f, 0, 1.1f },
-    { "KEYS",  "Retro Organ",      1, 0.0f, 0.8f, 0.0f, 0.0f, 2.0f, 6.5f,  4.0f, 20000, 0.0f, 200, 1,  0,  5.0f,  2,    50, 1.00f,  90, 0.15f, 0.20f, 0.00f, 0, 1.1f },
-    { "KEYS",  "Funk Clav",        1, 0.0f, 0.0f, 0.03f,0.0f, 2.0f, 0.0f, 0.0f,  1800, 2.5f,   60, 0,  0,  5.0f,  0,   180, 0.30f,  60, 0.30f, 0.10f, 0.05f, 0, 1.0f },
-    { "KEYS",  "Tine EP",          1, 0.0f, 0.0f, 0.0f, 0.30f,7.0f, 0.0f, 0.0f,  5600, 0.5f,  350, 3,  0,  3.0f,  1,   650, 0.30f, 300, 0.05f, 0.28f, 0.10f, 0, 1.1f },
-    { "KEYS",  "Dusty Keys",       2, 0.3f, 0.15f,0.10f,0.20f,3.0f, 5.0f,  4.0f, 2800, 0.6f,  400, 3,  0,  6.0f,  2,   700, 0.35f, 350, 0.25f, 0.35f, 0.15f, 0, 1.1f },
-    { "KEYS",  "Wurli EP",         1, 0.0f, 0.10f,0.0f, 0.18f,1.0f, 5.5f,  3.0f, 3400, 0.7f,  300, 2,  0,  0.0f,  2,   750, 0.30f, 280, 0.40f, 0.20f, 0.05f, 0, 1.0f },
-    { "KEYS",  "Pipe Organ",       2, 0.4f, 0.50f,0.05f,0.10f,2.0f, 0.0f, 0.0f,  4500, 0.0f,  200, 2,  0,  4.0f, 30,   100, 1.00f, 250, 0.05f, 0.50f, 0.00f, 0, 1.3f },
-    { "KEYS",  "DX Piano",         1, 0.00f,0.00f,0.00f,0.50f,14.0f,0.0f, 0.0f,  8000, 0.8f,  300, 2,  0,  0.0f,  1,   900, 0.35f, 400, 0.05f, 0.25f, 0.15f, 0, 1.20f },
-    { "KEYS",  "Wah Clav",         1, 0.00f,0.00f,0.03f,0.00f,1.0f, 0.0f, 0.0f,   600, 3.0f,  350, 0,  0,  0.0f,  0,   700, 0.25f, 150, 0.30f, 0.10f, 0.10f, 0, 1.00f },
-    { "KEYS",  "Soft Celeste",     1, 0.00f,0.10f,0.00f,0.25f,4.0f, 0.0f, 0.0f,  4500, 0.6f,  400, 2,  1,  0.0f,  2,  1200, 0.20f, 800, 0.00f, 0.45f, 0.10f, 0, 1.20f },
-    { "KEYS",  "Toy Keys",         1, 0.00f,0.00f,0.02f,0.45f,4.0f, 0.0f, 0.0f,  3000, 1.2f,  250, 2,  0,  0.0f,  0,   800, 0.15f, 350, 0.08f, 0.30f, 0.10f, 0, 1.10f },
-    { "KEYS",  "Syn Accordion",        3, 0.40f,0.00f,0.00f,0.00f,1.0f, 5.5f, 8.0f,  2200, 0.3f,  500, 1,  0,  8.0f, 25,   200, 0.90f, 180, 0.05f, 0.20f, 0.00f, 0, 1.15f },
-    { "KEYS",  "Syn Harmonium",        2, 0.30f,0.10f,0.05f,0.00f,1.0f, 0.0f, 0.0f,  1600, 0.2f,  600, 0,  0,  6.0f, 60,   300, 0.92f, 300, 0.05f, 0.30f, 0.00f, 0, 1.10f },
-    { "KEYS",  "Full Organ",       5, 0.50f,0.60f,0.00f,0.00f,1.0f, 0.0f, 0.0f,  5000, 0.0f,   40, 1,  0,  7.0f, 10,   100, 1.00f, 450, 0.10f, 0.55f, 0.00f, 0, 1.40f },
-    { "KEYS",  "Perc Organ",       1, 0.00f,0.50f,0.00f,0.20f,3.0f, 0.0f, 0.0f,  2000, 2.2f,   80, 2,  0,  0.0f,  0,   150, 0.85f, 120, 0.25f, 0.15f, 0.00f, 0, 1.00f },
-    { "KEYS",  "Glass CP80",       2, 0.30f,0.00f,0.00f,0.20f,7.0f, 0.0f, 0.0f,  7500, 0.7f,  350, 0,  0,  4.0f,  0,  1100, 0.30f, 420, 0.08f, 0.30f, 0.10f, 0, 1.25f },
-    { "KEYS",  "Suitcase EP",      1, 0.00f,0.05f,0.00f,0.22f,7.0f, 0.0f, 0.0f,  3200, 0.5f,  380, 2,  0,  0.0f,  3,   950, 0.35f, 380, 0.05f, 0.35f, 0.10f, 0, 1.15f },
-    { "KEYS",  "Syn Harpsi",      2, 0.20f,0.00f,0.02f,0.00f,1.0f, 0.0f, 0.0f,  5200, 0.9f,  200, 0,  0,  4.0f,  0,   850, 0.40f,  90, 0.10f, 0.25f, 0.05f, 0, 1.10f },
-    { "KEYS",  "Soul Keys",        1, 0.00f,0.05f,0.00f,0.35f,2.0f, 0.0f, 0.0f,  3800, 0.5f,  400, 3,  0,  5.0f,  2,   900, 0.30f, 350, 0.08f, 0.35f, 0.12f, 0, 1.2f },
-    { "KEYS",  "K-RnB Keys",       2, 0.30f,0.00f,0.10f,0.25f,5.5f, 0.0f, 0.0f,  3000, 0.6f,  350, 2,  0,  6.0f,  3,   800, 0.35f, 320, 0.05f, 0.30f, 0.15f, 1, 1.25f },
-
-    { "KEYS",  "Dream Keys",    3, 0.50f,0.05f,0.02f, 0.10f, 2.0f, 4.0f, 4.0f,  2000, 0.8f,  350, 3,  0,  8.0f,  15,  700, 0.55f, 600, 0.00f, 0.50f, 0.20f, 0, 1.3f },
-    { "KEYS",  "Soft EP",       1, 0.00f,0.1f, 0.00f, 0.30f, 1.0f, 0.0f, 0.0f,  1600, 1.0f,  300, 2,  0,  4.0f,   8,  900, 0.40f, 500, 0.05f, 0.30f, 0.10f, 0, 1.1f },
-    { "KEYS",  "Night Keys",    2, 0.30f,0.1f, 0.03f, 0.20f, 2.0f, 0.0f, 0.0f,  1400, 0.8f,  400, 3,  0,  6.0f,  12,  800, 0.45f, 550, 0.08f, 0.40f, 0.15f, 0, 1.2f },
-    { "KEYS",  "Chord Keys",    4, 0.60f,0.05f,0.00f, 0.15f, 2.0f, 0.0f, 0.0f,  2400, 1.0f,  280, 0,  0, 12.0f,   5,  500, 0.50f, 350, 0.10f, 0.30f, 0.15f, 0, 1.3f },
-    { "KEYS",  "Dream Organ",    3, 0.50f,0.35f,0.03f, 0.25f, 1.0f, 0.0f, 0.0f,  2000, 0.3f,  300, 2,  0,  6.0f, 40,  200, 1.00f, 300, 0.05f, 0.45f, 0.10f, 0, 1.3f },
-    { "KEYS",  "Amapiano Keys",  3, 0.50f,0.10f,0.02f, 0.30f, 2.0f, 3.5f,  5.0f, 2400, 0.8f,  400, 2,  0,  8.0f, 25,  700, 0.70f, 500, 0.05f, 0.40f, 0.12f, 0, 1.3f },
-    { "KEYS",  "RnB Rhodes",     2, 0.35f,0.08f,0.02f, 0.45f, 2.0f, 4.0f,  4.0f, 1900, 1.0f,  350, 2,  0,  5.0f, 12,  900, 0.60f, 650, 0.05f, 0.35f, 0.10f, 0, 1.25f },
-    { "KEYS",  "Gospel Organ",   3, 0.45f,0.30f,0.02f, 0.20f, 1.0f, 5.0f,  6.0f, 3000, 0.4f,  200, 2,  0,  6.0f,  8,  200, 1.00f, 180, 0.15f, 0.30f, 0.08f, 0, 1.25f },
-    { "KEYS",  "Soul Sample",    2, 0.30f,0.10f,0.04f, 0.25f, 2.0f, 4.0f,  9.0f, 1600, 0.7f,  340, 3,  0,  7.0f,  10,  700, 0.45f, 520, 0.14f, 0.42f, 0.14f, 0, 1.25f },
-    { "BELL",  "Glass Bell",       1, 0.0f, 0.0f, 0.0f, 0.85f,3.5f, 0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  4.0f,  2,   700, 0.15f, 800, 0.00f, 0.50f, 0.00f, 0, 1.3f },
-    { "BELL",  "Deep Bell",        1, 0.0f, 0.0f, 0.0f, 0.90f,2.76f,0.0f, 0.0f,  20000, 0.0f, 200, 2,  0,  3.0f,  3,  1500, 0.00f, 1500, 0.00f, 0.60f, 0.00f, 0, 1.3f },
-    { "BELL",  "Syn Celesta",          1, 0.0f, 0.0f, 0.0f, 0.35f,4.0f, 0.0f, 0.0f,  6000, 0.0f,  200, 2,  0,  2.0f,  0,   900, 0.00f, 600, 0.00f, 0.45f, 0.08f, 0, 1.2f },
-    { "BELL",  "Syn Tubular",     1, 0.0f, 0.10f,0.02f,0.60f,3.5f, 0.0f, 0.0f,  4200, 1.2f,  900, 2,  0,  0.0f,  0,  1500, 0.00f, 1400, 0.00f, 0.55f, 0.10f, 0, 1.3f },
-    { "BELL",  "Syn Gong",   1, 0.0f, 0.15f,0.02f,0.80f,2.7f, 0.0f, 0.0f,  2600, 1.0f, 1200, 2,  0,  0.0f,  0,  1600, 0.00f, 1600, 0.10f, 0.50f, 0.05f, 0, 1.2f },
-    { "BELL",  "Syn Handbell",      1, 0.0f, 0.08f,0.02f,0.55f,3.0f, 0.0f, 0.0f,  5000, 1.2f,  700, 2,  0,  0.0f,  0,  1100, 0.00f, 1100, 0.00f, 0.45f, 0.05f, 0, 1.1f },
-    { "BELL",  "Fairy Bell",     1, 0.0f, 0.10f,0.02f,0.65f,5.2f, 0.5f, 5.0f,  3000, 1.0f,  500, 2,  0,  0.0f,  0,   900, 0.00f, 1200, 0.00f, 0.70f, 0.30f, 1, 1.5f },
-    { "BELL",  "Syn Church",    1, 0.0f, 0.15f,0.02f,0.75f,2.5f, 0.0f, 0.0f,  3600, 1.1f, 1400, 2,  0,  0.0f,  0,  1600, 0.00f, 1800, 0.05f, 0.65f, 0.10f, 0, 1.3f },
-    { "BELL",  "Syn Vibes",     1, 0.0f, 0.12f,0.01f,0.35f,4.0f, 5.0f,10.0f,  3200, 0.8f,  600, 2,  0,  0.0f,  0,  1200, 0.00f,  900, 0.00f, 0.40f, 0.08f, 0, 1.2f },
-    { "BELL",  "Syn Glock",   1, 0.0f, 0.05f,0.01f,0.60f,5.5f, 0.0f, 0.0f,  7500, 1.4f,  400, 2,  0,  0.0f,  0,   700, 0.00f,  700, 0.00f, 0.35f, 0.05f, 0, 1.0f },
-
-    { "BELL",  "Crystal Bell",  1, 0.00f,0.0f, 0.00f, 0.55f, 7.0f, 0.0f, 0.0f,  8000, 0.0f,  200, 2,  1,  5.0f,   0,  900, 0.00f, 900, 0.00f, 0.55f, 0.25f, 0, 1.35f },
-    { "BELL",  "Toy Bell",      1, 0.00f,0.0f, 0.02f, 0.45f, 4.0f, 0.0f, 0.0f,  6000, 0.0f,  200, 2,  1,  4.0f,   0,  500, 0.00f, 450, 0.00f, 0.35f, 0.15f, 0, 1.15f },
-    { "BELL",  "Night Bell",    2, 0.30f,0.0f, 0.00f, 0.40f, 3.5f, 0.0f, 0.0f,  4000, 0.3f,  400, 2,  0,  7.0f,   5, 1100, 0.00f,1000, 0.00f, 0.60f, 0.30f, 1, 1.4f },
-    { "BELL",  "Ice Bell",       2, 0.40f,0.0f, 0.02f, 0.65f, 7.0f, 0.0f, 0.0f,  5000, 0.8f,  300, 2,  1,  8.0f,  0, 1200, 0.05f, 900, 0.00f, 0.55f, 0.20f, 1, 1.4f },
-    { "BELL",  "Gamelan Glow",   2, 0.30f,0.1f, 0.03f, 0.70f, 3.5f, 0.0f, 0.0f,  3200, 0.6f,  400, 2,  0,  5.0f,  0, 1500, 0.10f,1100, 0.05f, 0.50f, 0.15f, 0, 1.2f },
-    { "BELL",  "Halo Bell",      1, 0.00f,0.00f,0.00f, 0.34f, 3.0f, 0.0f, 0.0f,  4200, 0.5f,  420, 2,  0,  2.0f,  4, 1200, 0.00f, 950, 0.00f, 0.44f, 0.12f, 0, 1.2f },
-    { "BELL",  "Soft Glass Bell",1, 0.00f,0.00f,0.00f, 0.28f, 2.5f, 0.0f, 0.0f,  3600, 0.4f,  360, 2,  0,  1.0f,  3, 1000, 0.02f, 820, 0.00f, 0.42f, 0.10f, 0, 1.15f },
-    { "MISC",  "Syn Flute",       1, 0.0f, 0.0f, 0.12f,0.0f, 2.0f, 5.0f, 10.0f, 4000, 0.0f,  200, 2,  1,  0.0f, 90,   200, 0.80f, 220, 0.00f, 0.35f, 0.00f, 0, 1.0f },
-    { "MISC",  "Synth Brass",      3, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  1500, 1.5f,  300, 0,  0, 10.0f, 40,   200, 0.90f, 150, 0.20f, 0.20f, 0.00f, 0, 1.2f },
-    { "MISC",  "Brass Stab",       5, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f,  2000, 2.0f,  180, 0,  0, 12.0f,  3,   260, 0.25f, 140, 0.20f, 0.18f, 0.05f, 0, 1.25f },
-    { "MISC",  "Rave Hit",         6, 0.7f, 0.40f,0.15f,0.10f,2.0f, 0.0f, 0.0f,  1500, 2.2f,  260, 0, -1, 15.0f,  0,   500, 0.00f, 500, 0.30f, 0.50f, 0.10f, 0, 1.5f },
-    { "MISC",  "Noise Riser",      1, 0.0f, 0.0f, 1.0f, 0.0f, 2.0f, 0.0f, 0.0f,   300, 4.0f, 2500, 2,  1,  0.0f, 500,  500, 1.00f, 500, 0.00f, 0.40f, 0.20f, 0, 1.5f },
-    { "MISC",  "Cinema Braam",   5, 0.6f, 0.30f,0.05f,0.10f,2.0f, 0.0f, 0.0f,   700, 1.5f, 1500, 0, -1, 22.0f,200,  1500, 0.80f,  900, 0.50f, 0.60f, 0.10f, 0, 1.4f },
-    { "MISC",  "Sub Drop",       1, 0.0f, 0.50f,0.02f,0.00f,2.0f, 0.0f, 0.0f,    80, 3.0f,  800, 2, -2,  0.0f,  0,  1200, 0.00f,  400, 0.20f, 0.10f, 0.00f, 0, 0.6f },
-    { "MISC",  "Vinyl Keys",     2, 0.25f,0.10f,0.35f,0.20f,2.0f, 0.6f, 4.0f,  1600, 1.0f,  400, 3,  0,  5.0f, 10,   800, 0.40f,  500, 0.10f, 0.40f, 0.20f, 0, 1.1f },
-    { "MISC",  "Tonal Wind",     3, 0.5f, 0.10f,0.70f,0.00f,2.0f, 0.3f, 8.0f,  1200, 0.5f, 1000, 2,  0, 12.0f,600,  1000, 0.90f, 1500, 0.05f, 0.80f, 0.10f, 0, 1.6f },
-    { "MISC",  "Sci-Fi Sweep",   4, 0.5f, 0.10f,0.06f,0.00f,2.0f, 6.0f,20.0f,   300, 4.5f, 2500, 0,  0, 18.0f,100,  2000, 0.60f,  800, 0.25f, 0.50f, 0.40f, 1, 1.5f },
-    
-    { "MISC",  "Air Horn",      3, 0.40f,0.2f, 0.00f, 0.00f, 2.0f, 0.0f, 0.0f,  2500, 0.5f,  200, 0,  0, 16.0f,  10,  400, 0.90f, 300, 0.40f, 0.25f, 0.10f, 0, 1.2f },
-    { "MISC",  "Horror Drone",  4, 0.80f,0.4f, 0.15f, 0.20f, 2.5f, 0.0f, 0.0f,   700, 0.3f, 1500, 0, -1, 22.0f, 800, 1500, 0.90f,1500, 0.20f, 0.70f, 0.20f, 0, 1.5f },
-    { "MISC",  "Impact Hit",    2, 0.50f,0.6f, 0.30f, 0.00f, 2.0f, 0.0f, 0.0f,  1200, 1.8f,  300, 0, -1, 18.0f,   0,  900, 0.00f, 700, 0.30f, 0.55f, 0.10f, 0, 1.3f },
-    { "MISC",  "Noise Sweep",   1, 0.00f,0.0f, 1.00f, 0.00f, 2.0f, 0.0f, 0.0f,  6000, 3.5f, 1200, 0,  0,  0.0f, 700, 1400, 0.30f, 900, 0.10f, 0.45f, 0.25f, 1, 1.5f },
-    { "MISC",  "Reverse Cymbal",1, 0.00f,0.0f, 0.95f, 0.10f, 5.0f, 0.0f, 0.0f,  9000, 2.0f, 1000, 0,  1,  0.0f,1100,  180, 0.00f,  50, 0.05f, 0.40f, 0.20f, 1, 1.45f },
-    { "MISC",  "Ambient FX",    4, 0.80f,0.1f, 0.20f, 0.15f, 2.5f, 3.0f, 8.0f,  1800, 0.4f, 1400, 0,  0, 20.0f, 900, 1600, 0.70f,1400, 0.05f, 0.70f, 0.30f, 1, 1.6f },
-    { "MISC",  "Vinyl Crackle", 1, 0.00f,0.0f, 0.90f, 0.00f, 2.0f, 0.0f, 0.0f,  2200, 0.2f,  400, 0,  0,  0.0f,  60,  900, 0.65f, 500, 0.08f, 0.25f, 0.05f, 0, 1.1f },};
-
-    constexpr int kNumInstruments = (int) (sizeof (kInstruments) / sizeof (kInstruments[0]));
-
     // -----------------------------------------------------------------------
     // GENRE BANKS
     //
@@ -2132,35 +2319,37 @@ namespace
 
     #define SLYCE_GROUP(role, arr) { role, arr, (int) (sizeof (arr) / sizeof (arr[0])) }
 
-    // --- EDM: 150 ----------------------------------------------------------
+    // --- EDM: 158 ----------------------------------------------------------
     const char* const kEdmLead[] = {
         "Supersaw Lead", "Saw Stack", "Hyper Saw", "Trance Saw", "Festival Lead",
         "Mainstage", "Stadium Lead", "Neon Lead", "Rave Hoover", "Hoover",
         "Grime Hoover", "Goa Lead", "Laser Lead", "Hard Lead", "Scream Lead",
         "Rage Lead", "Wire Lead", "Dream Lead", "Silk Lead", "Haze Lead",
-        "PWM Lead", "Wavetable Lead", "Acid Lead", "Emo Lead" };
+        "PWM Lead", "Wavetable Lead", "Acid Lead", "Emo Lead",
+        "EDM Anthem Lead", "Neon Rave Lead" };
     const char* const kEdmPluck[] = {
         "Trance Pluck", "Dance Pluck", "Neon Pluck", "Crystal Pluck", "Glass Pluck",
         "Bubble Pluck", "Droplet Pluck", "Ice Pluck", "Water Pluck", "Water Drop",
         "Tropic Pluck", "Sunny Pluck", "Isla Pluck", "Dembow Pluck", "Arp Synth",
-        "Italo Arp", "Trance Gate", "Gate Dream", "Modular Blip", "Tech Blip" };
+        "Italo Arp", "Trance Gate", "Gate Dream", "Modular Blip", "Tech Blip",
+        "Festival Arp" };
     const char* const kEdmPad[] = {
         "Big Pad", "Sidechain Pad", "Shimmer Pad", "Aurora Pad", "Dream Pad",
         "Nebula Pad", "Ocean Pad", "Ice Pad", "Frost Pad", "Glass Pad",
         "Polar Lights", "Solar Winds", "Deep Space", "Sunset Haze", "Vapor Pad",
         "Vapor Wash", "Analog Sweep", "Analog Wash", "Cinema Strings",
-        "Cinema Swell", "Grain Cloud", "Ambient FX" };
+        "Cinema Swell", "Grain Cloud", "Ambient FX", "Drop Atmos" };
     const char* const kEdmBass[] = {
         "Sidechain Bass", "Future Bass", "Reese Bass", "Reese Growl", "Dark Reese",
         "Neuro Bass", "Growl Sub", "Gnarl Bass", "Wobble Growl", "Hoover Bass",
         "Donk Bass", "Bounce Bass", "Deep House", "Slap House", "Club Rumble",
         "Psy Stomp", "Metal Bass", "Rubber Bass", "Hyper Sub", "Liquid Sub",
-        "Garage Sub", "Sub Drone", "Moog Bass", "Analog Warm" };
+        "Garage Sub", "Sub Drone", "Moog Bass", "Analog Warm", "Rave Reese", "Sub Pulse" };
     const char* const kEdmChord[] = {
         "Future Chords", "Future Chord", "Chord Synth", "Chord Keys", "French Chord",
         "2-Step Chord", "Soul Chords", "Rave Stab", "Bigroom Stab", "Techno Stab",
         "Gabber Stab", "Vox Stab", "Piano Chord", "Retro Pop Poly", "Warm Poly",
-        "80s Poly" };
+        "80s Poly", "Future Rave Stab", "Sidechain Chord" };
     const char* const kEdmVocal[] = {
         "Vocal Chop Hit", "Chop Vox", "Vox Pluck", "Vox Choir", "Vox Ahh",
         "Vox Ahh Wide", "Angel Choir", "Diva Vox", "Reverse Vocal", "Vocal Harmony",
@@ -2375,7 +2564,7 @@ void VocalChopAudioProcessor::buildKitPieces()
             continue;
 
         applyEnginePatch (idx);   // writes the piece into the live patch...
-        const auto& d = kInstruments[idx];
+        const auto d = voicedDefinition(idx);
         auto& kp = kitPiecesBuf[page][(size_t) k];
 
         // ...which we snapshot into plain floats the audio thread can use.
@@ -2388,6 +2577,16 @@ void VocalChopAudioProcessor::buildKitPieces()
         kp.drift   = p.driftCents.load();    kp.velFlt   = p.velToFilterOct.load();
         kp.pitchEnvOct = p.pitchEnvOct.load();
         kp.pitchEnvMs  = p.pitchEnvMs.load();
+        kp.attackNoise = p.attackNoise.load();
+        kp.attackTone = p.attackTone.load();
+        kp.attackMs = p.attackMs.load();
+        kp.inharmonic = p.inharmonic.load();
+        kp.stringMix = p.stringMix.load();
+        kp.stringDamp = p.stringDamp.load();
+        kp.stringDecay = p.stringDecay.load();
+        kp.morphAmt = p.morphAmt.load();
+        kp.morphMs = p.morphMs.load();
+        kp.morphTo = p.morphTo.load();
         kp.wave     = d.wave;
         kp.playNote = 60 + d.octave * 12;    // natural drum pitch, key-independent
         kp.atk = d.atk; kp.dec = d.dec; kp.sus = d.sus; kp.rel = d.rel;
@@ -2414,6 +2613,16 @@ void VocalChopAudioProcessor::kitNoteOn (int note, float velocity, bool tap)
     p.pitchEnvOct.store (kp.pitchEnvOct);
     p.pitchEnvMs.store (kp.pitchEnvMs);
 
+    p.attackNoise.store (kp.attackNoise);
+    p.attackTone.store (kp.attackTone);
+    p.attackMs.store (kp.attackMs);
+    p.inharmonic.store (kp.inharmonic);
+    p.stringMix.store (kp.stringMix);
+    p.stringDamp.store (kp.stringDamp);
+    p.stringDecay.store (kp.stringDecay);
+    p.morphAmt.store (kp.morphAmt);
+    p.morphMs.store (kp.morphMs);
+    p.morphTo.store (kp.morphTo);
     synthEngine.setWave (kp.wave);
     synthEngine.setEnvelope (kp.atk, kp.dec, kp.sus, kp.rel);
 
@@ -2444,427 +2653,27 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     }
 
     i = juce::jlimit (0, kNumInstruments - 1, i);
-    const auto& d = kInstruments[i];
+    const auto d = voicedDefinition(i);
 
     auto& p = synthEngine.patch();
-    p.resetToInit();
-    p.unison        = d.unison;
-    p.stereoSpread  = d.spread;
-    p.subLevel      = d.sub;
-    p.noiseLevel    = d.noise;
-    p.fmAmount      = d.fm;
-    p.fmRatio       = d.fmRatio;
-    // Keep a musical LFO rate even when the patch ships without vibrato, so
-    // raising the Vibrato knob always does something.
-    p.vibRateHz     = d.vibHz > 0.01f ? d.vibHz : 5.0f;
-    p.vibDepthCents = d.vibCents;
-    p.filterCutoff  = d.fltHz;
-    p.filterEnvOct  = d.fltEnvOct;
-    p.filterEnvMs   = d.fltEnvMs;
-
-    // --- Lushness settings by category, with a few name-specific accents ----
-    // Chorus is computed into a local: the patch field is param-driven and
-    // rewritten by the audio thread every block, so it can't be read back.
-    const juce::String cat (d.category);
-    const juce::String name (d.name);
-    float chorus = 0.12f;
-
-    if (cat == "PAD")         { chorus = 0.50f; p.driftCents = 4.0f;  p.velToFilterOct = 0.4f; }
-    else if (cat == "LEAD")   { chorus = 0.28f; p.driftCents = 3.0f;  p.velToFilterOct = 0.6f; }
-    else if (cat == "SYNTH")  { chorus = 0.35f; p.driftCents = 3.5f;  p.velToFilterOct = 0.6f; }
-    else if (cat == "PIANO")  { chorus = 0.06f; p.driftCents = 1.0f;  p.velToFilterOct = 1.4f; }
-    else if (cat == "GUITAR") { chorus = 0.08f; p.driftCents = 1.0f;  p.velToFilterOct = 1.3f;
-                                p.filterQ = 1.2f; }
-    else if (cat == "KEYS")   { chorus = 0.25f; p.driftCents = 2.0f;  p.velToFilterOct = 1.1f; }
-    else if (cat == "BELL")   { chorus = 0.22f; p.driftCents = 1.5f;  p.velToFilterOct = 0.8f; }
-    else if (cat == "PLUCK")  { chorus = 0.18f; p.driftCents = 2.0f;  p.velToFilterOct = 1.2f;
-                                p.filterQ = 1.5f; }
-    else if (cat == "BASS")   { chorus = 0.0f;  p.driftCents = 1.5f;  p.velToFilterOct = 1.0f;
-                                p.satAmount = 0.30f; }
-    else if (cat == "DRUMS")  { chorus = 0.0f;  p.driftCents = 0.0f;  p.velToFilterOct = 1.2f;
-                                p.satAmount = 0.25f; }
-    else if (cat == "VOCAL")
-    {
-        chorus = 0.45f; p.driftCents = 3.5f; p.velToFilterOct = 0.4f;
-        p.filterQ = 1.6f;
-
-        // TRUE vowel formants (three bandpass resonances in the synth bus)
-        // are what turn "resonant saw" into "voice". Vowel picked from the
-        // name; amount leaves ~45% dry so the note keeps its body.
-        int vowel = 0;                                              // "ah"
-        if      (name.containsIgnoreCase ("Choir"))  vowel = 3;     // "oh"
-        else if (name.containsIgnoreCase ("Air")
-              || name.containsIgnoreCase ("Breath")
-              || name.containsIgnoreCase ("Ooh"))    vowel = 4;     // "oo"
-        else if (name.containsIgnoreCase ("Pluck")
-              || name.containsIgnoreCase ("Chant"))  vowel = 1;     // "eh"
-        else if (name.containsIgnoreCase ("Robot")
-              || name.containsIgnoreCase ("Bit"))    vowel = 2;     // "ee"
-        p.formantVowel  = vowel;
-        p.formantAmount = 0.55f;
-
-        // A voice always carries a little breath and a slow, humane vibrato.
-        if (p.noiseLevel.load() < 0.03f) p.noiseLevel = 0.03f;
-        if (p.vibDepthCents.load() < 6.0f) { p.vibRateHz = 5.1f; p.vibDepthCents = 6.0f; }
-    }
-    else if (cat == "HITS")   { chorus = 0.30f; p.driftCents = 3.0f;  p.velToFilterOct = 0.7f; }
-    else /* MISC / INIT */    { chorus = 0.12f; p.driftCents = 2.5f;  p.velToFilterOct = 0.6f; }
-
-    if (name == "Acid Lead")     { p.filterQ = 5.5f; p.satAmount = 0.35f; }
-    if (name == "Wobble Growl")  p.filterQ = 2.2f;
-    if (name == "Neon Bass")     p.filterQ = 1.4f;
-    if (name == "Supersaw Lead") chorus = 0.40f;
-    if (name == "Chip Lead")     { chorus = 0.0f; p.driftCents = 0.0f; }
-    if (name == "Sub 808")       { p.driftCents = 0.5f; chorus = 0.0f; }
-    if (name == "Synth Brass")   chorus = 0.30f;
-    if (name == "Syn Flute")    chorus = 0.20f;
-    if (name == "Robot Vox")    { chorus = 0.10f; p.driftCents = 0.0f; }   // machines don't drift
-    if (name.startsWith ("Beatbox")) { chorus = 0.0f; p.driftCents = 0.0f;
-                                       p.velToFilterOct = 1.2f; }
-
-    // Percussion pitch drops (the 808 "boo" and snare thwack).
-    if (name == "Kick 808")    { p.pitchEnvOct = 2.2f; p.pitchEnvMs = 42.0f; }
-    if (name == "Kick Punch")  { p.pitchEnvOct = 3.0f; p.pitchEnvMs = 26.0f; }
-    if (name == "Snare 808")   { p.pitchEnvOct = 1.2f; p.pitchEnvMs = 34.0f; }
-    if (name == "Snare Tight") { p.pitchEnvOct = 1.5f; p.pitchEnvMs = 22.0f; }
-    if (name == "Rim Perc")    { p.pitchEnvOct = 1.8f; p.pitchEnvMs = 16.0f; }
-    if (name == "Beatbox Kick")  { p.pitchEnvOct = 1.7f; p.pitchEnvMs = 55.0f; }   // the 'buh' drop
-    if (name == "Beatbox Snare") { p.pitchEnvOct = 0.8f; p.pitchEnvMs = 40.0f; }
-    if (name == "Tom Low")     { p.pitchEnvOct = 1.0f; p.pitchEnvMs = 70.0f; }
-    if (name == "Tom High")    { p.pitchEnvOct = 1.0f; p.pitchEnvMs = 55.0f; }
-    if (name == "Syn Conga")   { p.pitchEnvOct = 0.5f; p.pitchEnvMs = 28.0f; }
-    if (name == "Clave")       { p.pitchEnvOct = 0.3f; p.pitchEnvMs = 10.0f; }
-    if (name == "Chart 808")   { p.pitchEnvOct = 1.8f; p.pitchEnvMs = 50.0f; }
-    if (name == "Log Drum")    { p.pitchEnvOct = 0.8f; p.pitchEnvMs = 60.0f; }
-    if (name == "Drill 808")   { p.pitchEnvOct = 1.2f; p.pitchEnvMs = 80.0f; }
-    if (name == "Slap House")  { p.pitchEnvOct = 0.6f; p.pitchEnvMs = 45.0f; }
-
-    // Flagship grands: hammer chirp, hard velocity->brightness, no wobble.
-    if (name == "Royal Grand" || name == "Concert Bright")
-    {
-        p.pitchEnvOct = 0.04f; p.pitchEnvMs = 6.0f;    // hammer strike transient
-        p.velToFilterOct = 1.8f;                        // soft = felt, hard = glass
-        p.driftCents = 0.6f;
-        chorus = 0.04f;
-        p.filterQ = 0.8f;
-    }
-    if (name == "Impact Hit")  { p.pitchEnvOct = 1.5f; p.pitchEnvMs = 150.0f; }
-
-    // --- New chart-facing voices -------------------------------------------
-    // Hats and metal percussion: no drift, no chorus - machines are rigid.
-    if (name.startsWith ("Hat ") || name == "Ride Ping" || name == "Crash Splash"
-        || name == "Tambourine" || name == "Perc Click" || name == "Amapiano Shaker")
-    {
-        chorus = 0.0f; p.driftCents = 0.0f; p.velToFilterOct = 1.4f;
-    }
-    if (name == "Rim Snap")        { p.pitchEnvOct = 1.6f; p.pitchEnvMs = 14.0f; }
-    if (name == "Afro Conga")      { p.pitchEnvOct = 0.6f; p.pitchEnvMs = 30.0f; }
-    if (name == "Reggaeton Perc")  { p.pitchEnvOct = 0.9f; p.pitchEnvMs = 22.0f; }
-
-    // Sub-bass families keep the 808 "boo" drop.
-    if (name == "Afro Log Bass")   { p.pitchEnvOct = 1.4f; p.pitchEnvMs = 70.0f; }
-    if (name == "Reggaeton Sub")   { p.pitchEnvOct = 1.6f; p.pitchEnvMs = 55.0f; }
-    if (name == "Club Rumble")     { p.pitchEnvOct = 1.2f; p.pitchEnvMs = 90.0f; }
-    if (name == "Drill Slide")     { p.pitchEnvOct = 2.4f; p.pitchEnvMs = 130.0f; }  // the glide
-
-    // Hook leads: a touch more resonance so they cut through a mix.
-    if (name == "Amapiano Lead")   { p.filterQ = 1.8f; }
-    // Measured as the single most fatiguing voice in the plugin: a resonant
-    // squeak is the point of it, but not at Q 3.2 ringing for 1.3 seconds.
-    if (name == "Hyperpop Squeak") { p.filterQ = 1.7f; p.satAmount = 0.22f; }
-    if (name == "K-Pop Saw")       { chorus = 0.45f; }
-    if (name == "Drill Bell Lead") { p.filterQ = 1.4f; }
-    if (name == "Riser Sweep")     { p.filterQ = 2.2f; }
-    // A downlifter FALLS: the pitch envelope starts high and decays to the
-    // played note, so the drop is a positive amount over a long time (the
-    // engine clamps the amount to 0..5 octaves, negatives would do nothing).
-    if (name == "Downlifter")      { p.pitchEnvOct = 2.5f; p.pitchEnvMs = 900.0f; }
-
-    // --- Attack transient + inharmonicity, by family --------------------------
-    // The one-line diagnosis of "why does this sound like a synth": every note
-    // began as a clean oscillator ramp, and every partial sat exactly on the
-    // harmonic series. Real instruments do neither. What follows is per-family
-    // rather than per-instrument because the family IS the physical mechanism -
-    // everything struck gets a hammer, everything plucked gets a pick.
-    float atkAmt = 0.0f, atkTone = 3.0f, atkMs = 14.0f, inharm = 0.0f;
-
-    // A real grand's 2nd partial is sharp by single-digit CENTS (the stiffness
-    // coefficient is ~0.0004), not by the quarter-tone 0.62 was asking for. At
-    // that width it stops being a piano's warmth and becomes a detuned bell -
-    // which is what it sounded like. Bells keep the wide setting because bells
-    // genuinely are that inharmonic.
-    if (cat == "PIANO")        { atkAmt = 0.55f; atkTone = 5.5f; atkMs = 9.0f;  inharm = 0.11f; }
-    // Same correction down the string families - a wound guitar string is
-    // stiffer than a piano string but nowhere near a bell.
-    else if (cat == "GUITAR")  { atkAmt = 0.62f; atkTone = 7.0f; atkMs = 7.0f;  inharm = 0.15f; }
-    else if (cat == "PLUCK")   { atkAmt = 0.48f; atkTone = 6.5f; atkMs = 6.0f;  inharm = 0.18f; }
-    // A bell IS inharmonic, but 0.85 with a 9x attack tone and almost no
-    // damping is not a bell, it is an ice pick: measured across the set these
-    // were the voices with the most energy in the 2-6 kHz band, which is
-    // exactly where the ear is most easily fatigued.
-    else if (cat == "BELL")    { atkAmt = 0.42f; atkTone = 5.5f; atkMs = 6.0f;  inharm = 0.42f; }
-    else if (cat == "KEYS")    { atkAmt = 0.40f; atkTone = 5.0f; atkMs = 10.0f; inharm = 0.26f; }
-    else if (cat == "DRUMS")   { atkAmt = 0.45f; atkTone = 4.0f; atkMs = 5.0f;  inharm = 0.0f;  }
-    else if (cat == "BASS")    { atkAmt = 0.22f; atkTone = 4.5f; atkMs = 8.0f;  inharm = 0.09f; }
-    else if (cat == "VOCAL")   { atkAmt = 0.16f; atkTone = 2.2f; atkMs = 22.0f; inharm = 0.0f;  }
-    else if (cat == "LEAD")    { atkAmt = 0.14f; atkTone = 3.5f; atkMs = 9.0f;  inharm = 0.0f;  }
-    // HITS is a SHELF, not a mechanism. It holds 808s, pads, brass, flutes and
-    // electric pianos side by side, so a blanket hammer transient put a knock
-    // on forty voices that have no hammer. It starts clean and the name-based
-    // pass below arms the ones that are actually struck or plucked.
-    else if (cat == "HITS")    { atkAmt = 0.0f;  atkTone = 5.0f; atkMs = 8.0f;  inharm = 0.0f;  }
-    else if (cat == "PAD")     { atkAmt = 0.05f; atkTone = 2.0f; atkMs = 40.0f; inharm = 0.0f;  }
-    // SYNTH and MISC stay clean on purpose: an oscillator is what they ARE.
-
-    // A few voices whose whole identity is the strike.
-    if (name.contains ("Kalimba") || name.contains ("Marimba")
-        || name.contains ("Mallet") || name.contains ("Gamelan")
-        || name.contains ("Music Box") || name.contains ("Steel Pan"))
-        { atkAmt = 0.52f; atkTone = 6.0f; atkMs = 5.0f; inharm = 0.40f; }
-    if (name.contains ("Harp") || name.contains ("Koto")
-        || name.contains ("Sitar") || name.contains ("Banjo")
-        || name.contains ("Dulcimer") || name.contains ("Pizz"))
-        { atkAmt = 0.66f; atkTone = 8.5f; atkMs = 6.0f; inharm = 0.22f; }
-    // Long, soft, bowed or breathed: a burst would be wrong.
-    if (cat == "PAD" || name.contains ("Choir") || name.contains ("Strings")
-        || name.contains ("Drone") || name.contains ("Swell"))
-        { atkAmt = juce::jmin (atkAmt, 0.06f); atkMs = 45.0f; }
-
-    // NOTE: atkAmt/atkTone/atkMs/inharm are published at the END of this
-    // function, after the mechanism pass below has had its say. They used to be
-    // written here, which meant every name-based refinement ("Pluck Bass" is a
-    // plucked string, "Hook Marimba" is a struck bar) was computed and then
-    // thrown away.
-
-    // --- STAGES 2-5, by family ------------------------------------------------
-    // The string model, the morph and the body all get assigned from the same
-    // place, because they describe one physical object between them: what is
-    // vibrating, how its timbre travels, and what it is mounted in.
-    float strMix = 0.0f, strDamp = 0.55f, strDecay = 0.6f;
-    float mrphAmt = 0.0f, mrphMs = 400.0f;
-    int   mrphTo = 2, body = -1;
-    float bodyAmt = 0.0f;
-
-    if (cat == "GUITAR")
-    {
-        strMix = 0.72f; strDamp = 0.42f; strDecay = 0.55f;      // plucked steel
-        body = 1; bodyAmt = 0.20f;
-    }
-    else if (cat == "PLUCK")
-    {
-        strMix = 0.58f; strDamp = 0.55f; strDecay = 0.35f;
-        body = 5; bodyAmt = 0.18f;                              // small wooden box
-    }
-    else if (cat == "PIANO")
-    {
-        strMix = 0.38f; strDamp = 0.30f; strDecay = 0.85f;      // struck, long
-        body = 0; bodyAmt = 0.14f;                              // soundboard
-    }
-    else if (cat == "BELL")
-    {
-        // Damping up and decay down: the highs now die before the fundamental
-        // does, which is what a struck metal bar actually sounds like and what
-        // stops it ringing at you for a second and a half.
-        strMix = 0.30f; strDamp = 0.36f; strDecay = 0.72f;
-        body = 3; bodyAmt = 0.16f;                              // metal shell
-    }
-    else if (cat == "KEYS")
-    {
-        strMix = 0.22f; strDamp = 0.45f; strDecay = 0.6f;
-        body = 0; bodyAmt = 0.09f;
-        mrphAmt = 0.35f; mrphTo = 2; mrphMs = 320.0f;           // tine -> sine
-    }
-    else if (cat == "DRUMS") { body = 4; bodyAmt = 0.13f; }     // shell
-    // Morph only where it is clearly audible. It doubles the oscillator work,
-    // and at 0.14-0.22 on leads and basses it was inaudible while costing the
-    // same as the pad's 0.55, which does change the sound.
-    else if (cat == "PAD")   { mrphAmt = 0.55f; mrphTo = 2; mrphMs = 1400.0f; }
-
-    // --- Mechanism beats category ---------------------------------------------
-    // Assigning the string model by CATEGORY missed every plucked instrument
-    // filed somewhere else: "Pluck Bass" and "Slap Funk" are plucked strings
-    // sitting under BASS, "Hook Marimba" and "Log Drum" are struck bars under
-    // HITS. A category is a shelf in a menu; the name is what tells you what
-    // is actually vibrating.
-    const bool pluckedName = name.contains ("Pluck") || name.contains ("Slap")
-                          || name.contains ("Pizz")  || name.contains ("Harp")
-                          || name.contains ("Guitar") || name.contains ("Strum");
-    const bool struckName  = name.contains ("Marimba") || name.contains ("Kalimba")
-                          || name.contains ("Mallet")  || name.contains ("Bell")
-                          || name.contains ("Log Drum") || name.contains ("Stab")
-                          || name.contains ("Music Box") || name.contains ("Xylo")
-                          || name.contains ("Glock")    || name.contains ("Vibe");
-
-    if (strMix < 0.01f && pluckedName)
-    {
-        // A plucked electric bass is still a plucked string; it just lives in
-        // a different part of the menu.
-        const bool low = (cat == "BASS");
-        strMix  = low ? 0.45f : 0.55f;
-        strDamp = low ? 0.30f : 0.48f;
-        strDecay = low ? 0.42f : 0.38f;
-        if (body < 0) { body = low ? 1 : 5; bodyAmt = low ? 0.20f : 0.26f; }
-        if (atkAmt < 0.35f) { atkAmt = 0.46f; atkTone = low ? 5.0f : 6.5f; atkMs = 7.0f; }
-        if (inharm < 0.05f) inharm = low ? 0.09f : 0.16f;
-    }
-    else if (strMix < 0.01f && struckName)
-    {
-        strMix = 0.34f; strDamp = 0.60f; strDecay = 0.30f;
-        if (body < 0) { body = 2; bodyAmt = 0.22f; }
-        if (atkAmt < 0.35f) { atkAmt = 0.52f; atkTone = 7.5f; atkMs = 5.0f; }
-        if (inharm < 0.05f) inharm = 0.30f;   // struck BARS really are inharmonic
-    }
-
-    // Named voices whose mechanism is unmistakable.
-    if (name.contains ("Kalimba") || name.contains ("Music Box")
-        || name.contains ("Toy"))
-        { strMix = 0.66f; strDamp = 0.60f; strDecay = 0.30f; body = 5; bodyAmt = 0.24f; }
-    if (name.contains ("Marimba") || name.contains ("Gamelan")
-        || name.contains ("Mallet") || name.contains ("Woodblock"))
-        { strMix = 0.30f; strDamp = 0.70f; strDecay = 0.25f; body = 2; bodyAmt = 0.26f; }
-    if (name.contains ("Harp") || name.contains ("Koto")
-        || name.contains ("Sitar") || name.contains ("Banjo")
-        || name.contains ("Dulcimer") || name.contains ("Pizz"))
-        { strMix = 0.80f; strDamp = 0.38f; strDecay = 0.50f; body = 1; bodyAmt = 0.22f; }
-    if (name.contains ("Steel Pan"))
-        { strMix = 0.34f; strDamp = 0.22f; strDecay = 0.75f; body = 3; bodyAmt = 0.26f; }
-
-    // --- Mechanisms that have no strike at all --------------------------------
-    // Applied last so nothing above can re-arm them. A hammer on a 40 Hz sine
-    // is not a hammer, it is a click of noise sitting on top of the note; and
-    // a flute has no strike anywhere in how it makes sound.
-    if (d.sub >= 0.6f || name.contains ("808") || name.contains ("Sub")
-        || name.contains ("Rumble") || name.contains ("Boom"))
-        { atkAmt = juce::jmin (atkAmt, 0.10f); inharm = 0.0f; }
-    if (name.contains ("Flute") || name.contains ("Brass") || name.contains ("Sax")
-        || name.contains ("Whistle") || name.contains ("Breath")
-        || name.contains ("Air")   || name.contains ("Pad"))
-        { atkAmt = juce::jmin (atkAmt, 0.06f); inharm = 0.0f; }
-
-    // Publish the strike LAST, so the mechanism pass above is the one that
-    // decides it (see the note where these used to be written).
-    p.attackNoise = atkAmt;
-    p.attackTone  = atkTone;
-    p.attackMs    = atkMs;
-    p.inharmonic  = inharm;
-
-    p.stringMix   = strMix;
-    p.stringDamp  = strDamp;
-    p.stringDecay = strDecay;
-    p.morphAmt    = mrphAmt;
-    p.morphMs     = mrphMs;
-    p.morphTo     = mrphTo;
-    p.bodyType    = body;
-    p.bodyAmount  = bodyAmt;
-
-    // --- brightness ceiling ---------------------------------------------------
-    // Measured, not guessed: every voice that landed above the fatigue line in
-    // the 2-6 kHz test either rings for over a second or opens its filter past
-    // 12 kHz, and several do both. Cymbals and hats keep their top end because
-    // that IS the instrument; everything tuned gets a ceiling.
-    {
-        const bool percussive = (cat == "DRUMS")
-                              || name.contains ("Hat") || name.contains ("Crash")
-                              || name.contains ("Ride") || name.contains ("Shaker")
-                              || name.contains ("Tambo");
-        if (! percussive)
-        {
-            const float ceiling = (cat == "BELL" || struckName) ? 7000.0f : 9500.0f;
-            if (p.filterCutoff.load() > ceiling)
-                p.filterCutoff = ceiling;
-        }
-        else if (p.filterCutoff.load() > 16000.0f)
-        {
-            // Even a cymbal does not need to be flat to 20 kHz; that last
-            // octave is hiss, not shimmer.
-            p.filterCutoff = 16000.0f;
-        }
-
-        // A resonant peak sitting open in the 2-6 kHz band is what turns a
-        // bright voice into a piercing one - the filter is adding gain exactly
-        // where the ear is most sensitive. Percussion keeps its bite.
-        if (! percussive && p.filterCutoff.load() > 2500.0f && p.filterQ.load() > 1.2f)
-            p.filterQ = 1.2f;
-
-        // --- the 2-6 kHz band itself ---------------------------------------
-        //
-        // The ceiling above does not touch it, and could not: 2-6 kHz sits
-        // BELOW a 7 kHz low pass, so every one of these voices was passing the
-        // fatigue band untouched. That was a real hole in the previous pass.
-        //
-        // On a bell that band is not the fundamental, it is the metallic
-        // partials - inharmonicity and FM. So the fix is at the source: cap
-        // both for tuned metal, hard enough to take the edge off and not so
-        // hard that a bell stops being one. Percussion is exempt; a hat is
-        // supposed to live up there.
-        const bool tunedMetal = ! percussive
-                             && (cat == "BELL" || struckName
-                                 || name.contains ("Glass") || name.contains ("Ice")
-                                 || name.contains ("Chime") || name.contains ("Crystal")
-                                 || name.contains ("Digital") || name.contains ("Sync")
-                                 || name.contains ("Wire")  || name.contains ("Laser"));
-        if (tunedMetal)
-        {
-            if (p.inharmonic.load() > 0.26f) p.inharmonic = 0.26f;
-            if (p.fmAmount.load() > 0.45f)  p.fmAmount  = 0.45f;
-            if (p.filterCutoff.load() > 5600.0f) p.filterCutoff = 5600.0f;
-        }
-
-        // Perc Click measured as broadband attack with almost no pitched
-        // body. Keep it tight, but give the transient a little less glass so
-        // it reads as percussion instead of a noise spike.
-        if (name == "Perc Click")
-        {
-            p.attackNoise = 0.32f;
-            p.attackTone = 2.8f;
-            p.attackMs = 8.0f;
-            p.filterCutoff = 6500.0f;
-            p.filterQ = 0.6f;
-            p.satAmount = 0.08f;
-        }
-
-        // These tuned voices were still the most fatiguing after the broad
-        // family pass. They should stay bright, just not scrape the 2-6 kHz
-        // band quite as hard on sustained notes.
-        if (name == "Hyperpop Squeak" || name == "Drill Bell Lead"
-            || name == "Laser Lead" || name == "Chime Syn"
-            || name == "Glass Pluck" || name == "Digital Ice")
-        {
-            p.inharmonic = juce::jmin (p.inharmonic.load(), 0.18f);
-            p.fmAmount = juce::jmin (p.fmAmount.load(), 0.30f);
-            p.filterCutoff = juce::jmin (p.filterCutoff.load(), 4800.0f);
-            p.filterQ = juce::jmin (p.filterQ.load(), 0.9f);
-            p.satAmount = juce::jmin (p.satAmount.load(), 0.16f);
-        }
-    }
-
-    p.chorusMix = chorus;
-
-    // --- Portamento defaults ------------------------------------------------
-    // Only the voices whose whole identity is the SLIDE ship with glide on;
-    // everything else starts at zero and the Glide knob is there if wanted.
-    float glide = 0.0f;
-    if (name == "Drill Slide" || name == "Talk Bass" || name == "Glide Solo"
-        || name == "Whistle Lead" || name == "Phonk Whistle" || name == "Acid Lead"
-        || name == "Squelch 303" || name == "Wobble Growl")
-        glide = 90.0f;
-
-    p.glideMs = glide;
-
-    // Publish the resolved module values for applyInstrument to mirror into
-    // the knobs (race-free snapshot; see ModuleDefaults in the header).
-    moduleDefaults = { d.unison, d.spread, d.sub, d.noise, d.fm,
-                       d.vibCents, chorus, glide };
+    slyce::factory::configureVoice (p, d);
+    p.outputTrimDb = slyce::factory::levelTrimsDb[i];
+    // Mirror RESOLVED values, not raw table values. Otherwise the next audio
+    // block silently undoes FM caps, breath and choir vibrato.
+    moduleDefaults = { p.unison.load(), p.stereoSpread.load(), p.subLevel.load(),
+                       p.noiseLevel.load(), p.fmAmount.load(), p.vibDepthCents.load(),
+                       p.chorusMix.load(), p.glideMs.load() };
 
     currentInstrument = i;
 }
 
 void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 {
+    const juce::ScopedLock patchLock (getCallbackLock());
     applyEnginePatch (instrumentIndex);
-    const auto& d = kInstruments[currentInstrument];
+    const auto d = voicedDefinition(currentInstrument);
 
-    const juce::ScopedValueSetter<bool> patching (applyingPatch, true);
+    const ScopedAtomicPatch patching (applyingPatch);
 
     // Skips anything the user has taken over. Auditioning instruments used to
     // reset the whole output FX rack on every step: turn the reverb down
@@ -2872,7 +2681,7 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     // tester complained about could not be fixed from inside the plugin.
     auto set = [this] (const juce::String& id, float value)
     {
-        if (userOwnsFx.count (id) != 0)
+        if (ownsFx(id))
             return;
         if (auto* p = apvts.getParameter (id))
             p->setValueNotifyingHost (p->convertTo0to1 (value));
@@ -2880,6 +2689,10 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 
     // Common baseline, then the instrument's knob values.
     set ("engine",       1.0f);          // Synth mode
+    // Browser selection means "play this instrument normally". Rhythmic
+    // gating is recalled only by an explicit SOUND/ARP preset; it must not
+    // leak from the previous preset into every lead, bass and pad.
+    set ("pumpAmt",      0.0f);
     // Low pass wide open, NOT off. 20 kHz passes everything so this sounds
     // identical, but leaving it OFF is what made the filter look broken:
     // picking any instrument switched the filter off underneath you, so the
@@ -2915,50 +2728,82 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     set ("delay",        d.delay);
     set ("pingpong",     d.pingpong);
     set ("width",        d.width);
+
+    // ARP is a real browser family, not just an oscillator name. Selecting one
+    // therefore recalls a complete playable arpeggiator state. The sequencer
+    // itself uses the existing fixed 128-note arrays in advanceArp(); these
+    // data-only patches do not allocate or add DSP on the audio thread.
+    const juce::String category (d.category), name (d.name);
+    if (category == "ARP")
+    {
+        const int mode = name.containsIgnoreCase ("Cascade") ? 3
+                       : name.containsIgnoreCase ("Random")  ? 4
+                       : name.containsIgnoreCase ("Down")    ? 2 : 1;
+        const int rate = name.containsIgnoreCase ("Gate") || name.containsIgnoreCase ("Techno") ? 5
+                       : name.containsIgnoreCase ("Dream") || name.containsIgnoreCase ("Airy")   ? 3 : 4;
+        const int octaves = name.containsIgnoreCase ("Octave") || name.containsIgnoreCase ("Cascade") ? 2 : 1;
+        set ("arpMode", (float) mode);
+        set ("arpRate", (float) rate);
+        set ("arpOct",  (float) octaves);
+        set ("arpGate", name.containsIgnoreCase ("Gate") ? 0.42f : 0.62f);
+    }
+    else
+    {
+        set ("arpMode", 0.0f);
+    }
 }
 
 //==============================================================================
+void VocalChopAudioProcessor::appendSoundState(juce::XmlElement& root)
+{
+    std::shared_ptr<juce::AudioBuffer<float>> source;
+    double rate=44100.0;
+    {
+        const juce::ScopedLock guard(sampleStateLock);
+        source=sampleBuffer; rate=loadedSampleRate;
+        root.setAttribute("samplePath",loadedSampleFile.getFullPathName());
+        root.setAttribute("sampleName",loadedSampleName);
+        root.setAttribute("demoIndex",currentDemo);
+        root.setAttribute("sfzPath",loadedSfzFile.getFullPathName());
+        root.setAttribute("sliceMode",(int)sliceEngine.getMode());
+        root.setAttribute("gridDiv",sliceEngine.getGridDivision());
+        root.setAttribute("sensitivity",(double)sliceEngine.getSensitivity());
+        root.setAttribute("selectedSlice",selectedSlice.load());
+        auto* points=root.createNewChildElement("Slices");
+        for(int i=0;i<sliceEngine.getNumSlices();++i)if(auto sl=sliceEngine.getSlice(i)) {
+            auto* item=points->createNewChildElement("Slice");
+            item->setAttribute("start",sl->startSample);
+            item->setAttribute("transpose",(double)getSliceTranspose(i));
+        }
+    }
+    root.setAttribute("instrument",currentInstrument.load());
+    root.setAttribute("instrumentName",getInstrumentNames()[currentInstrument.load()]);
+    root.setAttribute("airVocalPreset", currentAirVocalPreset.load());
+    vocalKitEngine.writeState (root);
+    if(source) {
+        auto bytes=slyce::SampleStateCodec::encode(*source,rate);
+        if(!bytes.empty())root.createNewChildElement("SamplePCM")->addTextElement(
+            juce::MemoryBlock(bytes.data(),bytes.size()).toBase64Encoding());
+    }
+    if(auto params=apvts.copyState().createXml())root.addChildElement(params.release());
+}
+
 void VocalChopAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // DEMO: nothing is written, so nothing comes back. This is the limitation
-    // that actually bites - you can audition every voice and hear exactly what
-    // you would be buying, but a project that uses Slyce cannot be reopened
-    // with its patch intact, so it cannot be finished.
-    //
-    // It belongs here rather than in setStateInformation. Refusing to READ
-    // would still let a demo session write a full patch into someone's project
-    // file, and a licensed build months later would then silently restore work
-    // the user had been told was not saved.
-    if (! licensed.load (std::memory_order_relaxed))
-    {
-        destData.reset();
-        return;
-    }
-
-    // Full session state: parameters + sample path + slicing + theme, so that
-    // reopening the project restores everything, not just the knobs.
-    juce::XmlElement root ("VocalChopState");
-    root.setAttribute ("samplePath",  loadedSampleFile.getFullPathName());
-    root.setAttribute ("sfzPath",     loadedSfzFile.getFullPathName());
-    root.setAttribute ("sliceMode",   (int) sliceEngine.getMode());
-    root.setAttribute ("gridDiv",     sliceEngine.getGridDivision());
-    root.setAttribute ("sensitivity", (double) sliceEngine.getSensitivity());
-    root.setAttribute ("theme",       ThemeManager::current());
-    // Like the instrument: the NAME is authoritative — the theme list grows
-    // and indices drift across versions.
-    root.setAttribute ("themeName",   ThemeManager::active().name);
-    // Which NAMING GENERATION that themeName belongs to. Needed because the
-    // rename was not injective: "Snow" existed in the old set (light purple)
-    // AND exists in the new one (light blue). Without this marker the alias
-    // map would rewrite every newly-saved Snow into Paper forever.
-    root.setAttribute ("themeSet",    2);
-    root.setAttribute ("instrument",  currentInstrument);
-    // The name is authoritative across plugin versions — the table grows and
-    // indices drift, but "Syn Grand" is forever.
-    root.setAttribute ("instrumentName", getInstrumentNames()[currentInstrument]);
-
-    if (auto params = apvts.copyState().createXml())
-        root.addChildElement (params.release());
+    // Saving is always lossless, including the periodically-muted demo.
+    // The license changes audio muting, never whether a user's work survives.
+    juce::XmlElement root("VocalChopState");
+    root.setAttribute("version",2);
+    appendSoundState(root);
+    root.setAttribute("theme",ThemeManager::current());
+    root.setAttribute("themeName",ThemeManager::active().name);
+    root.setAttribute("themeSet",2);
+    root.setAttribute("referenceThemeScheme", referenceThemeScheme.load());
+    for (int i = 0; i < 15; ++i)
+        root.setAttribute ("looperMidiCC" + juce::String (i), getLooperMidiCC (i));
+    auto loopBytes=looper.serialize();
+    if(!loopBytes.empty())root.createNewChildElement("LooperState")->addTextElement(
+        juce::MemoryBlock(loopBytes.data(),loopBytes.size()).toBase64Encoding());
 
     copyXmlToBinary (root, destData);
 }
@@ -2979,8 +2824,23 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
     if (! xml->hasTagName ("VocalChopState"))
         return;
 
+    referenceThemeScheme.store (juce::jlimit (0, 8,
+        xml->getIntAttribute ("referenceThemeScheme", 0)));
+    for (int i = 0; i < 15; ++i)
+        if (xml->hasAttribute ("looperMidiCC" + juce::String (i)))
+            setLooperMidiCC (i, xml->getIntAttribute ("looperMidiCC" + juce::String (i),
+                                                       getLooperMidiCC (i)));
+
+    const juce::ScopedLock callbackGuard(getCallbackLock());
+
     if (auto* params = xml->getChildByName (apvts.state.getType()))
         apvts.replaceState (juce::ValueTree::fromXml (*params));
+
+    // Kit files are decoded here, off the audio callback. Missing files stay
+    // represented by their slot and path so the editor can offer relink.
+    vocalKitEngine.restoreState (*xml);
+    restoreEmbeddedVocalKitSources();
+    loadAirVocalPresetBank (xml->getIntAttribute ("airVocalPreset", 0));
 
     // Prefer the saved theme NAME; sessions saved before the Studio themes
     // were prepended carry only an index into the OLD 7-theme list, which
@@ -3069,21 +2929,58 @@ void VocalChopAudioProcessor::setStateInformation (const void* data, int sizeInB
         applyEnginePatch (idx);
     }
 
-    sliceEngine.setMode ((SliceEngine::Mode) xml->getIntAttribute ("sliceMode",
-                                                                   (int) SliceEngine::Transient));
+    sliceEngine.setMode ((SliceEngine::Mode) juce::jlimit(0,2,xml->getIntAttribute("sliceMode",(int)SliceEngine::Transient)));
     sliceEngine.setGridDivision (xml->getIntAttribute ("gridDiv", 16));
     sliceEngine.setSensitivity ((float) xml->getDoubleAttribute ("sensitivity", 0.3));
 
-    // Reload the sample from disk; loadSampleFromFile re-slices with the
-    // settings restored above. If the file moved/was deleted, keep running
-    // with no sample rather than failing state restore.
-    const juce::File sample (xml->getStringAttribute ("samplePath"));
-    if (sample.existsAsFile())
-        loadSampleFromFile (sample, false);
-    else
-        sliceEngine.rebuildSlices();
+    bool restoredSample=false;
+    if(auto* encoded=xml->getChildByName("SamplePCM")) {
+        juce::MemoryBlock bytes;
+        if(bytes.fromBase64Encoding(encoded->getAllSubText())) {
+            double rate=44100.0;
+            if(auto decoded=slyce::SampleStateCodec::decode(bytes.getData(),bytes.getSize(),rate)) {
+                const juce::ScopedLock sourceGuard(sampleStateLock);
+                sampleBuffer=decoded; loadedSampleRate=rate;
+                loadedSampleFile=juce::File(xml->getStringAttribute("samplePath"));
+                loadedSampleName=xml->getStringAttribute("sampleName");
+                currentDemo=juce::jlimit(-1,getNumDemoSamples()-1,xml->getIntAttribute("demoIndex",-1)); prevSampleBuffer.reset();
+                reassignSampleToEngines(); rescanSlices(); analyzeSampleKey(); restoredSample=true;
+            }
+        }
+    }
+    const juce::File sample(xml->getStringAttribute("samplePath"));
+    if(!restoredSample && sample.existsAsFile())restoredSample=loadSampleFromFile(sample,false);
+    if(!restoredSample && xml->getIntAttribute("demoIndex",-1)>=0)
+        restoredSample=loadDemoSample(xml->getIntAttribute("demoIndex"));
+    if(!restoredSample) {
+        const juce::ScopedLock sourceGuard(sampleStateLock);
+        sampleBuffer.reset(); loadedSampleFile=juce::File(); loadedSampleName.clear(); currentDemo=-1;
+        reassignSampleToEngines(); sliceEngine.rebuildSlices();
+    }
+    if(auto* points=xml->getChildByName("Slices")) {
+        std::vector<int> starts;
+        for(auto* item=points->getFirstChildElement();item!=nullptr;item=item->getNextElement())
+            if(item->hasTagName("Slice"))starts.push_back(item->getIntAttribute("start"));
+        if(restoredSample && sliceEngine.getMode()==SliceEngine::Manual)sliceEngine.sliceByManual(starts);
+        int i=0;
+        for(auto* item=points->getFirstChildElement();item!=nullptr;item=item->getNextElement())
+            if(item->hasTagName("Slice"))setSliceTranspose(i++,(float)item->getDoubleAttribute("transpose"));
+    }
+    selectedSlice.store(juce::jlimit(-1,sliceEngine.getNumSlices()-1,xml->getIntAttribute("selectedSlice",-1)));
+    // Loading embedded demos intentionally selects Chop; the saved controls win.
+    if(auto* params=xml->getChildByName(apvts.state.getType()))
+        apvts.replaceState(juce::ValueTree::fromXml(*params));
+    if(!xml->getBoolAttribute("soundOnly",false)) {
+        if(auto* encoded=xml->getChildByName("LooperState")) {
+            juce::MemoryBlock bytes;
+            if(bytes.fromBase64Encoding(encoded->getAllSubText()))
+                looper.restore(bytes.getData(),bytes.getSize());
+        } else looper.tapClearAll(); // legacy session, never inherit another session's loops
+    }
 
-    // Restore the SFZ bank (quietly skipped if the files moved).
+    // A missing SFZ must not leave a previous session's bank active.
+    samplerEngine.clearBank(); loadedSfzFile=juce::File();
+    // Restore the SFZ bank (external multi-sample assets remain file references).
     const juce::File sfz (xml->getStringAttribute ("sfzPath"));
     if (sfz.existsAsFile())
     {
@@ -3132,12 +3029,10 @@ bool VocalChopAudioProcessor::saveUserPreset (const juce::String& name)
     auto dir = userPresetFolder();
     dir.createDirectory();
 
-    // The parameter tree only: a preset is a SOUND, not a session, so it must
-    // not drag someone else's sample path or theme along with it.
-    auto state = apvts.copyState();
-    if (auto xml = state.createXml())
-        return xml->writeTo (dir.getChildFile (clean + ".slyce"));
-    return false;
+    juce::XmlElement root("VocalChopPreset");
+    root.setAttribute("version",2); root.setAttribute("soundOnly",true);
+    appendSoundState(root);
+    return root.writeTo(dir.getChildFile(clean + ".slyce"));
 }
 
 bool VocalChopAudioProcessor::loadUserPreset (const juce::String& name)
@@ -3148,12 +3043,14 @@ bool VocalChopAudioProcessor::loadUserPreset (const juce::String& name)
         return false;
 
     auto xml = juce::parseXML (f);
-    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
-        return false;
-
-    apvts.replaceState (juce::ValueTree::fromXml (*xml));
-    sendChangeMessage();
-    return true;
+    if(xml == nullptr)return false;
+    if(xml->hasTagName(apvts.state.getType())) { // legacy parameter-only preset
+        apvts.replaceState(juce::ValueTree::fromXml(*xml)); sendChangeMessage(); return true;
+    }
+    if(!xml->hasTagName("VocalChopPreset"))return false;
+    xml->setTagName("VocalChopState"); xml->setAttribute("soundOnly",true);
+    juce::MemoryBlock bytes; copyXmlToBinary(*xml,bytes);
+    setStateInformation(bytes.getData(),(int)bytes.getSize()); return true;
 }
 
 //==============================================================================
@@ -3220,7 +3117,7 @@ void VocalChopAudioProcessor::rememberSfzBank (const juce::String& name, const j
 //==============================================================================
 juce::AudioProcessorEditor* VocalChopAudioProcessor::createEditor()
 {
-    return new VocalChopAudioProcessorEditor (*this);
+    return new SlyceReferenceEditor (*this);
 }
 
 //==============================================================================

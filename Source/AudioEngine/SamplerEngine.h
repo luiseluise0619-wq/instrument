@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <vector>
+#include "../DSP/SoundQuality.h"
 
 /**
     Multisample player (SFZ subset) — the "Sampled" engine mode.
@@ -13,7 +14,7 @@
     one per key range and velocity layer, not synthesis. Point it at a .sfz
     file (Salamander Grand Piano, free guitars...) and every region's WAV /
     FLAC / OGG is decoded into RAM up front; playback is a lightweight
-    linear-interpolating resampler per voice.
+    32-tap band-limited resampler per voice.
 
     Supported opcodes (covers Salamander + most free instrument banks):
       sample, default_path, lokey, hikey, key, pitch_keycenter,
@@ -31,6 +32,8 @@ public:
     void prepare (double sampleRate, int /*maxBlock*/)
     {
         sr = sampleRate > 0.0 ? sampleRate : 44100.0;
+        slyce::quality::SampleReader::warmUp();
+        rrCounter = 0;
         for (auto& v : voices)
             v = {};
     }
@@ -44,6 +47,8 @@ public:
         at its original pitch. */
     void loadFromBuffer (const juce::AudioBuffer<float>& src, double srcRate,
                          const juce::String& name, int rootNote = 60);
+
+    void clearBank() { publishBank({}); releaseRequested.store(true); }
 
     bool hasBank() const { return std::atomic_load (&bank) != nullptr; }
     juce::String getBankName() const
@@ -62,6 +67,9 @@ public:
     }
     void noteOff (int midiNote);
     void releaseAll();
+    /** Short click-safe stop used by the monophonic mapped-vocal mode before
+        the next key starts. SFZ instruments remain polyphonic. */
+    void chokeAll() noexcept;
     void render (juce::AudioBuffer<float>& out, int numSamples);
 
 private:
@@ -96,7 +104,9 @@ private:
         int    note = -1;
         bool   releasing = false;
         float  env = 1.0f, relCoeff = 0.0f;
-        int    fadeIn = 0;
+        int    fadeIn = 0, fadeInLength = 1;
+        slyce::quality::SampleReader reader;
+        slyce::quality::Declicker declick;
         int    autoOff = -1;   // samples until self-release (-1 = held note)
 
         bool active() const { return region != nullptr; }
@@ -106,6 +116,7 @@ private:
 
     const Region* findRegion (const Bank&, int note, int vel127);
     Voice* findFreeVoice();
+    std::atomic<bool> releaseRequested { false };
     int rrCounter = 0;   // round-robin step (audio thread only)
 
     std::shared_ptr<const Bank> bank;   // swapped atomically

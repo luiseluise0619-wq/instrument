@@ -29,14 +29,21 @@ if "%CommonProgramFiles%"=="" (
 )
 
 set "VST3DIR=%CommonProgramFiles%\VST3"
-set "SRC=%~dp0Slyce.vst3"
+REM The installer may be launched from the ZIP's packaging folder, from the
+REM ZIP root, or from a build output folder. Resolve the bundle instead of
+REM assuming it sits beside this .bat file.
+set "SRC="
+for %%P in ("%~dp0Slyce.vst3" "%~dp0..\Slyce.vst3" "%~dp0..\build\VocalChopStudio_artefacts\Release\VST3\Slyce.vst3" "%~dp0..\build-release-3.3.5\VocalChopStudio_artefacts\Release\VST3\Slyce.vst3") do (
+  if not defined SRC if exist "%%~fP" set "SRC=%%~fP"
+)
 set "BACKUP=%USERPROFILE%\Slyce-previous-version"
 set "LOG=%USERPROFILE%\slyce-install.log"
 set "STAGE=%VST3DIR%\Slyce-installing.tmp"
 
-if not exist "%SRC%" (
-  echo ERROR: Slyce.vst3 not found next to this script.
-  echo Unzip the whole download first, then run this from inside that folder.
+if not defined SRC (
+  echo ERROR: Slyce.vst3 was not found.
+  echo Unzip the whole download first, then run this installer from the ZIP
+  echo root or its packaging folder.
   pause & exit /b 1
 )
 
@@ -130,7 +137,15 @@ for /r "%~1" %%F in (moduleinfo.json) do (
   find /i "%VENDOR%" "%%F" >nul 2>&1 && set "OURS=1"
 )
 if "!OURS!"=="0" (
-  REM Builds predating moduleinfo.json: check the binary itself.
+  REM JUCE builds may intentionally omit moduleinfo.json. Verify the signed-in
+  REM Windows version resource instead of relying on binary text encoding.
+  for /r "%~1" %%F in (*.vst3 *.dll) do (
+    powershell -NoProfile -Command "$v=(Get-Item -LiteralPath '%%~fF').VersionInfo; if ($v.CompanyName -eq 'VocalChop Labs' -and $v.ProductName -eq 'Slyce') { exit 0 } else { exit 1 }" >nul 2>&1
+    if not errorlevel 1 set "OURS=1"
+  )
+)
+if "!OURS!"=="0" (
+  REM Last-resort compatibility check for very old builds.
   for /r "%~1" %%F in (*.vst3 *.dll) do (
     find /i "%VENDOR%" "%%F" >nul 2>&1 && set "OURS=1"
   )

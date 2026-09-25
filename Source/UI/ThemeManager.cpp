@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-int ThemeManager::idx = 15; // default to Frost Paper
+std::atomic<int> ThemeManager::idx { 21 }; // reference default: Paper Light
 
 // ---------------------------------------------------------------------------
 // Every chrome token is DERIVED, not hand-picked.
@@ -275,18 +275,18 @@ namespace
         // premium, and it is the second deliberate deviation here.)
         b.bg1    = 0xfff1f3f7;
         b.bg2    = 0xffe2e6ee;
-        b.mat1   = 0xccffffff;   // clearer liquid glass: lighter than paper, less solid
-        b.mat2   = 0xbaffffff;
-        b.matA1  = 0xcaffffff;
-        b.matA2  = 0xb6ffffff;
+        b.mat1   = 0xbfffffff;   // translucent glass: let the cool desk show through
+        b.mat2   = 0xa8ffffff;
+        b.matA1  = 0xb8ffffff;
+        b.matA2  = 0xa5ffffff;
         // The card stays bright but lets more of the cool desk show through.
         // This keeps the light skins premium without turning them into a flat
         // white screenshot.
-        b.card   = 0xa8ffffff;   // translucent Apple glass, not paper-white
-        b.cardA  = 0xbaffffff;
+        b.card   = 0x98ffffff;   // clearer Apple glass, not paper-white
+        b.cardA  = 0xa8ffffff;
         b.cardBd = 0x2d000f1e;   // clearer edge so lower opacity still reads
         b.hi     = 0xaaffffff;
-        b.ctl    = 0xc4ffffff;
+        b.ctl    = 0xb3ffffff;
         b.ctlBd  = 0x1a000000;   // rgba(0,0,0,.10)
         // Wells sit INSIDE a now-white card, so they need real depth to read
         // as recessed at all - at 4.5% black on a 42% card they were visible
@@ -622,6 +622,88 @@ namespace
         return t;
     }
 
+    Theme violetNeonGlass()
+    {
+        // Reference dark skin: graphite glass, restrained violet selection
+        // states and an ice-blue waveform.  It deliberately avoids the older
+        // cyberpunk glow so the UI reads like premium desktop software rather
+        // than a poster.
+        constexpr Spec s { "Violet Neon Glass", true, 0xff9f86ff, 0xff120d22, 0.0f };
+        auto b = makeNeonBase();
+        b.bg1    = 0xff171a23;
+        b.bg2    = 0xff0b0d13;
+        b.mat1   = 0xf01b1e27;
+        b.mat2   = 0xe6151820;
+        b.matA1  = 0xf0212430;
+        b.matA2  = 0xe51a1d27;
+        b.card   = 0xc2171a22;
+        b.cardA  = 0xc51d1d2c;
+        b.cardBd = 0x4a8290ad;
+        b.hi     = 0x1effffff;
+        b.ctl    = 0x3b252a35;
+        b.ctlBd  = 0x5d8793ad;
+        b.well   = 0x8407080d;
+        b.well2  = 0x9407090f;
+        b.well3  = 0xa607080d;
+        b.wellT  = 0xf00e1117;
+        b.sep    = 0x4c8c98b1;
+        b.sep2   = 0x638c98b1;
+        b.sep3   = 0x338c98b1;
+        b.txt    = 0xfff2f3fb;
+        b.txtB   = 0xffd2d6e3;
+        b.txt2   = 0xffaeb6c8;
+        b.txt3   = 0xff8f99ae;
+        b.txt4   = 0xff747e94;
+        b.knobT  = 0xff292c35;
+        b.knobB  = 0xff111319;
+        b.knobRim= 0x9db9c3d5;
+        b.tick   = 0x647f899f;
+        b.tickL  = 0xffc1c9da;
+        b.track  = 0x58333a49;
+        b.mT     = 0xff22252d;
+        b.mRim   = 0x778e99ae;
+        b.keyW1  = 0xfff1f2f7;
+        b.keyW2  = 0xffd6d9e2;
+        b.keyB1  = 0xff2d3039;
+        b.keyB2  = 0xff111319;
+        b.keyTx  = 0xff5b657c;
+        b.keyTxB = 0xffaab2c6;
+        b.segOn  = 0x3f9f86ff;
+        b.sh1    = 0x9c000000;
+        b.sh2    = 0xb0000000;
+        b.shK    = 0x28000000;
+
+        auto t = build (s, b, Weights {});
+        t.accentSoft = juce::Colour (0x459f86ff);
+        t.waveform = juce::Colour (0xffaabaff);
+        t.cornerRadius = 10.0f;
+        t.glow = 0.55f;
+        return t;
+    }
+
+    Theme paperReference()
+    {
+        constexpr Spec s { "Paper Light", false, 0xff438fdd, 0xffffffff, 0.0f };
+        auto b=makeLightBase();
+        b.bg1=0xfff6f7fa; b.bg2=0xffe5e9ef;
+        b.mat1=0xfff4f6f9; b.mat2=0xffe9eef4;
+        b.matA1=0xffeff5fc; b.matA2=0xffe5edf8;
+        b.card=0xeef7f9fc; b.cardA=0xf0eff5fc; b.cardBd=0xffcad4e1;
+        b.hi=0xfaffffff; b.ctl=0xffeef2f7; b.ctlBd=0xffc5cfdd;
+        b.well=0xffedf2f8; b.well2=0xffe6edf6; b.well3=0xffe0e8f2; b.wellT=0xfff5f8fc;
+        b.sep=0xffcdd6e2; b.sep2=0xffb7c6da; b.sep3=0xffdce3ed;
+        b.txt=0xff31415b; b.txtB=0xff435573; b.txt2=0xff5e708c; b.txt3=0xff74859e; b.txt4=0xff8291a8;
+        b.knobT=0xffffffff; b.knobB=0xffdde4ed; b.knobRim=0xffffffff;
+        b.tick=0xffb7c4d6; b.tickL=0xff7299c5; b.track=0xffc6d4e7;
+        b.mT=0xffe3eaf3; b.mRim=0xffc3d1e2;
+        b.keyW1=0xffffffff; b.keyW2=0xffe9edf4; b.keyB1=0xff535d70; b.keyB2=0xff252e40;
+        b.keyTx=0xff8090a6; b.keyTxB=0xffbfcadd;
+        b.segOn=0xffe3eefb; b.sh1=0x1f647b98; b.sh2=0x35647b98; b.shK=0x28647b98;
+        auto t=build(s,b,Weights{});t.waveform=juce::Colour(0xff5ba2e7);
+        t.accentSoft=juce::Colour(0x30438fdd);t.cornerRadius=10.0f;t.glow=0.12f;
+        return t;
+    }
+
     std::array<Theme, ThemeManager::kNumThemes> makeAll()
     {
         const Base darkBase  = makeDarkBase();
@@ -635,6 +717,8 @@ namespace
             a[(size_t) i] = kSpecs[i].dark ? build (kSpecs[i], darkBase,  darkW)
                                            : build (kSpecs[i], lightBase, lightW);
         a[(size_t) n] = neonOcean();
+        a[(size_t) n + 1] = violetNeonGlass();
+        a[(size_t) n + 2] = paperReference();
         return a;
     }
 }

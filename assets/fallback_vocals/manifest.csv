@@ -1,0 +1,81 @@
+file,source,kind,sample_rate,frames,bpm,peak_dbfs,rms_dbfs,sha256
+vocal_chop_demo.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.498,9090d5292f0d7c4b2b67730f7b2d42b983aef51d5236291fccb12b5e064b2a63
+vox_air.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-12.71,f5be6bc02b32f012455bb7aabeafe5c029b56289d4f55222833c7c9a08955baa
+vox_rage.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.139,0fde6d455d90e7f7fc7f4dbbad7459601c06f8e16f8f0f93ed22ddb07cccdfb0
+vox_beatbox.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-24.385,26456cff5e66c9c44e5e41310ebe020b12ad10e72ba5f41a1be0279e617ef443
+vox_chant.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.705,d83eb36a5c05e7160dc4bbad16faac65cd7955b90b58791262a926f9b6777adf
+vox_hook.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-12.387,2a9019e8452564d04e6f0b01baf619cb439f9184e09a8f1b73a50ea5a8826274
+vox_choir.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-13.562,74c5ff7294643cdfb8cc3167416c4bfceabbe4bf8e92b7ed97480986b4e69f98
+vox_whisper.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.428,0ada150608d6be9c9769ba225ea76f7cd2356a6e7be92d10c3ead648c8cccc6b
+vox_diva.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.736,1ad9ffefd6d7918d10ec5f927e190e925624c984da0c0cd66784d554dd5fe44a
+vox_stabs.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-25.789,09ceba4878ae27ee989bd474d2231b7f6a369610d19a1f88702b058c5dcfbef5
+vox_triplet.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.306,05da42fd8bc3621edbd8916bb086b86159b2c4deedde0f32a54300615919b801
+vox_halftime.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-13.263,23e00096b7e25ea974c562d1f3709d352a5117f7af412ecded6f9bb3eede3e25
+vox_garage.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.946,0299d1f2cf97c8bbb5722151945c1df022d5bb4ae893f583ea795db78503758c
+vox_amen.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.35,d661d89382044857eb855fec2d625f105f1c1b108f3b6c53b31b1fa11b095083
+vox_stutter.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-14.755,e6014fc34ade87bb9e1f9c7991048260b3dd7c05d1588333849d94d596880b5d
+vox_revchant.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-13.229,fe507bc270295c0177644c5e5250dafd2e6bbce462995b6f29bca1d578808785
+vox_topline.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.379,2b712564ffb0cbfef4bdaaf46ff7ec4c4dc43bf982ad7e1bab3680d3b1920bce
+vox_trapmel.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.324,320e15d8df3b401bd06a70bcc55a97586921ed82c16f96c94ebe54aa7c572ac6
+vox_afro.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.105,f8e511a3481d9202d28bac5cf4df558dc7543984c64b25097aacb3ec475131fc
+vox_drill.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-14.093,61e5184ec744db879950ffa09edc8a3a44896d27ccd5b22a8f22f5d38a3e0fb4
+vox_ballad.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.455,1a10ce70730656229f1def7f8c0226be80a66216c5a30b678810fe0222016908
+vox_vowelpad.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-13.366,7a72e0016541f0b1260956c5ab452d0d56824c564ccd4fc52907e761afa32548
+vox_nasal.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.104,ed0a45ff263b4263d7657ebe59b87a43dd08e28ab60b7d349efb59ed4b09c06f
+vox_hum.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.577,43566500098cd6113f788d9e8a84d134dfb70a255304afa175833b1749fe1cf0
+vox_gospel.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-13.228,4113b4a9400657aa52c60e1a4301fe4d82e70f039aba947ec2d415909408aba3
+vox_vocoder.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-12.579,4052e6a5ab19e9e0b66d9e3c585fa5bb52c3908d418622fd6287e9000da88a86
+vox_mouthperc.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-21.866,0b09b99880045323ac1213cebc3688beb6ac5605c17cbb3d2653a1d4494c0d8a
+vox_clicks.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-25.057,084111ecd7e1ce75f4b9d608a59d4d99be08d87527c27cafbef36d8498f3586d
+vox_breath.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-24.02,aedd443b259ee6bceb513af96686b584d1a0b38fc0500010f41a5b8fe88b7100
+vox_gasp.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-23.847,a905f3ff65223925bc97c1129ca4f4a972317666716c305457493ff2abfbede3
+vox_riser.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-15.23,a58d30f0221aed7e7a24263ee84679fb5f8280e6e317ed84d6d79eb4af9b1aa2
+vox_downlifter.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-14.201,dcedd2e275cefb1db4dbfaac3f9c2413445f01c2d043fcf10abfc1e5058fe123
+vox_kids.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-10.691,4f73ae3b8b8c598302338531586c856375a291a495a08cf28c97aa1644d63e4a
+vox_deep.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-16.862,e97b436ca949664473c813a8cbf3347c17391232295cd4ef6e17907bb0d1afb7
+vox_robot.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.63,afed88b854f701d5fae6b966da64af2870758195f317037b29598a1828bddf51
+vox_opera.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.333,047bfa450679b77d8f0a3c13e8346eb5ddcfa60db9e4495899ca016f460f7164
+vox_word.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.49,0f5ab5b8e4b055e3f68165183379863065bdfb5741a2b91f6478ef11b4dd4e96
+vox_hardcons.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-12.822,24fa0b9c820335f20916dd8cf747e59edc78da0730279dd2e241108b6629bd8e
+vox_whispchop.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.409,957d79c370b5a2141aacc8a70c564bf5ace3d656400c79136e87ede2d4492983
+vox_minor.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-14.052,2aaafd0f01901a4fa44176b657808e8e5dd1e1fc5f226572b94355ba2449412c
+vox_sadpad.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-12.442,a2d5f0e2f557d8a2f6c92cf05d3d98b9507ad6745863caec7bfcc467cf407480
+vox_lament.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-12.877,48fa61a3eb7d6c55f67cc99de82c335e8f4621856e249dec2ccb87526df10512
+vox_sustain.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-11.201,bab6f507f93f2e7d483d2c383e0124023d193108bac0991dbc03546e4b023a8d
+vox_swell.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-15.019,556e4bee0c5683510e0c9e166c5afee52d7cae85bed6280661571dcf8cec2cc6
+vox_ambient.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-13.423,19bb28549918f3a25fbb32c17f61d4a84cb2e5ee3fc4da4d51569725bb7b0ad3
+vox_cathedral.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-12.083,3c7576a6fe14bf878333dc4d987ccf3108b0460c7d1c2b9f195905f0ed41415f
+vox_ghost.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-12.735,6457814b59c040af78e006fc37db03c2395a352353c20b4f6929a785fa50f6d1
+vox_dembow.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.658,8b022635cc771bcbb76721c6f69b2826ee8248e4767cae28c1e15595d7855d5f
+vox_swung.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.69,01053f9c474d7b1540e9029b18011b685db9e579db736ddd958620c120a44053
+vox_onebar.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.048,a7e816ce5593bf99359b9f49dbb7c98748ecaa633e2706e1da7997c9ac1b77b4
+vox_talkbox.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-12.876,efb0af63690bde452e0e2e513e75c3b1aa5249a3099b1c1b173499265fe7a1cf
+vox_shout.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.428,802d497ecb726ab4294009b0189476e691059e8a802d3667395f2605b7c3089f
+vox_neon.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.81,b94f651614223c4fd31fea4ce82803ec0e3c7912264d169563dd849f6691acb4
+vox_jersey.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-13.413,8c84c21ae6ed6199882a9c0cfdd3f86a0adb2ed1479f545228aa5d909f606683
+vox_amapiano.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.939,44126eef83ac299630142d66e08134b25c397c1842b1bc6385b0743873186ee9
+vox_latin.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.449,32a90a7e833a4a14b33e1cdd5c79c9745df3828aeb2dd3d9f5e775df192916b0
+vox_rnbrun.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.457,22a6f9c146248768da6282ea6013d85a2bbf7b83de7e65fbc8ca83d90171768e
+vox_kpop.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.278,99376ff86a173793113a00e93d730f4aea03aede61741157886e4e0f0b70e66c
+vox_soul.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-13.152,11fb5c6d121b496778d2182e60edae44be03a7af41c4958106316bf4814554f4
+vox_falsetto.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-11.299,093c9dc4c37ec32bc3a30cf703e26d04220c8567b81b74e2ce0e0244443916f8
+vox_alto.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.5,7ef5e6174f28012d7f518bf4cc7f2e81b37437604836504fcccc5560948cef7a
+vox_monk.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-12.88,222e63040e3fef3308b8ebe54da9190763d99a0386aa619ffa695544e1a8a114
+vox_glasschoir.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.001,-13.668,4ebb854b02145bbe3ead4bb32f33036d53da5923062939e38849adeb9471c1c3
+vox_tapewarp.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.599,81f5c9694a2b2170408db5dccd78a0abd6c002dc2d89abf785d3d49b35ec95f3
+vox_telephone.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-15.71,eda70c520eb29425b66a9642225a8926052e3477480d81fd682bfa9b8bea81de
+vox_choirhit.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-14.36,7126f5aa8c68f53baf4640ea09108fc85d9cbf4753ed026761d8aceeb1519717
+vox_impact.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-23.884,8f9ea6439264a22e1c7f5bfed6e1e6e2217d36953eb4ca5e06d95f57974cbd8c
+vox_shortriser.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-15.215,bb61a01dbb7c621b4f4b8247d5cc4670c2e4a8eda9e98065f30ef530435636ce
+vox_vowelperc.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.001,-23.235,aace6e454b02915e78880fe88c636f2c2c1ae8379356e2b1127687d6686d1698
+vox_oohstack.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-13.317,e0473394ff188f582a1423c1e6c8e172d3b4e4025cce91ecb3af5ad43191584d
+vox_dancepop.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.228,fc4961aeec895a914b805bd684e619b9835d26ead0e8241851ae54cf862dcd1b
+vox_popadlib.wav,procedural_synthesis_not_human,sustained texture,44100,176400,120,-2.0,-12.975,2e4688f42664579c5962969f0438f2b2afc3bbec156ba08f3e3228cbc62fe900
+vox_festival.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.863,03885d9764beee697e1a504009464b96d1b33e6ba9131cc929f013df2ad06a05
+vox_futurehouse.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.327,de920c1a8d09369def22cfe92ba5490c79656d191fae555c42d7fc664b440cb8
+vox_slaphouse.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.812,a871c6b1dbcc0d43ab8db314d346cdef58e61ef545f550e33903b3defbcd89d7
+vox_edmdrop.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.599,bcac71a21bdc54c55e29ce79ae40b99316585f62e393d4def235cb8c715ebc5c
+vox_trance.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.0,-13.477,8cd7d74877c6513444070ca130c5b99274046f31d49af3658145d1946e6ea348
+vox_bigroom.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-23.319,01cb28b58828726795e704cd0f9c9285e6a455d9806598be0cafd844d4b44b1d
+vox_hookgrid.wav,procedural_synthesis_not_human,melodic vowel chops,44100,176400,120,-2.001,-13.251,df33f6fc20a62c4e14f17520aedc21581ec3138422fc6162d5219f791251e82b
+vox_edmbreath.wav,procedural_synthesis_not_human,vowel percussion,44100,176400,120,-2.0,-23.887,21a5879a26d8f2a46917eb3746a080361a28834eb95379ba599fae8f24dc65e3

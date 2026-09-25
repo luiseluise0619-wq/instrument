@@ -3,6 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include "../DSP/Biquad.h"
 #include <vector>
+#include "../DSP/SoundQuality.h"
 
 /** tanh soft-clip drive. `drive` 0..1 maps to increasing pre-gain. */
 class DistortionFX
@@ -19,7 +20,7 @@ private:
 /** Room reverb wrapping juce::dsp::Reverb; `amount` 0..1 sets the wet level.
     The wet path runs on its own bus with a 12 ms pre-delay (separates the
     reverb from the transient) and a gentle high-pass (keeps low end dry and
-    punchy) — the dry signal passes bit-exact. */
+    punchy), with a gently ducked wet return. At amount 0 it is a true bypass. */
 class ReverbFX
 {
 public:
@@ -36,7 +37,9 @@ private:
     int   prePos = 0, preSamples = 0;
     float hpState[2] { 0.0f, 0.0f }; // one-pole HP on the wet return
     bool  idleFlushed = false;       // tail cleared while the knob is at 0
-    float hpCoeff = 0.02f;
+    float hpCoeff = 0.02f, lpCoeff = 0.5f;
+    float lpState[2] { 0.0f, 0.0f };
+    float duckEnvelope = 0.0f, duckAttack = 0.0f, duckRelease = 0.0f;
 };
 
 /** Stereo feedback delay; `amount` 0..1 sets the wet level. */
@@ -64,7 +67,12 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedWet { 0.0f };
 
     // One-pole lowpass in the feedback path: repeats decay warm, not harsh.
-    static constexpr float kDampCoeff = 0.35f;
+    float dampCoeff = 0.35f, feedbackHpCoeff = 0.01f;
+    float feedbackHp[2] { 0.0f, 0.0f };
+    int currentDelay = 1, previousDelay = 1;
+    int timeFadePosition = 0, timeFadeLength = 1;
+    float duckEnvelope = 0.0f, duckAttack = 0.0f, duckRelease = 0.0f;
+    juce::SmoothedValue<float> smoothedFeedback { 0.4f };
     float dampState[2] { 0.0f, 0.0f };
     bool  idleFlushed = false;       // echoes cleared while the knob is at 0
 };
@@ -102,6 +110,7 @@ private:
     int    lastType   = -1;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedCutoff { 1000.0f };
+    juce::SmoothedValue<float> smoothedQ { 0.707f };
     float typeFade = 1.0f;   // 0->1 crossfade after a topology switch
 };
 

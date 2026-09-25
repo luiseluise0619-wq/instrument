@@ -280,12 +280,45 @@ std::vector<SlicePoint> SliceEngine::buildTransient()
             built.push_back ({ start, end - start });
     }
 
+    // If the detector produced too few playable chunks, the user expected
+    // Auto Slice to do something useful; give them a clean 8-pad chop bed
+    // instead of a sparse row of two-to-four oversized pieces.
+    if (built.size() > 1 && built.size() < 8 && numSamples >= 8)
+    {
+        std::vector<SlicePoint> eight;
+        eight.reserve (8);
+        const int sliceLen = juce::jmax (1, numSamples / 8);
+        for (int i = 0; i < 8; ++i)
+        {
+            const int start = i * sliceLen;
+            if (start >= numSamples)
+                break;
+            const int end = (i == 7) ? numSamples : juce::jmin (numSamples, start + sliceLen);
+            if (end > start)
+                eight.push_back ({ start, end - start });
+        }
+        if (eight.size() >= 4)
+            return eight;
+    }
+
     // If the detector produced a single giant slice, the user expected Auto
     // Slice to do something useful; give them a musical 16-pad grid instead.
     if (built.size() < 2)
         return buildGrid();
 
     return built;
+}
+
+void SliceEngine::detectTransientsOnce()
+{
+    if (sample == nullptr || sample->getNumSamples() == 0)
+    {
+        publish ({});
+        return;
+    }
+
+    publish (buildTransient());
+    mode = Manual; // the detected cuts are now a user-editable snapshot
 }
 
 std::vector<SlicePoint> SliceEngine::buildGrid() const

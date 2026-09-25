@@ -38,6 +38,9 @@ public:
     int   getGridDivision() const      { return gridDiv; }
 
     void rebuildSlices();
+    /** Run transient analysis once and publish editable/manual markers without
+        enabling persistent AUTO mode. */
+    void detectTransientsOnce();
     void sliceByManual (const std::vector<int>& points);
 
     // Safe from ANY thread: the count is mirrored into an atomic at publish

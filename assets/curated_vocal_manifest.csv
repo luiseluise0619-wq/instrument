@@ -1,0 +1,11 @@
+file,source,group,character,bpm,sample_rate,seconds,peak_dbfs,active_rms_dbfs,sha256
+vox_silk_breath.wav,original_procedural_formant_synthesis,Breath Chops,airy voiced one-shots,124,44100,6.2,-5.246,-16.534,efb94d26a261ba58fddc276235b38dae9847a3e1cbcb957796f90ccd063255cd
+vox_velvet_bloom.wav,original_procedural_formant_synthesis,Clear Hooks,warm open-vowel hook,120,44100,7.5,-4.48,-16.391,bb70550b0cac3db714c3456d482962f845733b553f20e1a112d717d51ba5b3a3
+vox_prism_vowel.wav,original_procedural_formant_synthesis,Clear Hooks,bright modern vowel hook,126,44100,6.8,-2.211,-16.623,a1632099255cf53ce35bb15cca6a0017255146d75029303c0ca2fa1bba9960c5
+vox_cloud_phrase.wav,original_procedural_formant_synthesis,Air & Dream,soft breath-led phrase,110,44100,9.4,-4.274,-16.38,5910a79fbbaf38970b527d25ee937636cf4bef54b1cc290f39faecc6fddd37f7
+vox_noir_formant.wav,original_procedural_formant_synthesis,Dark Formant,low intimate vowel phrase,118,44100,7.8,-3.057,-16.75,073296c491ed4d658931c5a312086df2239376d653acccc61ce4784a492a3c18
+vox_ember_call.wav,original_procedural_formant_synthesis,Dark Formant,dark dance call,126,44100,8.419,-1.5,-17.047,a8a20379f3e31c8dae1f75371c43ce3081c0f3b8bb4d9e11d41c1e3bf42d4156
+vox_aurora_tail.wav,original_procedural_formant_synthesis,Long Tails,wide evolving choir vowel,100,44100,10.5,-3.531,-16.336,eca5843eb642945e0c1063e4d904ee3042b24eb68413aea8b9a736aed466e68a
+vox_lunar_tail.wav,original_procedural_formant_synthesis,Long Tails,slow emotional vowels,100,44100,10.2,-1.5,-16.427,51a372f28df425e0d674f8a3d49fc4256de6c76a0576ef31d646d192a013bc1f
+vox_glass_motion.wav,original_procedural_formant_synthesis,Air & Dream,icy moving vowel cloud,96,44100,9.0,-6.368,-16.43,2f280e5f4d6ecff8305878f31ebefedfd205c702d339a7ae7bf1250b686e6181
+vox_pulse_hook.wav,original_procedural_formant_synthesis,Rhythmic Chops,tight melodic chop grid,128,44100,7.95,-1.5,-16.437,007e4522182ec26ebf3357fe38f368587c588ea13ab2f6680c0896d2fb5891c7

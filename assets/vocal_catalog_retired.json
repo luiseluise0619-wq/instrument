@@ -1,0 +1,18 @@
+{
+  "reason": "Removed from the release browser and embedded binary during the 2026-09-19 quality curation. Source WAVs and generation scripts are intentionally retained for reproducibility.",
+  "excluded_percussive_or_noise_like": [
+    "vox_beatbox.wav", "vox_mouthperc.wav", "vox_clicks.wav", "vox_breath.wav",
+    "vox_gasp.wav", "vox_vowelperc.wav", "vox_edmbreath.wav", "vox_amen.wav"
+  ],
+  "excluded_fx_or_weak_duplicates": [
+    "vox_rage.wav", "vox_stabs.wav", "vox_stutter.wav", "vox_nasal.wav",
+    "vox_gospel.wav", "vox_vocoder.wav", "vox_riser.wav", "vox_downlifter.wav",
+    "vox_kids.wav", "vox_deep.wav", "vox_robot.wav", "vox_opera.wav",
+    "vox_word.wav", "vox_hardcons.wav", "vox_sadpad.wav", "vox_swell.wav",
+    "vox_cathedral.wav", "vox_dembow.wav", "vox_swung.wav", "vox_onebar.wav",
+    "vox_talkbox.wav", "vox_shout.wav", "vox_jersey.wav", "vox_amapiano.wav",
+    "vox_latin.wav", "vox_monk.wav", "vox_telephone.wav", "vox_choirhit.wav",
+    "vox_impact.wav", "vox_shortriser.wav", "vox_festival.wav", "vox_edmdrop.wav",
+    "vox_bigroom.wav", "vox_choir.wav", "vox_air.wav", "vox_drill.wav"
+  ]
+}

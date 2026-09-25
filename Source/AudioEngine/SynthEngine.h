@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <vector>
+#include "../DSP/SoundQuality.h"
 
 /**
     Polyphonic synth engine v3 — the "Synth" engine mode.
@@ -59,12 +60,17 @@ public:
         std::atomic<float> pitchEnvOct   { 0.0f };   // pitch drop (octaves, drums)
         std::atomic<float> pitchEnvMs    { 60.0f };  // pitch envelope decay
         std::atomic<float> glideMs       { 0.0f };   // portamento from the last note
+        // Performance mode belongs to the instrument, not the Vocal Kit.
+        // Mono uses a fixed last-note-priority stack (no audio-thread allocation).
+        std::atomic<bool>  monoMode      { false };
+        std::atomic<bool>  legatoMode    { false };
+        std::atomic<bool>  monoRetrigger { true };
         // --- what separates a synth from an instrument ------------------------
         // Real instruments do not start cleanly. A hammer, a pick, a mallet or
         // a breath makes a burst of inharmonic noise BEFORE the tone arrives,
         // and the ear uses it to decide whether it is hearing an instrument or
         // an oscillator. Every voice here started as a clean ramp, which is
-        // most of why 403 sounds all read as "synth".
+        // most of why 437 sounds all read as "synth".
         std::atomic<float> attackNoise    { 0.0f };   // 0..1 burst level
         std::atomic<float> attackTone     { 3.0f };   // burst centre, x the note
         std::atomic<float> attackMs       { 14.0f };  // burst decay
@@ -96,8 +102,11 @@ public:
         std::atomic<int>   formantVowel  { -1 };
         std::atomic<float> formantAmount { 0.0f };   // 0..1 dry/wet
 
+        std::atomic<float> outputTrimDb { 0.0f }; // fixed per-instrument calibration
+
         void resetToInit()
         {
+            outputTrimDb = 0.0f;
             unison = 1; stereoSpread = 0.5f; subLevel = 0.0f; noiseLevel = 0.0f;
             fmAmount = 0.0f; fmRatio = 2.0f; vibRateHz = 0.0f; vibDepthCents = 0.0f;
             filterCutoff = 20000.0f; filterEnvOct = 0.0f; filterEnvMs = 200.0f;
@@ -106,6 +115,7 @@ public:
             lfoRateHz = 2.0f; lfoDepthOct = 0.0f;
             pitchEnvOct = 0.0f; pitchEnvMs = 60.0f;
             glideMs = 0.0f;
+            monoMode = false; legatoMode = false; monoRetrigger = true;
             attackNoise = 0.0f; attackTone = 3.0f; attackMs = 14.0f;
             inharmonic = 0.0f;
             stringMix = 0.0f; stringDamp = 0.55f; stringDecay = 0.6f;
@@ -131,6 +141,8 @@ public:
     void noteOff (int midiNote);
     void tapNote (int midiNote, float velocity, int pitchNoteOverride = -1);
     void releaseAll();
+    /** Fast click-safe release used when another engine takes over. */
+    void chokeAll() noexcept;
 
     void render (juce::AudioBuffer<float>& out, int numSamples);
 
@@ -216,6 +228,7 @@ private:
                                  // the engine wave per HIT, so a ringing drum
                                  // must keep the shape it was born with
 
+        slyce::quality::Declicker declick;
         bool  isActive() const { return stage != Stage::idle; }
         float envelope() const;
     };
@@ -230,6 +243,18 @@ private:
     static constexpr int kChorusSize = 8192;
 
     std::array<Voice, kMaxVoices> voices;
+
+    // Fixed-size mono/legato state. Newest held note wins; releasing it falls
+    // back to the previously held note instead of leaving a stuck voice.
+    std::array<bool, 128> monoHeld {};
+    std::array<float, 128> monoVelocity {};
+    std::array<uint32_t, 128> monoOrder {};
+    uint32_t monoOrderCounter = 0;
+    int monoVoiceIndex = -1;
+    bool runtimeMonoMode = false;
+    int newestHeldMonoNote() const;
+    void startMonoVoice (int midiNote, float velocity, int autoOffSamples,
+                         bool allowLegato);
 
     Patch  patchSettings;
     // Where the next note glides FROM (-1 = no previous note).
@@ -254,6 +279,9 @@ private:
     std::vector<float> chorusLine[2];
     int    chorusWrite = 0;
     double chorusLfo = 0.0;
+    juce::SmoothedValue<float> levelTrimSmoothed { 1.0f };
+    juce::SmoothedValue<float> chorusSmoothed { 0.0f };
+    juce::SmoothedValue<float> saturationSmoothed { 0.0f };
 
     // Formant bank: three parallel bandpass biquads per channel, tuned to a
     // vowel's F1/F2/F3. This is what makes VOCAL patches read as a VOICE.

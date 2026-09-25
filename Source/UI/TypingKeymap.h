@@ -37,6 +37,18 @@ namespace slyce::keymap
     /** Index of 'q' - where the upper row starts. */
     inline constexpr int topRowStart = 17;
 
+    /** Convert a zero-based pad number to the corresponding white-key
+        semitone.  Chop note routing translates white keys back to consecutive
+        slice numbers, so this keeps every computer key unique without making
+        the audio engine treat the pads as chromatic pitches. */
+    inline int padSemitone (int pad)
+    {
+        static constexpr int white[7] = { 0, 2, 4, 5, 7, 9, 11 };
+        const int octave = pad / 7;
+        const int degree = pad % 7;
+        return octave * 12 + white[degree];
+    }
+
     /** The semitone key `i` sends, which depends on the engine.
 
         Melodic engines want a piano: two rows an octave apart. That is what a
@@ -49,15 +61,16 @@ namespace slyce::keymap
         slice 7, the LAST one. Consistent with the mapping, and indistinguish-
         able from a bug to anyone actually using it.
 
-        So in Chop mode each row runs the slice sequence from its own start:
-        Q plays the first slice, exactly like Z. Both rows are piano layouts in
-        their own right, so a key's position WITHIN its row is its offset. */
+        In Chop mode every physical typing key is therefore a unique pad.  The
+        lower row covers slices 1-17 and the upper row continues with 18-37.
+        This matters for user samples that auto-slice to more than eight parts:
+        restarting at Q made every slice after 17 impossible to reach. */
     inline int semitoneFor (int i, bool chopMode)
     {
         if (! juce::isPositiveAndBelow (i, numKeys))
             return i;
-        if (chopMode && i >= topRowStart)
-            return i - topRowStart;
+        if (chopMode)
+            return padSemitone (i);
         return semitone[i];
     }
 }

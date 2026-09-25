@@ -2,6 +2,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <array>
+#include <atomic>
 
 /**
     Apple-style design tokens - the full token set from DESIGN_SPEC.md §2.
@@ -103,14 +104,14 @@ struct Theme
 class ThemeManager
 {
 public:
-    static constexpr int kNumThemes = 20;   // 19 derived + Neon Ocean
+    static constexpr int kNumThemes = 22;   // 19 derived + Neon Ocean + Violet Neon Glass + Paper Light
 
     static const std::array<Theme, kNumThemes>& themes() { return all; }
-    static int  current()          { return idx; }
+    static int  current()          { return idx.load(); }
     static void setIndex (int i)   { idx = juce::jlimit (0, kNumThemes - 1, i); }
-    static const Theme& active()   { return all[(size_t) idx]; }
+    static const Theme& active()   { return all[(size_t) idx.load()]; }
 
 private:
     static std::array<Theme, kNumThemes> all;
-    static int idx;
+    static std::atomic<int> idx;
 };

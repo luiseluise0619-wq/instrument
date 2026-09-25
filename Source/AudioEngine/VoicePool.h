@@ -5,11 +5,12 @@
 #include <atomic>
 #include <memory>
 #include <vector>
+#include "../DSP/SoundQuality.h"
 
 /**
     A single polyphonic voice. Plays back a region [start, start+len) of a
     shared source buffer, resampled from the sample's native rate to the host
-    rate (linear interpolation), shaped by a full ADSR envelope with a tiny
+    rate (32-tap band-limited interpolation), shaped by a full ADSR envelope with a tiny
     end-of-slice fade so retriggering/end-of-slice never clicks.
 
     Supports optional reverse playback (reads the slice backwards) and two play
@@ -25,6 +26,7 @@ public:
     void start (double hostSampleRate,
                 std::shared_ptr<const juce::AudioBuffer<float>> src, double srcSampleRate,
                 int startSample, int lengthSamples,
+                float transposeSemitones,
                 float velocity,
                 float attackMs, float decayMs, float sustain0to1, float releaseMs,
                 bool reverse, bool oneShot);
@@ -36,7 +38,7 @@ public:
     bool isActive() const { return active; }
 
     /** Current envelope level — the pool steals the QUIETEST voice. */
-    float currentLevel() const { return envelope(); }
+    float currentLevel() const { return envelope() * velocity; }
 
     // Normalised position of the read head in the WHOLE sample (0..1), or -1 if
     // inactive. Valid after render(). Safe to read from any thread only via the
@@ -45,6 +47,8 @@ public:
 
 private:
     float envelope() const;
+    slyce::quality::SampleReader reader;
+    slyce::quality::Declicker declick;
 
     enum class Stage { attack, decay, sustain, release, finished };
 
@@ -105,7 +109,18 @@ public:
 
     /** Returns the index of the voice that was started (for note-off routing),
         or -1 if the trigger was dropped. */
-    int  triggerVoice (int startSample, int lengthSamples, float velocity);
+    int  triggerVoice (int startSample, int lengthSamples, float velocity,
+                       float transposeSemitones = 0.0f);
+
+    /** Starts a slice in the dedicated monophonic slot. Retriggering that
+        slot preserves the declicker's last sample, so the previous chop is
+        replaced (rather than mixed underneath) without an edge click.
+
+        This is intentionally opt-in: synth, sampled instruments and drums do
+        not use VoicePool and remain polyphonic. */
+    int  triggerMonophonicVoice (int startSample, int lengthSamples, float velocity,
+                                 float transposeSemitones = 0.0f,
+                                 bool forceOneShot = false);
     void releaseVoice (int voiceIndex);
 
     /** Cuts a voice in a few milliseconds instead of letting its release

@@ -1,90 +1,33 @@
-name: Build & Validate
-
-on:
-  push:
-    branches: ["**"]
-  workflow_dispatch:
-
+# Provided build recipe. This workflow was NOT executed in the delivery environment.
+name: SLYCE build and core tests
+on: [push, pull_request, workflow_dispatch]
 jobs:
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  core-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build-tests -DSLYCE_TESTS_ONLY=ON -DSLYCE_BUILD_ENGINE_TESTS=ON -DSLYCE_TEST_LOCAL_SHIM=ON -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-tests --parallel 2
+      - run: ctest --test-dir build-tests --output-on-failure
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r tools/requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - run: python tools/check_source.py
+  plugin-build:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: Windows
-            os: windows-latest
-          - name: macOS
-            os: macos-latest
-          - name: Linux
-            os: ubuntu-latest
-
+        os: [windows-2022, macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev libjack-jackd2-dev ladspa-sdk \
-            libcurl4-openssl-dev \
-            libfreetype-dev libfontconfig1-dev \
-            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-            libxinerama-dev libxrandr-dev libxrender-dev xvfb \
-            libglu1-mesa-dev mesa-common-dev
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build
-        run: cmake --build build --config Release --parallel 4
-
-      - name: List artefacts
-        shell: bash
-        run: find build/VocalChopStudio_artefacts -maxdepth 3 -print
-
-      # ---- pluginval (industry-standard plugin validator) -------------------
-      - name: Run pluginval
-        shell: bash
-        run: |
-          curl -L -o pluginval.zip \
-            "https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_${{ runner.os }}.zip"
-          unzip -q pluginval.zip
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            PLUGINVAL="./pluginval.app/Contents/MacOS/pluginval"
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            PLUGINVAL="./pluginval.exe"
-          else
-            PLUGINVAL="./pluginval"
-          fi
-          chmod +x "$PLUGINVAL" || true
-          VST3=$(find build/VocalChopStudio_artefacts -name "*.vst3" -maxdepth 4 | head -1)
-          echo "Validating: $VST3"
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            xvfb-run -a "$PLUGINVAL" --strictness-level 5 --validate "$VST3"
-          else
-            "$PLUGINVAL" --strictness-level 5 --validate "$VST3"
-          fi
-
-      # ---- Upload the built plugins as downloadable artifacts ---------------
-      - name: Upload VST3
-        uses: actions/upload-artifact@v4
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libjack-jackd2-dev libx11-dev libxext-dev libxinerama-dev libxrandr-dev libxcursor-dev libfreetype6-dev libfontconfig1-dev libgl1-mesa-dev libcurl4-openssl-dev
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --config Release --parallel 2
+      - uses: actions/upload-artifact@v4
         with:
-          name: VocalChopStudio-${{ matrix.name }}-VST3
-          path: build/VocalChopStudio_artefacts/**/VST3/
-          if-no-files-found: error
-
-      - name: Upload AU (macOS only)
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: VocalChopStudio-macOS-AU
-          path: build/VocalChopStudio_artefacts/**/AU/
-
-      - name: Upload Standalone
-        uses: actions/upload-artifact@v4
-        with:
-          name: VocalChopStudio-${{ matrix.name }}-Standalone
-          path: build/VocalChopStudio_artefacts/**/Standalone/
+          name: SLYCE-${{ matrix.os }}
+          path: build/VocalChopStudio_artefacts

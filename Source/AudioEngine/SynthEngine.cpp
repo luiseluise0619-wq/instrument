@@ -83,11 +83,20 @@ void SynthEngine::prepare (juce::dsp::ProcessSpec spec)
     // sample rate, and a device change would otherwise shift every vowel.
     formantVowelSet = -2;
 
+    // Allocate every physical-string delay line off the audio thread. The
+    // longest supported string is 20 Hz; note-on never calls vector::resize.
+    const size_t stringCapacity = (size_t) std::ceil (sampleRate / 20.0) + 8;
+    for (auto& v : voices) v.ksBuf.assign (stringCapacity, 0.0f);
+    levelTrimSmoothed.reset (sampleRate, 0.015);
+    chorusSmoothed.reset (sampleRate, 0.025);
+    saturationSmoothed.reset (sampleRate, 0.025);
+    bodyTypeSet = -2; // body coefficients also depend on sample rate
     reset();
 }
 
 void SynthEngine::reset()
 {
+    levelTrimSmoothed.setCurrentAndTargetValue (std::pow(10.0f, patchSettings.outputTrimDb.load() / 20.0f));
     for (auto& v : voices)
     {
         v.stage = Voice::Stage::idle;
@@ -98,10 +107,28 @@ void SynthEngine::reset()
         v.glideRatio = 1.0f;
         v.glideCoeff = 0.0f;
         v.ksExcite = 0;
+        v.vibPhase = 0.0;
+        v.declick.reset();
         std::fill (v.ksBuf.begin(), v.ksBuf.end(), 0.0f);
     }
     for (auto& m : bodyModes) { m.z1L = m.z2L = m.z1R = m.z2R = 0.0f; }
+    for (auto& f : formantBands)
+    {
+        f.x1L = f.x2L = f.y1L = f.y2L = 0.0f;
+        f.x1R = f.x2R = f.y1R = f.y2R = 0.0f;
+    }
+    for (auto& line : chorusLine) std::fill (line.begin(), line.end(), 0.0f);
+    chorusWrite = 0;
+    chorusLfo = lfoPhaseBase = 0.0;
+    chorusSmoothed.setCurrentAndTargetValue (0.0f);
+    saturationSmoothed.setCurrentAndTargetValue (0.0f);
     lastStartedNote = -1;   // the first note after a reset must not slide in
+    monoHeld.fill (false);
+    monoVelocity.fill (0.0f);
+    monoOrder.fill (0);
+    monoOrderCounter = 0;
+    monoVoiceIndex = -1;
+    runtimeMonoMode = patchSettings.monoMode.load();
 }
 
 void SynthEngine::setEnvelope (float a, float d, float s, float r)
@@ -126,7 +153,7 @@ SynthEngine::Voice* SynthEngine::findFreeVoice()
 
     for (auto& v : voices)
     {
-        const float cost = v.envelope()
+        const float cost = v.envelope() * v.velocity
                          + (v.stage == Voice::Stage::release ? 0.0f : 10.0f);
         if (cost < bestCost)
         {
@@ -149,6 +176,10 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
                           + (pitchNoteOverride >= 0 ? 0 : octave * 12);
     const double hz       = midiToHz (baseNote);
 
+    if (v.isActive()) v.declick.begin (juce::jmax (1, (int) (0.003 * sampleRate)));
+    else v.declick.reset();
+    v.driftCents = 0.0f;
+    v.vibPhase = 0.0;
     v.note     = midiNote;
     v.velocity = juce::jlimit (0.0f, 1.0f, velocity);
     v.waveSnap = wave;   // per-voice: later engine-wave swaps can't mutate it
@@ -286,14 +317,11 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
         if (v.ksMix > 0.001f)
         {
             const double period = sampleRate / juce::jmax (20.0, hz);
-            const int cap = (int) std::ceil (period) + 4;
-            if ((int) v.ksBuf.size() < cap) v.ksBuf.resize ((size_t) cap);
             std::fill (v.ksBuf.begin(), v.ksBuf.end(), 0.0f);
-
-            v.ksDelay = (float) period;
             v.ksPos   = 0.0f;
             v.ksLast  = 0.0f;
             v.ksDamp  = juce::jlimit (0.02f, 0.95f, patchSettings.stringDamp.load());
+            v.ksDelay = (float) slyce::quality::stringDelay (sampleRate, hz, v.ksDamp);
 
             // Level-match the model to the oscillator bank it replaces. The
             // loss is not a constant: the damping one-pole attenuates white
@@ -311,11 +339,23 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
             v.ksFb = std::pow (0.001f, (float) (period / (secs * sampleRate)));
             v.ksFb = juce::jlimit (0.80f, 0.99995f, v.ksFb);
 
-            // Pluck it: fill the line with noise shaped by velocity. THIS is
-            // the excitation - the string is not driven, it is hit once.
-            for (int i = 0; i < (int) period && i < (int) v.ksBuf.size(); ++i)
-                v.ksBuf[(size_t) i] = (noiseRng.nextFloat() * 2.0f - 1.0f) * v.velocity;
-            v.ksExcite = 1;
+            // Seed the part of the ring immediately behind write position 0.
+            // Capacity is now fixed, not one period long. Remove excitation DC
+            // so a pluck does not leave a slow offset through the resonators.
+            const int count = juce::jmin ((int) v.ksBuf.size(), (int) std::ceil (v.ksDelay) + 1);
+            const int first = (int) v.ksBuf.size() - count;
+            float mean = 0.0f;
+            for (int i = first; i < (int) v.ksBuf.size(); ++i)
+            {
+                const float x = noiseRng.nextFloat() * 2.0f - 1.0f;
+                v.ksBuf[(size_t) i] = x;
+                mean += x;
+            }
+            if (count > 0) mean /= (float) count;
+            for (int i = first; i < (int) v.ksBuf.size(); ++i)
+                v.ksBuf[(size_t) i] -= mean;
+            // Velocity already scales the final voice; do not apply it twice.
+            v.ksExcite = count > 0 ? 1 : 0;
         }
         else v.ksExcite = 0;
     }
@@ -355,9 +395,9 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     v.ic1L = v.ic2L = v.ic1R = v.ic2R = 0.0f;
 
     // --- Curved ADSR ----------------------------------------------------------
-    v.attackSamples  = juce::jmax (1, (int) (attackMs  * 0.001 * sampleRate));
+    v.attackSamples  = juce::jmax (1, (int) (juce::jmax (0.5f, attackMs) * 0.001 * sampleRate));
     v.decaySamples   = juce::jmax (1, (int) (decayMs   * 0.001 * sampleRate));
-    v.releaseSamples = juce::jmax (1, (int) (releaseMs * 0.001 * sampleRate));
+    v.releaseSamples = juce::jmax (1, (int) (juce::jmax (2.0f, releaseMs) * 0.001 * sampleRate));
     v.sustainLevel   = sustainLvl;
 
     v.stage       = Voice::Stage::attack;
@@ -366,20 +406,125 @@ void SynthEngine::startVoice (Voice& v, int midiNote, float velocity, int autoOf
     v.autoOffCounter = autoOffSamples;
 }
 
+int SynthEngine::newestHeldMonoNote() const
+{
+    int newest = -1;
+    uint32_t order = 0;
+    for (int n = 0; n < 128; ++n)
+        if (monoHeld[(size_t) n] && monoOrder[(size_t) n] >= order)
+        {
+            order = monoOrder[(size_t) n];
+            newest = n;
+        }
+    return newest;
+}
+
+void SynthEngine::startMonoVoice (int midiNote, float velocity, int autoOffSamples,
+                                  bool allowLegato)
+{
+    Voice* voice = monoVoiceIndex >= 0 && monoVoiceIndex < kMaxVoices
+                     ? &voices[(size_t) monoVoiceIndex] : nullptr;
+    if (voice == nullptr || ! voice->isActive())
+        voice = findFreeVoice();
+
+    const bool connected = allowLegato && voice->isActive()
+                        && patchSettings.legatoMode.load();
+
+    // A connected legato note changes pitch without restarting the musical
+    // gesture. startVoice still computes the new oscillator increments,
+    // velocity/filter target and glide safely; the continuous state is then
+    // restored. The existing declicker protects the frequency hand-off.
+    Voice::Stage oldStage = voice->stage;
+    int oldStagePos = voice->stagePos;
+    float oldReleaseFrom = voice->releaseFrom;
+    double oldPhases[kMaxUnison] {};
+    for (int u = 0; u < kMaxUnison; ++u) oldPhases[u] = voice->phases[u];
+    const double oldSubPhase = voice->subPhase;
+    const double oldFmCarPhase = voice->fmCarPhase;
+    const double oldFmModPhase = voice->fmModPhase;
+    const double oldVibPhase = voice->vibPhase;
+    const float oldFenv = voice->fenv;
+    const float oldIc1L = voice->ic1L, oldIc2L = voice->ic2L;
+    const float oldIc1R = voice->ic1R, oldIc2R = voice->ic2R;
+
+    startVoice (*voice, midiNote, velocity, autoOffSamples);
+    monoVoiceIndex = (int) (voice - voices.data());
+
+    if (connected && ! patchSettings.monoRetrigger.load())
+    {
+        voice->stage = oldStage == Voice::Stage::release ? Voice::Stage::sustain : oldStage;
+        voice->stagePos = oldStage == Voice::Stage::release ? 0 : oldStagePos;
+        voice->releaseFrom = oldReleaseFrom;
+        for (int u = 0; u < kMaxUnison; ++u) voice->phases[u] = oldPhases[u];
+        voice->subPhase = oldSubPhase;
+        voice->fmCarPhase = oldFmCarPhase;
+        voice->fmModPhase = oldFmModPhase;
+        voice->vibPhase = oldVibPhase;
+        voice->fenv = oldFenv;
+        voice->ic1L = oldIc1L; voice->ic2L = oldIc2L;
+        voice->ic1R = oldIc1R; voice->ic2R = oldIc2R;
+        voice->penv = 0.0f;       // legato does not replay the 808 attack drop
+        voice->atkLevel = 0.0f;   // or the breath/pick transient
+    }
+}
+
 void SynthEngine::noteOn (int midiNote, float velocity, int pitchNoteOverride)
 {
-    startVoice (*findFreeVoice(), midiNote, velocity, -1, pitchNoteOverride);
+    const bool mono = patchSettings.monoMode.load() && pitchNoteOverride < 0;
+    if (mono != runtimeMonoMode)
+    {
+        monoHeld.fill (false);
+        monoOrder.fill (0);
+        monoOrderCounter = 0;
+        monoVoiceIndex = -1;
+        runtimeMonoMode = mono;
+    }
+
+    if (! mono)
+    {
+        startVoice (*findFreeVoice(), midiNote, velocity, -1, pitchNoteOverride);
+        return;
+    }
+
+    midiNote = juce::jlimit (0, 127, midiNote);
+    const bool hadHeldNote = newestHeldMonoNote() >= 0;
+    monoHeld[(size_t) midiNote] = true;
+    monoVelocity[(size_t) midiNote] = juce::jlimit (0.0f, 1.0f, velocity);
+    monoOrder[(size_t) midiNote] = ++monoOrderCounter;
+    startMonoVoice (midiNote, velocity, -1, hadHeldNote);
 }
 
 void SynthEngine::tapNote (int midiNote, float velocity, int pitchNoteOverride)
 {
     // Long enough for chord previews to ring musically before releasing.
-    startVoice (*findFreeVoice(), midiNote, velocity, (int) (1.0 * sampleRate),
-                pitchNoteOverride);
+    if (patchSettings.monoMode.load() && pitchNoteOverride < 0)
+        startMonoVoice (juce::jlimit (0, 127, midiNote), velocity,
+                        (int) (1.0 * sampleRate), false);
+    else
+        startVoice (*findFreeVoice(), midiNote, velocity, (int) (1.0 * sampleRate),
+                    pitchNoteOverride);
 }
 
 void SynthEngine::noteOff (int midiNote)
 {
+    if (patchSettings.monoMode.load())
+    {
+        midiNote = juce::jlimit (0, 127, midiNote);
+        monoHeld[(size_t) midiNote] = false;
+        monoOrder[(size_t) midiNote] = 0;
+
+        if (monoVoiceIndex >= 0 && monoVoiceIndex < kMaxVoices
+            && voices[(size_t) monoVoiceIndex].note == midiNote)
+        {
+            const int fallback = newestHeldMonoNote();
+            if (fallback >= 0)
+            {
+                startMonoVoice (fallback, monoVelocity[(size_t) fallback], -1, true);
+                return;
+            }
+        }
+    }
+
     for (auto& v : voices)
     {
         if (v.isActive() && v.note == midiNote
@@ -394,6 +539,9 @@ void SynthEngine::noteOff (int midiNote)
 
 void SynthEngine::releaseAll()
 {
+    monoHeld.fill (false);
+    monoOrder.fill (0);
+    monoVoiceIndex = -1;
     for (auto& v : voices)
     {
         if (v.isActive() && v.stage != Voice::Stage::release)
@@ -405,31 +553,62 @@ void SynthEngine::releaseAll()
     }
 }
 
+void SynthEngine::chokeAll() noexcept
+{
+    monoHeld.fill (false);
+    monoOrder.fill (0);
+    monoVoiceIndex = -1;
+    const int quickRelease = juce::jmax (1, (int) (0.003 * sampleRate));
+    for (auto& v : voices)
+    {
+        if (! v.isActive())
+            continue;
+        v.releaseFrom = juce::jlimit (0.0f, 1.0f, v.envelope());
+        v.releaseSamples = quickRelease;
+        v.stage = Voice::Stage::release;
+        v.stagePos = 0;
+    }
+}
+
 //==============================================================================
 float SynthEngine::renderOsc (double phase, double inc, int waveType) const
 {
+    if (inc <= 0.0 || inc >= 0.5) return 0.0f;
+    const float bandGain = slyce::quality::nyquistGain (inc);
     const float t  = (float) phase;
     const float dt = (float) inc;
 
     switch (waveType)
     {
         case Saw:
-            return (2.0f * t - 1.0f) - polyBlep (t, dt);
+            return ((2.0f * t - 1.0f) - polyBlep (t, dt)) * bandGain;
 
         case Square:
         {
             float sq = t < 0.5f ? 1.0f : -1.0f;
             sq += polyBlep (t, dt);
             sq -= polyBlep (std::fmod (t + 0.5f, 1.0f), dt);
-            return sq;
+            return sq * bandGain;
         }
 
         case Sine:
-            return std::sin (juce::MathConstants<float>::twoPi * t);
+            return std::sin (juce::MathConstants<float>::twoPi * t) * bandGain;
 
         case Triangle:
         default:
-            return 4.0f * std::abs (t - 0.5f) - 1.0f;
+        {
+            // A triangle's slope corners alias too. At higher pitches use
+            // its convergent cosine series, dropping partials at Nyquist.
+            if (inc > 0.025)
+            {
+                float sum = 0.0f;
+                for (int h = 1; h <= 19 && h * inc < 0.5; h += 2)
+                    sum += std::cos (juce::MathConstants<float>::twoPi * t * h)
+                           * slyce::quality::nyquistGain (h * inc) / (float) (h * h);
+                return sum * (8.0f / (juce::MathConstants<float>::pi * juce::MathConstants<float>::pi));
+            }
+            return (4.0f * std::abs (t - 0.5f) - 1.0f) * bandGain;
+        }
     }
 }
 
@@ -596,13 +775,13 @@ void SynthEngine::processBus (int numSamples)
             for (auto& m : bodyModes)
             {
                 const float xL = L[n];
-                const float yL = m.b0 * xL - m.b0 * m.z2L - m.a1 * m.z1L - m.a2 * m.z2L;
-                m.z2L = m.z1L; m.z1L = yL;
+                const float yL = slyce::quality::bodyBandPass (
+                    xL, m.b0, m.a1, m.a2, m.z1L, m.z2L);
                 wetL += yL * m.gain;
 
                 const float xR = R[n];
-                const float yR = m.b0 * xR - m.b0 * m.z2R - m.a1 * m.z1R - m.a2 * m.z2R;
-                m.z2R = m.z1R; m.z1R = yR;
+                const float yR = slyce::quality::bodyBandPass (
+                    xR, m.b0, m.a1, m.a2, m.z1R, m.z2R);
                 wetR += yR * m.gain;
             }
             // Parallel, not in series: the body ADDS to the direct sound the
@@ -613,26 +792,32 @@ void SynthEngine::processBus (int numSamples)
     }
 
     // --- Gentle saturation glue ----------------------------------------------
-    const float sat = juce::jlimit (0.0f, 1.0f, patchSettings.satAmount.load());
-    if (sat > 0.0f)
+    saturationSmoothed.setTargetValue (juce::jlimit (0.0f, 1.0f, patchSettings.satAmount.load()));
+    for (int n = 0; n < numSamples; ++n)
     {
-        const float driveIn  = 1.0f + sat * 1.5f;
-        const float driveOut = 1.0f / std::tanh (driveIn);
-        for (int n = 0; n < numSamples; ++n)
+        const float sat = saturationSmoothed.getNextValue();
+        if (sat > 0.0f)
         {
-            L[n] = std::tanh (L[n] * driveIn) * driveOut;
-            R[n] = std::tanh (R[n] * driveIn) * driveOut;
+            const float drive = 1.0f + sat * 1.5f;
+            // Unity small-signal gain; wet/dry tends continuously to dry as
+            // amount tends to zero. The previous normalisation jumped in level
+            // as soon as saturation was enabled, even at 0.001.
+            const float wetL = std::tanh (L[n] * drive) / drive;
+            const float wetR = std::tanh (R[n] * drive) / drive;
+            L[n] += sat * (wetL - L[n]);
+            R[n] += sat * (wetR - R[n]);
         }
     }
 
     // --- Stereo chorus ---------------------------------------------------------
-    const float mix = juce::jlimit (0.0f, 1.0f, patchSettings.chorusMix.load());
+    chorusSmoothed.setTargetValue (juce::jlimit (0.0f, 1.0f, patchSettings.chorusMix.load()));
     const double lfoInc = 0.35 / sampleRate;                 // 0.35 Hz sweep
     const float baseDelay = 0.015f * (float) sampleRate;     // ~15 ms centre
     const float depth     = 0.004f * (float) sampleRate;     // ~4 ms swing
 
     for (int n = 0; n < numSamples; ++n)
     {
+        const float mix = chorusSmoothed.getNextValue();
         chorusLine[0][(size_t) chorusWrite] = L[n];
         chorusLine[1][(size_t) chorusWrite] = R[n];
 
@@ -668,12 +853,26 @@ void SynthEngine::processBus (int numSamples)
 
 void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
 {
+    const juce::ScopedNoDenormals noDenormals;
+    numSamples = juce::jlimit (0, out.getNumSamples(), numSamples);
     const int numChannels = out.getNumChannels();
     if (numChannels == 0 || numSamples <= 0)
         return;
 
-    if (scratch.getNumSamples() < numSamples)
-        return;   // host exceeded the prepared block size; skip defensively
+    const int capacity = scratch.getNumSamples();
+    if (capacity <= 0) return;
+    if (capacity < numSamples)
+    {
+        for (int offset = 0; offset < numSamples; offset += capacity)
+        {
+            const int count = juce::jmin (capacity, numSamples - offset);
+            float* p[2] { out.getWritePointer (0, offset),
+                          out.getWritePointer (juce::jmin (1, numChannels - 1), offset) };
+            juce::AudioBuffer<float> part (p, juce::jmin (2, numChannels), count);
+            render (part, count);
+        }
+        return;
+    }
 
     scratch.clear (0, 0, numSamples);
     scratch.clear (1, 0, numSamples);
@@ -681,7 +880,7 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
     float* R = scratch.getWritePointer (1);
 
     constexpr float twoPi = juce::MathConstants<float>::twoPi;
-    bool anyVoice = false;
+
 
     // Global filter LFO: one shared phase so all voices breathe together.
     const double lfoInc   = (double) juce::jlimit (0.0f, 12.0f,
@@ -693,7 +892,7 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
     {
         if (! v.isActive())
             continue;
-        anyVoice = true;
+
 
         for (int n = 0; n < numSamples; ++n)
         {
@@ -770,7 +969,8 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             {
                 const float mod = std::sin (twoPi * (float) v.fmModPhase);
                 const float car = std::sin (twoPi * (float) v.fmCarPhase
-                                            + v.fmAmount * 4.0f * mod);
+                                            + v.fmAmount * 4.0f * mod)
+                                * slyce::quality::nyquistGain (v.fmCarInc * pitchRatio);
                 advance (v.fmCarPhase, v.fmCarInc * pitchRatio);
                 advance (v.fmModPhase, v.fmModInc * pitchRatio);
 
@@ -781,7 +981,8 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             // --- Sub + noise -----------------------------------------------------
             if (v.subLevel > 0.0f)
             {
-                const float sub = std::sin (twoPi * (float) v.subPhase) * v.subLevel;
+                const float sub = std::sin (twoPi * (float) v.subPhase) * v.subLevel
+                                * slyce::quality::nyquistGain (v.subInc * pitchRatio);
                 advance (v.subPhase, v.subInc * (double) pitchRatio);
                 oscL += sub;
                 oscR += sub;
@@ -796,7 +997,8 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
             // --- Stretched partial ------------------------------------------
             if (v.inhLevel > 0.0001f)
             {
-                const float ih = std::sin (twoPi * (float) v.inhPhase) * v.inhLevel;
+                const float ih = std::sin (twoPi * (float) v.inhPhase) * v.inhLevel
+                               * slyce::quality::nyquistGain (v.inhInc * pitchRatio);
                 advance (v.inhPhase, v.inhInc * (double) pitchRatio);
                 oscL += ih;
                 oscR += ih;
@@ -904,8 +1106,10 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
 
             // --- Amp envelope -----------------------------------------------------
             const float env = v.envelope() * v.velocity * 0.32f;
-            L[n] += oscL * env;
-            R[n] += oscR * env;
+            float voiceL = oscL * env, voiceR = oscR * env;
+            v.declick.process (voiceL, voiceR);
+            L[n] += voiceL;
+            R[n] += voiceR;
 
             // --- Envelope state machine -------------------------------------------
             ++v.stagePos;
@@ -942,13 +1146,18 @@ void SynthEngine::render (juce::AudioBuffer<float>& out, int numSamples)
     // Advance the shared filter-LFO phase once per block.
     lfoPhaseBase = std::fmod (lfoPhaseBase + lfoInc * (double) numSamples, 1.0);
 
-    // Bus polish runs even without voices so the chorus tail rings out.
-    const bool chorusActive = patchSettings.chorusMix.load() > 0.0f;
-    if (anyVoice || chorusActive)
-        processBus (numSamples);
-    else
-        return;   // nothing to add
+    // Advance every bus state through silence as well. Previously body
+    // resonances stopped abruptly and an idle chorus could replay old audio.
+    processBus (numSamples);
 
+    // A fixed trim keeps factory auditions comparable without compressing
+    // velocity or note envelopes. The 15 ms ramp avoids patch-change clicks.
+    levelTrimSmoothed.setTargetValue (std::pow(10.0f,
+        juce::jlimit(-18.0f, 6.0f, patchSettings.outputTrimDb.load()) / 20.0f));
+    for (int n = 0; n < numSamples; ++n) {
+        const float trim = levelTrimSmoothed.getNextValue();
+        L[n] *= trim; R[n] *= trim;
+    }
     // Mix the synth bus into the host buffer.
     float* outL = out.getWritePointer (0);
     if (numChannels > 1)

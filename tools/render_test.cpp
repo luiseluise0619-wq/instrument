@@ -15,6 +15,194 @@ int main (int argc, char** argv)
     VocalChopAudioProcessor proc;
     proc.prepareToPlay (44100.0, 512);
 
+    // "--mapped-duration": regression for user samples mapped across the
+    // keyboard.  C4 must be an octave higher than C3 without consuming the
+    // source twice as fast (the old sampler-ratio path did exactly that).
+    if (argc > 1 && juce::String (argv[1]) == "--mapped-duration")
+    {
+        auto durationFor = [] (int note)
+        {
+            VocalChopAudioProcessor p;
+            p.prepareToPlay (44100.0, 512);
+            if (! p.loadDemoSample (0))
+                return -1.0;
+
+            auto set = [&] (const char* id, float value)
+            {
+                if (auto* parameter = p.getAPVTS().getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            set ("engine", 3.0f);       // Mapped Sample
+            set ("pitch", 0.0f); set ("formant", 0.0f); set ("mix", 1.0f);
+            set ("reverb", 0.0f); set ("delay", 0.0f); set ("drive", 0.0f);
+            set ("grainMix", 0.0f); set ("release", 5.0f);
+
+            juce::AudioBuffer<float> block (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 110), 0);
+            int lastAudible = -1;
+            constexpr int maxBlocks = (int) (20.0 * 44100.0 / 512.0);
+            for (int b = 0; b < maxBlocks; ++b)
+            {
+                block.clear();
+                p.processBlock (block, midi);
+                midi.clear();
+                if (block.getMagnitude (0, block.getNumSamples()) > 1.0e-5f)
+                    lastAudible = b;
+            }
+            return (lastAudible + 1) * 512.0 / 44100.0;
+        };
+
+        const double c3 = durationFor (48);
+        const double c4 = durationFor (60);
+        const double ratio = c3 > 0.0 ? c4 / c3 : 0.0;
+        printf ("Mapped Sample duration: C3 %.3fs, C4 %.3fs, ratio %.3f\n",
+                c3, c4, ratio);
+        const bool ok = c3 > 0.2 && c4 > 0.2 && ratio > 0.88 && ratio < 1.12;
+        printf ("%s pitch changes while phrase duration stays constant\n",
+                ok ? "PASS" : "FAIL");
+        return ok ? 0 : 1;
+    }
+
+    // "--rhythm-reset": a rhythmic preset may intentionally enable Pump or
+    // Arp, but choosing an ordinary instrument/vocal afterwards must not keep
+    // that beat gate latched across every sound.
+    if (argc > 1 && juce::String (argv[1]) == "--rhythm-reset")
+    {
+        auto value = [&] (const char* id)
+        { return proc.getAPVTS().getRawParameterValue (id)->load(); };
+        int failures = 0;
+
+        proc.applyPreset (VocalChopAudioProcessor::getNumChopPresets());
+        if (value ("pumpAmt") < 0.5f) ++failures; // fixture really is rhythmic
+
+        proc.applyInstrument (0);
+        if (value ("pumpAmt") > 0.001f || value ("arpMode") > 0.001f) ++failures;
+
+        if (auto* p = proc.getAPVTS().getParameter ("pumpAmt"))
+            p->setValueNotifyingHost (p->convertTo0to1 (0.8f));
+        if (auto* p = proc.getAPVTS().getParameter ("arpMode"))
+            p->setValueNotifyingHost (p->convertTo0to1 (2.0f));
+        proc.loadDemoSample (0);
+        if (value ("pumpAmt") > 0.001f || value ("arpMode") > 0.001f) ++failures;
+
+        if (auto* p = proc.getAPVTS().getParameter ("pumpAmt"))
+            p->setValueNotifyingHost (p->convertTo0to1 (0.8f));
+        proc.applyAirVocalPreset (0);
+        if (value ("pumpAmt") > 0.001f || value ("arpMode") > 0.001f) ++failures;
+
+        printf ("%s normal instrument, Vocal Chop and Air Vocal clear inherited beat gates (%d failures)\n",
+                failures == 0 ? "PASS" : "FAIL", failures);
+        return failures == 0 ? 0 : 1;
+    }
+
+    if (argc > 1 && juce::String (argv[1]) == "--vocalkit")
+    {
+        proc.loadFactoryVocalKit (0);
+        int failures = 0;
+        for (int slot = 0; slot < VocalKitEngine::kNumSlots; ++slot)
+        {
+            auto sample = proc.getVocalKit().getSlotSample (slot);
+            if (! sample || sample->getNumSamples() < 64) { ++failures; continue; }
+            juce::AudioBuffer<float> block (2, 512);
+            float peak = 0.0f;
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, VocalKitEngine::kRootNote + slot, (juce::uint8) 110), 0);
+            for (int b = 0; b < 12; ++b)
+            {
+                block.clear(); proc.processBlock (block, midi); midi.clear();
+                peak = juce::jmax (peak, block.getMagnitude (0, block.getNumSamples()));
+            }
+            juce::MidiBuffer off;
+            off.addEvent (juce::MidiMessage::allSoundOff (1), 0);
+            block.clear(); proc.processBlock (block, off);
+            printf ("slot %02d %-20s peak %.4f\n", slot + 1,
+                    proc.getVocalKit().getSlotSettings(slot).name.toRawUTF8(), peak);
+            if (! std::isfinite (peak) || peak < 0.0001f) ++failures;
+        }
+
+        auto first = proc.getVocalKit().getSlotSettings (0);
+        auto second = proc.getVocalKit().getSlotSettings (1);
+        first.gainDb = -17.0f; first.start = 0.11f; first.reverse = true;
+        first.pitchSemitones = 3.0f; first.fineCents = -12.0f;
+        first.decayMs = 123.0f; first.sustain = 0.42f;
+        first.loopStart = 0.21f; first.loopEnd = 0.79f; first.loopCrossfadeMs = 17.0f;
+        proc.getVocalKit().setSlotSettings (0, first);
+        const auto unchangedSecond = proc.getVocalKit().getSlotSettings (1);
+        if (std::abs (unchangedSecond.gainDb - second.gainDb) > 0.001f
+            || std::abs (unchangedSecond.pitchSemitones - second.pitchSemitones) > 0.001f)
+            ++failures;
+
+        // A repeated Note On received while the physical key is still held
+        // must not restart/stack a one-shot. Compare it with an uninterrupted
+        // reference processor at the same playback position.
+        VocalChopAudioProcessor heldReference, heldRepeated;
+        heldReference.prepareToPlay (44100.0, 512); heldRepeated.prepareToPlay (44100.0, 512);
+        heldReference.loadFactoryVocalKit (0); heldRepeated.loadFactoryVocalKit (0);
+        if (auto* arp = heldRepeated.getAPVTS().getParameter ("arpMode"))
+            arp->setValueNotifyingHost (arp->convertTo0to1 (1.0f));
+        for (auto* p : { &heldReference, &heldRepeated })
+        {
+            auto st = p->getVocalKit().getSlotSettings (0);
+            st.attackMs = st.decayMs = 0.0f; st.sustain = 1.0f;
+            st.delaySend = st.reverbSend = 0.0f; st.loop = false; st.oneShot = true;
+            p->getVocalKit().setSlotSettings (0, st);
+        }
+        juce::AudioBuffer<float> refBlock (2, 512), repeatBlock (2, 512);
+        juce::MidiBuffer refMidi, repeatMidi;
+        refMidi.addEvent (juce::MidiMessage::noteOn (1, VocalKitEngine::kRootNote, (juce::uint8) 100), 0);
+        repeatMidi.addEvent (juce::MidiMessage::noteOn (1, VocalKitEngine::kRootNote, (juce::uint8) 100), 0);
+        heldReference.processBlock (refBlock, refMidi); heldRepeated.processBlock (repeatBlock, repeatMidi);
+        float arpBypassDifference = 0.0f;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int n = 0; n < 512; ++n)
+                arpBypassDifference = juce::jmax (arpBypassDifference,
+                    std::abs (refBlock.getSample (ch, n) - repeatBlock.getSample (ch, n)));
+        if (arpBypassDifference > 1.0e-5f) ++failures;
+        refBlock.clear(); repeatBlock.clear(); refMidi.clear(); repeatMidi.clear();
+        repeatMidi.addEvent (juce::MidiMessage::noteOn (1, VocalKitEngine::kRootNote, (juce::uint8) 100), 0);
+        heldReference.processBlock (refBlock, refMidi); heldRepeated.processBlock (repeatBlock, repeatMidi);
+        float repeatDifference = 0.0f;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int n = 0; n < 512; ++n)
+                repeatDifference = juce::jmax (repeatDifference,
+                    std::abs (refBlock.getSample (ch, n) - repeatBlock.getSample (ch, n)));
+        if (repeatDifference > 1.0e-5f) ++failures;
+
+        heldRepeated.loadFactoryVocalKit (1);
+        if (heldRepeated.getAPVTS().getRawParameterValue ("arpMode")->load() > 0.5f)
+            ++failures;
+
+        VocalKitEngine missing;
+        missing.prepare (44100.0, 512);
+        juce::XmlElement missingRoot ("SLYCE_STATE");
+        auto* missingKit = missingRoot.createNewChildElement ("VocalKit");
+        auto* missingSlot = missingKit->createNewChildElement ("Slot");
+        missingSlot->setAttribute ("index", 0);
+        missingSlot->setAttribute ("path", "Z:\\definitely-missing\\voice.wav");
+        missing.restoreState (missingRoot);
+        if (! missing.getSlotSettings(0).missing || missing.getMissingFiles().size() != 1)
+            ++failures;
+
+        juce::MemoryBlock state;
+        proc.getStateInformation (state);
+        VocalChopAudioProcessor restored;
+        restored.prepareToPlay (44100.0, 512);
+        restored.setStateInformation (state.getData(), (int) state.getSize());
+        const auto restoredFirst = restored.getVocalKit().getSlotSettings (0);
+        if (! restored.isVocalKitMode() || ! restored.getVocalKit().hasSlot (0)
+            || std::abs (restoredFirst.gainDb + 17.0f) > 0.001f
+            || std::abs (restoredFirst.start - 0.11f) > 0.001f || ! restoredFirst.reverse
+            || std::abs (restoredFirst.pitchSemitones - 3.0f) > 0.001f
+            || std::abs (restoredFirst.decayMs - 123.0f) > 0.001f
+            || std::abs (restoredFirst.sustain - 0.42f) > 0.001f
+            || std::abs (restoredFirst.loopCrossfadeMs - 17.0f) > 0.001f)
+            ++failures;
+
+        printf ("vocal-kit failures: %d, state bytes: %zu\n", failures, state.getSize());
+        return failures == 0 ? 0 : 1;
+    }
+
     // "--vocals": load every built-in vocal and measure it. The table pairs a
     // label with a BinaryData symbol by hand, 36 times; a mispaired row still
     // compiles and still plays - it just plays the wrong sample under the
@@ -413,6 +601,78 @@ int main (int argc, char** argv)
         return problems == 0 ? 0 : 1;
     }
 
+    // "--chop-mono": every Vocal Chop trigger path shares one choke group.
+    // The old phrase must be replaced when the next pad/key arrives, while
+    // routing stays entirely inside the chop VoicePool (other engines retain
+    // their independent polyphony).
+    if (argc > 1 && juce::String (argv[1]) == "--chop-mono")
+    {
+        int problems = 0;
+        if (! proc.loadDemoSample (0))
+        {
+            printf ("could not load test vocal\n");
+            return 1;
+        }
+
+        auto& slicer = proc.getSliceEngine();
+        slicer.setMode (SliceEngine::Grid);
+        slicer.setGridDivision (8);
+        slicer.rebuildSlices();
+
+        juce::AudioBuffer<float> block (2, 512);
+        auto pump = [&] (juce::MidiBuffer midi = {})
+        {
+            block.clear();
+            proc.processBlock (block, midi);
+        };
+        auto active = [&]
+        {
+            float positions[VoicePool::kMaxVoices] {};
+            return proc.getVoicePool().copyPlayheads (positions, VoicePool::kMaxVoices);
+        };
+        auto expectOne = [&] (const char* path)
+        {
+            const int n = active();
+            printf ("%-20s active chop voices %d\n", path, n);
+            if (n != 1) ++problems;
+        };
+
+        // UI held-key path. Releasing the old key afterwards must not release
+        // the replacement voice (its stale slot mapping was scrubbed).
+        proc.pressSlicePad (0, 0.9f); pump();
+        proc.pressSlicePad (2, 0.9f); pump();
+        expectOne ("UI key replacement");
+        proc.releaseSlicePad (0); pump();
+        expectOne ("stale UI note-off");
+
+        // Slice-card preview uses a direct slice index.
+        proc.triggerSliceDirectPad (3, 0.9f); pump();
+        proc.triggerSliceDirectPad (4, 0.9f); pump();
+        expectOne ("slice-card replacement");
+
+        // Host MIDI path, including a late note-off for the previous note.
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 48, 0.9f), 0);
+        pump (midi);
+        midi.clear();
+        midi.addEvent (juce::MidiMessage::noteOn (1, 52, 0.9f), 0);
+        pump (midi);
+        expectOne ("MIDI replacement");
+        midi.clear();
+        midi.addEvent (juce::MidiMessage::noteOff (1, 48), 0);
+        pump (midi);
+        expectOne ("stale MIDI note-off");
+
+        // The full-sample preview is in the same choke group.
+        proc.triggerWholeSamplePreview(); pump();
+        expectOne ("whole preview");
+        proc.triggerSlicePad (1, 0.9f); pump();
+        expectOne ("preview -> slice");
+
+        printf ("\n%d monophonic-chop problem(s).\n", problems);
+        return problems == 0 ? 0 : 1;
+    }
+
     // "--licence [pair-file]": everything between a buyer pasting a key and the
     // plugin unlocking. This is the most expensive class of bug in the product
     // - a key that does not work costs a refund AND the customer - and none of
@@ -425,159 +685,6 @@ int main (int argc, char** argv)
     // Every REJECTION case runs unconditionally - those need no secret.
     if (argc > 1 && juce::String (argv[1]) == "--licence")
     {
-#if 0 // Offline keys and trusted local activation are intentionally removed.
-        using L = vcs::Licensing;
-        int fail = 0;
-        auto check = [&fail] (const char* what, bool got, bool want)
-        {
-            const bool ok = (got == want);
-            if (! ok) ++fail;
-            printf ("%-4s %-52s got %-5s want %s\n", ok ? "ok" : "FAIL", what,
-                    got ? "true" : "false", want ? "true" : "false");
-        };
-
-        juce::String email, key;
-        {
-            juce::File pf;
-            if (argc > 2)
-                pf = juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]);
-            else if (auto env = std::getenv ("SLYCE_TEST_LICENCE"))
-                pf = juce::File::getCurrentWorkingDirectory().getChildFile (env);
-
-            if (pf.existsAsFile())
-            {
-                auto lines = juce::StringArray::fromLines (pf.loadFileAsString());
-                lines.removeEmptyStrings();
-                if (lines.size() >= 2) { email = lines[0].trim(); key = lines[1].trim(); }
-            }
-        }
-
-        if (key.isNotEmpty())
-        {
-            printf ("-- accepting a good key ------------------------------------\n");
-            check ("exact e-mail and key",            L::verifyOfflineKey (email, key), true);
-            check ("e-mail uppercased",               L::verifyOfflineKey (email.toUpperCase(), key), true);
-            check ("e-mail with spaces around it",    L::verifyOfflineKey ("  " + email + "  ", key), true);
-            check ("key with spaces around it",       L::verifyOfflineKey (email, "  " + key + "  "), true);
-            check ("key with a trailing newline",     L::verifyOfflineKey (email, key + "\n"), true);
-            check ("key wrapped over three lines",    L::verifyOfflineKey (email,
-                       key.substring (0, 40) + "\n" + key.substring (40, 90) + "\r\n"
-                       + key.substring (90)), true);
-            check ("key with the dashes removed",     L::verifyOfflineKey (email,
-                       key.removeCharacters ("-")), true);
-            check ("key with extra dashes",           L::verifyOfflineKey (email,
-                       key.replace ("-", "--")), true);
-            check ("key in lower case",               L::verifyOfflineKey (email, key.toLowerCase()), true);
-            check ("key in UPPER case",               L::verifyOfflineKey (email, key.toUpperCase()), true);
-            // Pasting out of a web page or a chat client is how most people
-            // move a key, and both hand over U+00A0 rather than a plain space.
-            check ("key with non-breaking spaces",    L::verifyOfflineKey (email,
-                       juce::String::fromUTF8 ("\xc2\xa0") + key
-                       + juce::String::fromUTF8 ("\xc2\xa0")), true);
-            check ("key with a zero-width space",     L::verifyOfflineKey (email,
-                       key + juce::String::fromUTF8 ("\xe2\x80\x8b")), true);
-            check ("no VCS- prefix at all",           L::verifyOfflineKey (email,
-                       key.fromFirstOccurrenceOf ("-", false, false)), true);
-
-            printf ("-- routing: which path does the panel send it down? -------\n");
-            check ("VCS- key recognised as offline",  L::looksLikeOfflineKey (key), true);
-            check ("  ...with leading whitespace",    L::looksLikeOfflineKey ("  " + key), true);
-            check ("  ...with a leading NBSP",        L::looksLikeOfflineKey (
-                       juce::String::fromUTF8 ("\xc2\xa0") + key), true);
-            check ("  ...in lower case",              L::looksLikeOfflineKey (key.toLowerCase()), true);
-
-            printf ("-- rejecting a bad key -------------------------------------\n");
-            check ("a different e-mail",              L::verifyOfflineKey ("someone@else.com", key), false);
-            check ("e-mail with one letter changed",  L::verifyOfflineKey (
-                       "x" + email.substring (1), key), false);
-            check ("key with one digit changed",      L::verifyOfflineKey (email,
-                       key.replaceSection (10, 1, key[10] == '0' ? "1" : "0")), false);
-            check ("key truncated by one character",  L::verifyOfflineKey (email,
-                       key.dropLastCharacters (1)), false);
-            check ("key with a character appended",   L::verifyOfflineKey (email, key + "a"), false);
-
-            printf ("-- the licence file ----------------------------------------\n");
-            const auto backup = L::licenseFile().getSiblingFile ("license.test-backup");
-            const bool had = L::licenseFile().existsAsFile();
-            if (had) L::licenseFile().copyFileTo (backup);
-
-            check ("saveActivation writes",           L::saveActivation (email, key), true);
-            check ("loadActivation accepts it",       L::loadActivation(), true);
-            {
-                auto xml = juce::parseXML (L::licenseFile());
-                if (xml != nullptr)
-                {
-                    const auto good = xml->getStringAttribute ("sig");
-                    xml->setAttribute ("sig", good.replaceSection (4, 1,
-                                                    good[4] == '0' ? "1" : "0"));
-                    xml->writeTo (L::licenseFile());
-                    check ("tampered signature rejected", L::loadActivation(), false);
-
-                    xml->setAttribute ("sig", good);
-                    xml->setAttribute ("machine", "some-other-machine");
-                    xml->writeTo (L::licenseFile());
-                    check ("another machine's file rejected", L::loadActivation(), false);
-                }
-            }
-            L::licenseFile().deleteFile();
-            check ("no file means no licence",        L::loadActivation(), false);
-            if (had) backup.copyFileTo (L::licenseFile());
-            backup.deleteFile();
-        }
-        else
-        {
-            printf ("(no key pair given - positive cases skipped. Pass a file whose\n"
-                    " first line is the e-mail and second is the key, or set\n"
-                    " SLYCE_TEST_LICENCE.)\n\n");
-        }
-
-        // The GUMROAD path. Its key never goes through normKey - it is posted
-        // back to Gumroad, dashes and all - so it needs its own normalisation
-        // and its own check. The first fix for the invisible-character bug
-        // changed only the offline path and left every PAYING customer still
-        // exposed; this is the case that would have caught that.
-        printf ("-- gumroad keys: what actually reaches the server ----------\n");
-        {
-            const juce::String gum ("A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6");
-            const auto nbsp = juce::String::fromUTF8 ("\xc2\xa0");
-            const auto zwsp = juce::String::fromUTF8 ("\xe2\x80\x8b");
-
-            auto same = [&gum] (const char* what, const juce::String& in)
-            {
-                const auto out = L::stripInvisible (in);
-                const bool ok = (out == gum);
-                printf ("%-4s %-52s %s\n", ok ? "ok" : "FAIL", what,
-                        ok ? "" : ("-> \"" + out + "\"").toRawUTF8());
-                return ok;
-            };
-            if (! same ("plain key survives untouched",        gum)) ++fail;
-            if (! same ("dashes are kept",                      gum)) ++fail;
-            if (! same ("leading/trailing spaces removed",      "  " + gum + "  ")) ++fail;
-            if (! same ("non-breaking spaces removed",          nbsp + gum + nbsp)) ++fail;
-            if (! same ("zero-width space removed",             gum + zwsp)) ++fail;
-            if (! same ("newline from a wrapped paste removed", gum + "\n")) ++fail;
-            if (! same ("BOM from a copied cell removed",
-                        juce::String::fromUTF8 ("\xef\xbb\xbf") + gum)) ++fail;
-        }
-
-        printf ("-- rejections that need no secret --------------------------\n");
-        check ("empty e-mail and key",          L::verifyOfflineKey ("", ""), false);
-        check ("empty e-mail, plausible key",   L::verifyOfflineKey ("",
-                   juce::String::repeatedString ("ab", 140)), false);
-        check ("e-mail but no key",             L::verifyOfflineKey ("a@b.com", ""), false);
-        check ("key of the right length, wrong value", L::verifyOfflineKey ("a@b.com",
-                   "VCS-" + juce::String::repeatedString ("de", 140)), false);
-        check ("all zeroes",                    L::verifyOfflineKey ("a@b.com",
-                   "VCS-" + juce::String::repeatedString ("00", 140)), false);
-        check ("non-hex characters",            L::verifyOfflineKey ("a@b.com",
-                   "VCS-" + juce::String::repeatedString ("zz", 140)), false);
-        check ("too short to be a signature",   L::verifyOfflineKey ("a@b.com", "VCS-dead"), false);
-        check ("a Gumroad-shaped key is not offline",
-               L::looksLikeOfflineKey ("A1B2C3D4-E5F6A7B8-C9D0E1F2-A3B4C5D6"), false);
-
-        printf ("\n%d failing case(s).\n", fail);
-        return fail == 0 ? 0 : 1;
-#endif
         printf ("Offline licence tests were retired; Gumroad verification is an online integration test.\n");
         return 0;
     }
@@ -1257,20 +1364,18 @@ int main (int argc, char** argv)
         const int qIndex = slyce::keymap::keys.indexOfChar ('q');
         const int zIndex = slyce::keymap::keys.indexOfChar ('z');
 
-        // The reported bug, as a test: pressing the first key of either row
-        // must play the first slice. Before the fix Q gave slice 7 of 8,
-        // because an octave up is seven white keys and the sample had eight.
+        // The first key starts at slice zero. The upper row continues the pad
+        // sequence instead of repeating the lower row, so samples with more
+        // than 17 slices remain fully playable from the computer keyboard.
         check ("Chop: 'z' (lower row, first key) plays slice 0",
                zIndex >= 0 && sliceFor (zIndex, true) == 0);
-        check ("Chop: 'q' (upper row, first key) plays slice 0",
-               qIndex >= 0 && sliceFor (qIndex, true) == 0);
+        check ("Chop: 'q' continues at slice 17",
+               qIndex >= 0 && sliceFor (qIndex, true) == (17 % n));
 
-        // Every slice has to be reachable without leaving the lower row, or
-        // part of the sample is simply unplayable from the keyboard.
-        std::set<int> lower;
-        for (int i = 0; i < split; ++i) lower.insert (sliceFor (i, true));
-        check ("Chop: the lower row alone reaches every slice",
-               (int) lower.size() == n);
+        std::set<int> reachable;
+        for (int i = 0; i < nk; ++i) reachable.insert (sliceFor (i, true));
+        check ("Chop: typing keys reach every available slice",
+               n > nk || (int) reachable.size() == n);
 
         // Melodic layout is a piano and must stay one: the upper row sits
         // exactly an octave above the lower one.

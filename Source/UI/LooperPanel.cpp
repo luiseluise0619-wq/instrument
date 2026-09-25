@@ -8,11 +8,7 @@ namespace
     // Every word the record pad can ever show. resized() measures the widest
     // of them, so the pad is sized from its own vocabulary rather than from a
     // guess - which is how "OVERDUB" ended up cut in half on a 42px pad.
-    const char* const kPadLabels[] = { "Rec", "Set", "Dub", "Play", "Go", "Arm" };
-
-    // The five per-track buttons, in row order. Undo also shows "Redo", which
-    // is narrower, so measuring "Undo" covers both states.
-    const char* const kTrackLabels[] = { "Re-rec", "Undo", "Rev", "Mute", "Clr" };
+    const char* const kPadLabels[] = { "Record", "Finish", "Dub", "Play", "Resume", "Arm" };
 
     /** MUST match AppleLookAndFeel::getTextButtonFont: the width arithmetic
         below is only honest if it measures the font that actually draws. That
@@ -46,6 +42,19 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
 
         t.mainButton.onClick = [this, i]
         {
+            selectedTrack = i;
+            if (trackUI[i].usesCurrentChop)
+            {
+                if (auto* p = proc.getAPVTS().getParameter ("engine"))
+                    p->setValueNotifyingHost (p->convertTo0to1 (0.0f)); // Chop
+            }
+            if (trackUI[i].chosenInstrument >= 0)
+            {
+                syncingInstrumentPickers = true;
+                instrumentBox.setSelectedId (trackUI[i].chosenInstrument + 1,
+                                             juce::dontSendNotification);
+                syncingInstrumentPickers = false;
+            }
             // Every take on this track — fresh recording OR a new overdub
             // pass — starts in the track's own pre-picked sound, so six
             // tracks really are six independently-set instruments.
@@ -56,6 +65,14 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         };
         t.rerecButton.onClick = [this, i]
         {
+            selectedTrack = i;
+            if (trackUI[i].chosenInstrument >= 0)
+            {
+                syncingInstrumentPickers = true;
+                instrumentBox.setSelectedId (trackUI[i].chosenInstrument + 1,
+                                             juce::dontSendNotification);
+                syncingInstrumentPickers = false;
+            }
             applyTrackInstrument (i);
             proc.getLooper().tapReRecord (i);
         };
@@ -106,7 +123,27 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         t.instBox.setTextWhenNothingSelected ("Sound " + juce::String (i + 1));
         t.instBox.onChange = [this, i]
         {
+            selectedTrack = i;
             const int id = trackUI[i].instBox.getSelectedId();
+            if (id == kCurrentChopId)
+            {
+                if (proc.getLoadedSample() == nullptr)
+                {
+                    trackUI[i].instBox.setSelectedId (0, juce::dontSendNotification);
+                    juce::AlertWindow::showMessageBoxAsync (
+                        juce::MessageBoxIconType::InfoIcon, "Vocal Chop",
+                        "Load a vocal sample in the main waveform first, then choose Current Vocal Chop.");
+                    return;
+                }
+                trackUI[i].chosenInstrument = -1;
+                trackUI[i].usesCurrentChop = true;
+                if (auto* p = proc.getAPVTS().getParameter ("engine"))
+                    p->setValueNotifyingHost (p->convertTo0to1 (0.0f)); // Chop
+                trackUI[i].instBox.setTooltip (
+                    "Uses the currently loaded vocal chop. Load a vocal sample above, then press Rec.");
+                return;
+            }
+            trackUI[i].usesCurrentChop = false;
             if (id == kLoadAudioId)
             {
                 // Deselect first so the combo doesn't sit on "Load Audio...".
@@ -115,6 +152,10 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
                 return;
             }
             trackUI[i].chosenInstrument = id > 0 ? id - 1 : -1;
+            syncingInstrumentPickers = true;
+            instrumentBox.setSelectedId (trackUI[i].chosenInstrument + 1,
+                                         juce::dontSendNotification);
+            syncingInstrumentPickers = false;
 
             // Audition right away — but never while a take is rolling:
             // switching the global sound mid-Recording/Overdub would bake
@@ -131,22 +172,52 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
 
         t.instBox.setTooltip ("This track's own sound - applied automatically when you record or "
                               "overdub here.  Top entry loads an audio file straight into the track");
-        t.mainButton.setTooltip ("1st tap: record.  2nd tap: lock the loop.  Then tap to stack overdubs / play");
+        t.mainButton.setTooltip ("Record: start a take. Finish: end and keep it stopped. Resume: play it. Dub: add a layer.");
         t.rerecButton.setTooltip ("Wipe this track and record it again in one tap");
         t.undoButton.setTooltip ("Remove the last overdub - press again to bring it back (Redo)");
         t.muteButton.setTooltip ("Mute this track");
         t.clearButton.setTooltip ("Clear - delete this track's loop");
         t.revButton.setTooltip ("Play this track backwards");
+        t.moreButton.setTooltip ("Track actions: re-record, undo, reverse, mute, or clear");
         t.panSlider.setTooltip ("Pan left/right (double-click = centre)");
         t.volSlider.setTooltip ("Track volume");
 
         addAndMakeVisible (t.instBox);
         addAndMakeVisible (t.mainButton);
-        addAndMakeVisible (t.rerecButton);
-        addAndMakeVisible (t.undoButton);
-        addAndMakeVisible (t.clearButton);
-        addAndMakeVisible (t.muteButton);
-        addAndMakeVisible (t.revButton);
+        addAndMakeVisible (t.moreButton);
+        addChildComponent (t.rerecButton);
+        addChildComponent (t.undoButton);
+        addChildComponent (t.clearButton);
+        addChildComponent (t.muteButton);
+        addChildComponent (t.revButton);
+
+        t.moreButton.onClick = [this, i]
+        {
+            auto& looper = proc.getLooper();
+            juce::PopupMenu menu;
+            menu.addItem (1, "Record this track again", looper.getTrackState (i) != LoopStation::Empty);
+            menu.addItem (2, looper.isRedo (i) ? "Redo last layer" : "Undo last layer",
+                          looper.canUndo (i));
+            menu.addSeparator();
+            menu.addItem (3, "Reverse playback", true, looper.isReversed (i));
+            menu.addItem (4, "Mute track", true, looper.isMuted (i));
+            menu.addItem (5, "Clear this track", looper.getTrackState (i) != LoopStation::Empty);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&trackUI[i].moreButton),
+                [this, i] (int action)
+                {
+                    auto& loop = proc.getLooper();
+                    switch (action)
+                    {
+                        case 1: applyTrackInstrument (i); loop.tapReRecord (i); break;
+                        case 2: loop.tapUndo (i); break;
+                        case 3: loop.setReversed (i, ! loop.isReversed (i)); break;
+                        case 4: loop.setMuted (i, ! loop.isMuted (i)); break;
+                        case 5: loop.tapClear (i); break;
+                        default: break;
+                    }
+                    repaint();
+                });
+        };
         addAndMakeVisible (t.panSlider);
         addAndMakeVisible (t.volSlider);
     }
@@ -167,10 +238,42 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     tapButton.setTooltip ("Tap in time to set the tempo");
 
     syncButton.setClickingTogglesState (true);
-    syncButton.setToggleState (true, juce::dontSendNotification);   // on by default
-    syncButton.setTooltip ("Follow the host tempo. Off = set the BPM by hand");
+    syncButton.setToggleState (proc.getLooper().isTempoSync(), juce::dontSendNotification);
+    syncButton.setTooltip ("Sync click and NEW recording grid to host BPM. Existing audio is not time-stretched.");
+    syncButton.onClick = [this] { proc.getLooper().setTempoSync (syncButton.getToggleState()); };
+    midiButton.setTooltip ("Show the simple MIDI controller map");
+    midiButton.onClick = [this]
+    {
+        auto* alert = new juce::AlertWindow ("Looper MIDI setup",
+                                             "Choose a CC number for each action. Notes still play instruments.",
+                                             juce::MessageBoxIconType::NoIcon);
+        juce::StringArray ccItems;
+        for (int cc = 0; cc < 128; ++cc) ccItems.add ("CC" + juce::String (cc));
+        const juce::String names[] = {
+            "Record track 1", "Record track 2", "Record track 3", "Record track 4",
+            "Record track 5", "Record track 6", "Stop all", "Play all",
+            "Previous track", "Next track", "Record selected", "Stop selected",
+            "Re-record selected", "Undo / redo selected", "Clear selected" };
+        for (int i = 0; i < 15; ++i)
+        {
+            alert->addComboBox ("midiCC" + juce::String (i), ccItems, names[i]);
+            if (auto* box = alert->getComboBoxComponent ("midiCC" + juce::String (i)))
+                box->setSelectedId (proc.getLooperMidiCC (i) + 1, juce::dontSendNotification);
+        }
+        alert->addButton ("Apply", 1);
+        alert->addButton ("Cancel", 0);
+        alert->enterModalState (true, juce::ModalCallbackFunction::create (
+            [this, alert] (int result)
+            {
+                if (result == 1)
+                    for (int i = 0; i < 15; ++i)
+                        if (auto* box = alert->getComboBoxComponent ("midiCC" + juce::String (i)))
+                            proc.setLooperMidiCC (i, box->getSelectedId() - 1);
+            }), true);
+    };
+    addAndMakeVisible (midiButton);
 
-    dragButton.setTooltip ("Press and drag this into your DAW to drop the loop as a WAV");
+    dragButton.setTooltip ("Drag this striped area into the DAW timeline to drop a WAV. Maximum recording is 30 seconds per track.");
     dragButton.makeFile = [this] { return writeMixToTempFile(); };
     dragButton.onClick  = [this]
     {
@@ -188,91 +291,128 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
 
     exportButton.onClick = [this]
     {
-        auto mix = std::make_shared<juce::AudioBuffer<float>>();
-        if (! proc.getLooper().renderMixdown (*mix))
+        // Capture once BEFORE the file dialog. All stems share this exact
+        // recording, sample rate, phase, duration and gain even if the user
+        // plays, imports, or changes devices while the dialog is open.
+        struct ExportBundle
+        {
+            double rate = 44100.0;
+            juce::AudioBuffer<float> mix;
+            std::array<juce::AudioBuffer<float>, LoopStation::kNumTracks> stems;
+            std::array<bool, LoopStation::kNumTracks> present {};
+        };
+        auto snapshot = proc.getLooper().captureSnapshot();
+        auto bundle = std::make_shared<ExportBundle>();
+        if (! snapshot || ! LoopStation::renderSnapshot (*snapshot, bundle->mix, -1, 0.0, false))
         {
             juce::AlertWindow::showMessageBoxAsync (
                 juce::MessageBoxIconType::InfoIcon, "Slyce",
-                "Nothing to export yet - record or load a loop first.");
+                "No audible loop, or the common repeat cycle is longer than 120 seconds. "
+                "Unmute a track or use loops with compatible lengths.");
             return;
         }
-
+        bundle->rate = snapshot->getSampleRate();
+        const double seconds = bundle->mix.getNumSamples() / bundle->rate;
+        float peak = bundle->mix.getMagnitude (0, bundle->mix.getNumSamples());
+        for (int ti = 0; ti < LoopStation::kNumTracks; ++ti)
+        {
+            bundle->present[ti] = LoopStation::renderSnapshot (*snapshot, bundle->stems[ti], ti, seconds, false);
+            if (bundle->present[ti])
+                peak = juce::jmax (peak, bundle->stems[ti].getMagnitude (0, bundle->stems[ti].getNumSamples()));
+        }
+        // Shared attenuation, including stems whose cancellation hid their
+        // peak in the mix; muted stems are deliberately exported unmuted.
+        if (peak > 0.891250938f)
+        {
+            const float gain = 0.891250938f / peak;
+            bundle->mix.applyGain (gain);
+            for (int ti = 0; ti < LoopStation::kNumTracks; ++ti)
+                if (bundle->present[ti]) bundle->stems[ti].applyGain (gain);
+        }
         exportChooser = std::make_unique<juce::FileChooser> (
             "Export loops as WAV",
-            juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
-                .getChildFile ("slyce-loop.wav"),
+            juce::File::getSpecialLocation (juce::File::userDesktopDirectory).getChildFile ("slyce-loop.wav"),
             "*.wav");
-
+        juce::Component::SafePointer<LooperPanel> safe (this);
         exportChooser->launchAsync (juce::FileBrowserComponent::saveMode
                                       | juce::FileBrowserComponent::canSelectFiles
                                       | juce::FileBrowserComponent::warnAboutOverwriting,
-            [this, mix] (const juce::FileChooser& fc)
+            [safe, bundle] (const juce::FileChooser& fc)
         {
+            if (safe == nullptr) return;
             auto f = fc.getResult();
-            if (f == juce::File{})
-                return;
+            if (f == juce::File{}) return;
             f = f.withFileExtension ("wav");
-
-            auto writeWav = [this] (const juce::File& dest,
-                                    const juce::AudioBuffer<float>& buf) -> bool
+            const auto writeWav = [bundle] (const juce::File& dest,
+                                            const juce::AudioBuffer<float>& buf) -> bool
             {
-                dest.deleteFile();
+                juce::TemporaryFile temporary (dest);
                 juce::WavAudioFormat wav;
-                auto stream = dest.createOutputStream();
-                if (stream == nullptr)
-                    return false;
-                if (auto* writer = wav.createWriterFor (stream.get(),
-                                                        proc.getLooper().getSampleRate(),
-                                                        2, 24, {}, 0))
-                {
-                    std::unique_ptr<juce::AudioFormatWriter> w (writer);
-                    stream.release();   // the writer owns the stream now
-                    return w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
-                }
-                return false;
+                auto stream = temporary.getFile().createOutputStream();
+                if (stream == nullptr) return false;
+                auto* writer = wav.createWriterFor (stream.get(), bundle->rate, 2, 24, {}, 0);
+                if (writer == nullptr) return false;
+                stream.release();
+                std::unique_ptr<juce::AudioFormatWriter> ownedWriter (writer);
+                const bool ok = ownedWriter->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+                ownedWriter.reset(); // flush before replacing the destination
+                return ok && temporary.overwriteTargetFileWithTemporary();
             };
-
-            // Mix first, then one aligned stem per recorded track (same
-            // length as the mix, so they drop into a DAW in sync). Report
-            // exactly what landed on disk - a partial export must not be
-            // presented as either total success or total failure.
             int written = 0, failed = 0;
-            if (writeWav (f, *mix)) ++written; else ++failed;
-
+            if (writeWav (f, bundle->mix)) ++written; else ++failed;
             for (int ti = 0; ti < LoopStation::kNumTracks; ++ti)
-            {
-                juce::AudioBuffer<float> stem;
-                if (proc.getLooper().renderMixdown (stem, ti))
+                if (bundle->present[ti])
                 {
-                    if (writeWav (f.getSiblingFile (
-                            f.getFileNameWithoutExtension()
-                            + "-track" + juce::String (ti + 1) + ".wav"), stem))
-                        ++written;
-                    else
-                        ++failed;
+                    const auto dest = f.getSiblingFile (f.getFileNameWithoutExtension()
+                                      + "-track" + juce::String (ti + 1) + ".wav");
+                    if (writeWav (dest, bundle->stems[ti])) ++written; else ++failed;
                 }
-            }
-
-            if (failed > 0)
-                juce::AlertWindow::showMessageBoxAsync (
-                    juce::MessageBoxIconType::WarningIcon, "Slyce",
-                    juce::String (written) + " file(s) were exported but "
-                    + juce::String (failed) + " could not be written - "
-                    "check free disk space or try another folder.");
-            else
-                juce::AlertWindow::showMessageBoxAsync (
-                    juce::MessageBoxIconType::InfoIcon, "Slyce",
-                    "Exported " + f.getFileName() + " plus "
-                    + juce::String (written - 1) + " track stem(s) next to it.");
+            juce::AlertWindow::showMessageBoxAsync (
+                failed > 0 ? juce::MessageBoxIconType::WarningIcon : juce::MessageBoxIconType::InfoIcon,
+                "Slyce", juce::String (written) + " WAV file(s) exported; "
+                           + juce::String (failed) + " failed. All files use the same snapshot and gain.");
         });
     };
-    addAndMakeVisible (exportButton);
+    addChildComponent (exportButton); // available from the single Actions menu
     addAndMakeVisible (syncButton);
     addAndMakeVisible (dragButton);
-
-    addAndMakeVisible (playAllButton);
-    addAndMakeVisible (stopAllButton);
-    addAndMakeVisible (clearAllButton);
+    transportButton.onClick = [this]
+    {
+        if (proc.getLooper().anyRunning())
+            proc.getLooper().tapStopAll();
+        else
+            proc.getLooper().tapPlayAll();
+    };
+    transportButton.setTooltip ("Play all loops; while playing, this stops every track");
+    actionsButton.setTooltip ("More loop actions");
+    actionsButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "Clear all loops", proc.getLooper().anyContent());
+        menu.addItem (2, "Export mix and tracks as WAV", proc.getLooper().anyContent());
+        menu.addSeparator();
+        menu.addItem (3, proc.getLooper().isMetronomeOn() ? "Turn metronome off"
+                                                          : "Turn metronome on");
+        menu.addItem (4, "MIDI controller map...");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&actionsButton),
+            [this] (int item)
+            {
+                if (item == 1)
+                    proc.getLooper().tapClearAll();
+                else if (item == 2)
+                    exportButton.triggerClick();
+                else if (item == 3)
+                {
+                    const bool enabled = ! proc.getLooper().isMetronomeOn();
+                    proc.getLooper().setMetronomeOn (enabled);
+                    metroButton.setToggleState (enabled, juce::dontSendNotification);
+                }
+                else if (item == 4)
+                    midiButton.triggerClick();
+            });
+    };
+    addAndMakeVisible (transportButton);
+    addAndMakeVisible (actionsButton);
 
     addTrackButton.onClick = [this]
     {
@@ -281,7 +421,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
         resized();
         repaint();
     };
-    addAndMakeVisible (addTrackButton);
+    addChildComponent (addTrackButton); // all six tracks are already visible
 
     metroButton.setClickingTogglesState (true);
     metroButton.setToggleState (proc.getLooper().isMetronomeOn(),
@@ -290,7 +430,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     {
         proc.getLooper().setMetronomeOn (metroButton.getToggleState());
     };
-    addAndMakeVisible (metroButton);
+    addAndMakeVisible (metroButton); // direct count-in toggle; also mirrored in Actions
 
     tapButton.setTriggeredOnMouseDown (true);   // tap timing must be exact
     tapButton.onClick = [this]
@@ -331,7 +471,7 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     engineBox.addItem ("Chop", 1);
     engineBox.addItem ("Synth", 2);
     engineBox.addItem ("Sampled", 3);
-    engineBox.addItem ("Melody", 4);
+    engineBox.addItem ("Mapped Sample", 4);
     engineAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
         proc.getAPVTS(), "engine", engineBox);
     addAndMakeVisible (engineBox);
@@ -340,11 +480,33 @@ LooperPanel::LooperPanel (VocalChopAudioProcessor& processor)
     instrumentBox.setTextWhenNothingSelected ("Instrument");
     instrumentBox.onChange = [this]
     {
+        if (syncingInstrumentPickers)
+            return;
+
         const int id = instrumentBox.getSelectedId();
-        if (id >= 1000)
-            proc.applyInstrument (id - 1000);
-        else if (id > 0)
-            proc.applyInstrument (id - 1);
+        const int instrument = id >= 1000 ? id - 1000 : id - 1;
+        if (instrument < 0)
+            return;
+
+        // The compact picker above the tracks is an alternate way to choose
+        // the selected track's sound, not a disconnected global patch menu.
+        auto& track = trackUI[selectedTrack];
+        track.chosenInstrument = instrument;
+        syncingInstrumentPickers = true;
+        track.instBox.setSelectedId (instrument + 1, juce::dontSendNotification);
+        syncingInstrumentPickers = false;
+
+        const auto& looper = proc.getLooper();
+        bool takeInProgress = false;
+        for (int tr = 0; tr < LoopStation::kNumTracks; ++tr)
+        {
+            const int state = looper.getTrackState (tr);
+            if (state == LoopStation::Recording || state == LoopStation::Overdub)
+                takeInProgress = true;
+        }
+
+        if (! takeInProgress)
+            proc.applyInstrument (instrument);
     };
     addAndMakeVisible (instrumentBox);
 
@@ -369,12 +531,13 @@ void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShel
     const auto cats  = VocalChopAudioProcessor::getInstrumentCategories();
     auto* root = box.getRootMenu();
 
-    if (! withQuickShelf)
-    {
-        // Per-track boxes only: drop a sample/loop file straight onto this
-        // track instead of recording one.
-        box.addItem ("Load Audio File...", kLoadAudioId);
-        root->addSeparator();
+        if (! withQuickShelf)
+        {
+            // Per-track boxes only: choose the currently loaded vocal chop, or
+            // drop a rendered sample/loop file straight onto this track.
+            box.addItem ("Current Vocal Chop", kCurrentChopId);
+            box.addItem ("Load Audio File...", kLoadAudioId);
+            root->addSeparator();
     }
 
     if (withQuickShelf)
@@ -409,8 +572,18 @@ void LooperPanel::populateInstrumentBox (juce::ComboBox& box, bool withQuickShel
 
 void LooperPanel::applyTrackInstrument (int track)
 {
+    if (trackUI[track].usesCurrentChop)
+    {
+        if (auto* p = proc.getAPVTS().getParameter ("engine"))
+            p->setValueNotifyingHost (p->convertTo0to1 (0.0f)); // Chop
+        return;
+    }
     const int instr = trackUI[track].chosenInstrument;
-    if (instr >= 0 && instr != proc.getCurrentInstrument())
+    // The patch index alone is not enough. If Chop/Mapped Sample is active
+    // and the track happens to choose the same numbered synth patch that was
+    // used earlier, skipping applyInstrument leaves the looper keyboard on
+    // the wrong engine and the chosen sound appears not to play.
+    if (instr >= 0 && (instr != proc.getCurrentInstrument() || ! proc.isSynthMode()))
         proc.applyInstrument (instr);
 }
 
@@ -422,11 +595,12 @@ void LooperPanel::updateTrackVisibility()
         auto& t = trackUI[i];
         t.instBox.setVisible (on);
         t.mainButton.setVisible (on);
-        t.rerecButton.setVisible (on);
-        t.undoButton.setVisible (on);
-        t.clearButton.setVisible (on);
-        t.muteButton.setVisible (on);
-        t.revButton.setVisible (on);
+        t.moreButton.setVisible (on);
+        t.rerecButton.setVisible (false);
+        t.undoButton.setVisible (false);
+        t.clearButton.setVisible (false);
+        t.muteButton.setVisible (false);
+        t.revButton.setVisible (false);
         t.panSlider.setVisible (on);
         t.volSlider.setVisible (on);
     }
@@ -435,18 +609,16 @@ void LooperPanel::updateTrackVisibility()
 
 void LooperPanel::timerCallback()
 {
-    // Follow the host tempo (VST3/AU in a DAW). Standalone reports none, so
-    // the slider stays under the user's control there.
-    if (syncButton.getToggleState())
-    {
-        const double bpm = proc.getHostBpm();
-        if (bpm > 0.0 && std::abs (bpm - proc.getLooper().getMetroBpm()) > 0.01)
-        {
-            proc.getLooper().setMetroBpm ((float) bpm);
-            bpmSlider.setValue (bpm, juce::dontSendNotification);
-        }
-    }
-    bpmSlider.setEnabled (! syncButton.getToggleState() || proc.getHostBpm() <= 0.0);
+    const auto transportLabel = proc.getLooper().anyRunning() ? juce::String ("Stop")
+                                                               : juce::String ("Play all");
+    if (transportButton.getButtonText() != transportLabel)
+        transportButton.setButtonText (transportLabel);
+
+    // Processor owns tempo sync, including while this editor is closed.
+    proc.getLooper().collectRetired();
+    syncButton.setToggleState (proc.getLooper().isTempoSync(), juce::dontSendNotification);
+    bpmSlider.setValue (proc.getLooper().getMetroBpm(), juce::dontSendNotification);
+    bpmSlider.setEnabled (! proc.getLooper().isTempoSync() || proc.getHostBpm() <= 0.0);
 
     // Repaint the mono numeral only when the reading actually moves.
     {
@@ -463,11 +635,47 @@ void LooperPanel::timerCallback()
     // raw ids — QUICK-shelf picks use ids 1000+idx, and comparing ids would
     // freeze the mirror forever after one QUICK selection.
     {
+        bool takeInProgress = false;
+        const auto& looper = proc.getLooper();
+        for (int tr = 0; tr < LoopStation::kNumTracks; ++tr)
+        {
+            const int state = looper.getTrackState (tr);
+            if (state == LoopStation::Recording || state == LoopStation::Overdub)
+                takeInProgress = true;
+        }
+
+        // A sound selected while another take was live is intentionally
+        // deferred until it is safe to replace the processor's global patch.
+        const int current = proc.getCurrentInstrument();
+        if (! takeInProgress && trackUI[selectedTrack].chosenInstrument >= 0
+            && trackUI[selectedTrack].chosenInstrument != current)
+            applyTrackInstrument (selectedTrack);
+
         const int sel    = instrumentBox.getSelectedId();
         const int selIdx = sel >= 1000 ? sel - 1000 : sel - 1;
-        if (selIdx != proc.getCurrentInstrument())
-            instrumentBox.setSelectedId (proc.getCurrentInstrument() + 1,
+        const int activeSound = takeInProgress && trackUI[selectedTrack].chosenInstrument >= 0
+                              ? trackUI[selectedTrack].chosenInstrument
+                              : proc.getCurrentInstrument();
+        if (selIdx != activeSound)
+            instrumentBox.setSelectedId (activeSound + 1,
                                          juce::dontSendNotification);
+
+        // If the user picked a patch elsewhere in the instrument browser,
+        // keep the active track's picker and its next-take sound in sync.
+        const int mirroredSound = takeInProgress && trackUI[selectedTrack].chosenInstrument >= 0
+                                ? trackUI[selectedTrack].chosenInstrument : current;
+        if (! takeInProgress
+            && ! trackUI[selectedTrack].usesCurrentChop
+            && mirroredSound >= 0
+            && mirroredSound < VocalChopAudioProcessor::getInstrumentNames().size()
+            && trackUI[selectedTrack].chosenInstrument != mirroredSound)
+        {
+            trackUI[selectedTrack].chosenInstrument = mirroredSound;
+            syncingInstrumentPickers = true;
+            trackUI[selectedTrack].instBox.setSelectedId (mirroredSound + 1,
+                                                            juce::dontSendNotification);
+            syncingInstrumentPickers = false;
+        }
     }
 
     // Keep the linear sliders on the theme accent (the stock JUCE blue thumb
@@ -499,11 +707,11 @@ void LooperPanel::timerCallback()
         // the ring itself already used.
         switch (st)
         {
-            case LoopStation::Empty:     t.mainButton.setButtonText ("Rec");  break;
-            case LoopStation::Recording: t.mainButton.setButtonText ("Set");  break;
+            case LoopStation::Empty:     t.mainButton.setButtonText ("Record");  break;
+            case LoopStation::Recording: t.mainButton.setButtonText ("Finish");  break;
             case LoopStation::Playing:   t.mainButton.setButtonText ("Dub");  break;
             case LoopStation::Overdub:   t.mainButton.setButtonText ("Play"); break;
-            case LoopStation::Stopped:   t.mainButton.setButtonText ("Go");   break;
+            case LoopStation::Stopped:   t.mainButton.setButtonText ("Resume");   break;
             case LoopStation::Armed:     t.mainButton.setButtonText ("Arm");  break;
             default: break;
         }
@@ -515,6 +723,8 @@ void LooperPanel::timerCallback()
         // (buttons, sliders, combos and all) was pure wasted CPU.
         if (! t.ringArea.isEmpty())
             repaint (t.ringArea);
+        if (st == LoopStation::Recording && ! t.waveArea.isEmpty())
+            repaint (t.waveArea);
     }
 }
 
@@ -526,8 +736,9 @@ void LooperPanel::importAudioToTrack (int track)
 
     fileChooser->launchAsync (juce::FileBrowserComponent::openMode
                                   | juce::FileBrowserComponent::canSelectFiles,
-        [this, track] (const juce::FileChooser& fc)
+        [safe=juce::Component::SafePointer<LooperPanel>(this), track] (const juce::FileChooser& fc)
     {
+        if(safe == nullptr)return;
         const auto file = fc.getResult();
         if (! file.existsAsFile())
             return;
@@ -535,7 +746,7 @@ void LooperPanel::importAudioToTrack (int track)
         double srcRate = 44100.0;
         auto buf = SampleLoader::decode (file, srcRate);
         if (buf == nullptr
-            || ! proc.getLooper().importAudio (track, *buf, srcRate))
+            || ! safe->proc.getLooper().importAudio (track, *buf, srcRate))
         {
             juce::AlertWindow::showMessageBoxAsync (
                 juce::MessageBoxIconType::WarningIcon, "Slyce",
@@ -547,19 +758,19 @@ void LooperPanel::importAudioToTrack (int track)
 juce::File LooperPanel::writeMixToTempFile()
 {
     juce::AudioBuffer<float> mix;
-    if (! proc.getLooper().renderMixdown (mix))
+    auto snapshot = proc.getLooper().captureSnapshot();
+    if (! snapshot || ! LoopStation::renderSnapshot (*snapshot, mix))
         return {};
 
     auto f = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                 .getChildFile ("Slyce-loop.wav");
-    f.deleteFile();
+                 .getNonexistentChildFile ("Slyce-loop", ".wav", true);
 
     juce::WavAudioFormat wav;
     auto stream = f.createOutputStream();
     if (stream == nullptr)
         return {};
 
-    if (auto* writer = wav.createWriterFor (stream.get(), proc.getLooper().getSampleRate(),
+    if (auto* writer = wav.createWriterFor (stream.get(), snapshot->getSampleRate(),
                                             2, 24, {}, 0))
     {
         std::unique_ptr<juce::AudioFormatWriter> w (writer);
@@ -598,15 +809,15 @@ void LooperPanel::resized()
             return juce::jmax (minW, textWidthFor (headFont, s) + 20);
         };
 
-        place (clearAllButton, wideEnough ("Clear all", 74));
+        place (actionsButton, 42);
         head.removeFromRight (6);
-        place (stopAllButton,  wideEnough ("Stop all", 70));
-        head.removeFromRight (6);
-        place (playAllButton,  wideEnough ("Play all", 70));
+        place (transportButton, wideEnough ("Play all", 72));
         head.removeFromRight (12);
-        place (metroButton,    wideEnough ("Click", 56));
-        head.removeFromRight (6);
         place (tapButton,      wideEnough ("Tap", 46));
+        head.removeFromRight (6);
+        place (metroButton,    wideEnough ("Click", 58));
+        head.removeFromRight (6);
+        place (midiButton,     wideEnough ("MIDI", 54));
         head.removeFromRight (6);
         place (syncButton,     wideEnough ("Sync", 56));
         head.removeFromRight (8);
@@ -625,7 +836,7 @@ void LooperPanel::resized()
         const juce::Font numFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
                                                      tight ? 17.0f : 20.0f,
                                                      juce::Font::plain));
-        bpmValueArea = head.removeFromRight (textWidthFor (numFont, "240.0") + 8);
+        bpmValueArea = head.removeFromRight (textWidthFor (numFont, "240") + 12);
         head.removeFromRight (14);
 
         if (head.getWidth() > 70)
@@ -661,30 +872,12 @@ void LooperPanel::resized()
         instrumentBox.setBounds (pickStrip);
     }
 
-    // --- Footer (spec 4.9): the drag slab, with Export WAV / + Add track
-    //     stacked in a narrow column beside it. Stacking them is what buys
-    //     the slab its width back - side by side, the three of them plus the
-    //     transport could not share one row without the slab's sub-line
-    //     being cut off mid-sentence.
+    // --- Footer: one obvious DAW drag target. Export lives in Actions.
     {
         auto footer = area.removeFromBottom (tight ? 44 : 52);
-        const int stackH = juce::jmax (24, footer.getHeight() - 4);
-        const int stackBtnH = juce::jlimit (15, 24, (stackH - 6) / 2);
-        const juce::Font stackFont = buttonFontFor (stackBtnH);
-
-        int colW = 0;
-        for (auto* s : { "Export WAV", "+ Add track" })
-            colW = juce::jmax (colW, textWidthFor (stackFont, s));
-        colW = juce::jlimit (100, 200, colW + 22);
-        colW = juce::jmin (colW, juce::jmax (60, footer.getWidth() - 180));
-
-        auto col = footer.removeFromRight (colW)
-                         .withSizeKeepingCentre (colW, stackBtnH * 2 + 6);
-        footer.removeFromRight (10);
-        exportButton.setBounds (col.removeFromTop (stackBtnH));
-        col.removeFromTop (6);
-        addTrackButton.setBounds (col.removeFromTop (stackBtnH));
+        exportButton.setBounds (juce::Rectangle<int>());
         dragButton.setBounds (footer.reduced (0, 1));
+        addTrackButton.setBounds (juce::Rectangle<int>());
     }
 
     // --- How-to line (painted). First thing to go when space is short.
@@ -730,21 +923,13 @@ void LooperPanel::resized()
     // The record pad is sized from the longest word it can ever show, not
     // from the row height alone - at six lanes the row is shorter and a
     // square pad stopped being wide enough for "Play".
-    const int padInset = juce::jmax (5, rowH / 5);
+    const int padInset = juce::jmax (3, rowH / 8);
     const int padBtnH  = juce::jmax (12, rowH - padInset * 2);
     const juce::Font padFont = buttonFontFor (padBtnH);
     int padTextW = 0;
     for (auto* s : kPadLabels)
         padTextW = juce::jmax (padTextW, textWidthFor (padFont, s));
-    const int padW = juce::jmax (rowH - 6, padTextW + padInset * 2 + 8);
-
-    // Same treatment for the five per-track buttons: "Re-rec" is the widest
-    // and it sets the column for all of them.
-    const int ctlH = juce::jmax (14, juce::jmin (26, rowH - 10));
-    const juce::Font ctlFont = buttonFontFor (ctlH);
-    int trackBtnW = 34;
-    for (auto* s : kTrackLabels)
-        trackBtnW = juce::jmax (trackBtnW, textWidthFor (ctlFont, s) + 12);
+    const int padW = juce::jmax (58, juce::jmax (rowH - 6, padTextW + padInset * 2 + 12));
 
     for (int i = 0; i < LoopStation::kNumTracks; ++i)
     {
@@ -776,8 +961,7 @@ void LooperPanel::resized()
                                 .withSizeKeepingCentre (comboW, juce::jmin (30, rowH - 8)));
         row.removeFromLeft (10);
 
-        // Right-hand controls first, so the waveform takes whatever is left
-        // rather than pushing them off the end on a narrow panel.
+        // Right-hand controls first, so the waveform takes whatever is left.
         //
         // SQUARE knobs. These are rotary sliders, and a rotary in a 40x26 box
         // draws a 26px dial with 14px of dead space either side - which is why
@@ -788,18 +972,10 @@ void LooperPanel::resized()
         t.panSlider.setBounds (row.removeFromRight (kn + 4)
                                   .withSizeKeepingCentre (kn, kn));
         row.removeFromRight (8);
-
-        juce::TextButton* small[5] = { &t.rerecButton, &t.undoButton, &t.revButton,
-                                       &t.muteButton,  &t.clearButton };
-        const int bw = juce::jmax (34, juce::jmin (trackBtnW, (row.getWidth() - 40) / 5 - 4));
-        auto btns = row.removeFromRight (bw * 5 + 4 * 4);
-        for (int b = 0; b < 5; ++b)
-        {
-            small[b]->setBounds (btns.removeFromLeft (bw)
-                                     .withSizeKeepingCentre (bw, ctlH));
-            if (b < 4) btns.removeFromLeft (4);
-        }
-        row.removeFromRight (10);
+        const int ctlH = juce::jmax (14, juce::jmin (26, rowH - 10));
+        t.moreButton.setBounds (row.removeFromRight (42)
+                                    .withSizeKeepingCentre (36, ctlH));
+        row.removeFromRight (8);
 
         t.waveArea = row;   // whatever is left shows what this track holds
     }
@@ -884,7 +1060,7 @@ void LooperPanel::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(),
                                                   bpmValueArea.getHeight() >= 44 ? 20.0f : 17.0f,
                                                   juce::Font::plain)));
-        g.drawText (juce::String (proc.getLooper().getMetroBpm(), 1), bpmValueArea,
+        g.drawText (juce::String (juce::roundToInt (proc.getLooper().getMetroBpm())), bpmValueArea,
                     juce::Justification::centredRight, false);
 
         g.setColour (theme.textSecondary);
@@ -1068,7 +1244,9 @@ void LooperPanel::paint (juce::Graphics& g)
         g.setFont (juce::Font (juce::FontOptions (15.0f).withStyle ("Semibold")));
         const juce::String stateText =
             st == LoopStation::Empty     ? "-"
-          : st == LoopStation::Recording ? "Rec"
+          : st == LoopStation::Recording
+                ? juce::String (juce::jmax (0, (int) std::ceil (
+                    (1.0f - posN) * looper.getMaxRecordSeconds()))) + "s"
           : st == LoopStation::Armed     ? "Arm"
           : st == LoopStation::Overdub   ? "Dub"
           : st == LoopStation::Playing   ? (muted ? "Mute" : "Play")
@@ -1086,6 +1264,16 @@ void LooperPanel::paint (juce::Graphics& g)
                             .withCentre ({ centre.x, centre.y + 18.0f }),
                         juce::Justification::centred);
         }
+
+        if (st == LoopStation::Recording && t.waveArea.getWidth() >= 40)
+        {
+            const int secondsLeft = juce::jmax (0, (int) std::ceil (
+                (1.0f - posN) * looper.getMaxRecordSeconds()));
+            g.setColour (theme.accentInk);
+            g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Bold")));
+            g.drawText ("REC - " + juce::String (secondsLeft) + "s left / 30s max",
+                        t.waveArea.reduced (8, 0), juce::Justification::centredRight, false);
+        }
     }
 
     // --- How-to line ---------------------------------------------------------
@@ -1094,12 +1282,12 @@ void LooperPanel::paint (juce::Graphics& g)
     if (! howToArea.isEmpty())
     {
         const juce::Font hintFont (juce::FontOptions (12.0f));
-        juce::String hint = "Rec waits for the loop top (or a 1-bar count-in with Click on).   "
-                            "Undo flips to Redo.   Rev plays a track backwards.   Tap sets the BPM.";
+        juce::String hint = "Record up to 30 seconds per track. Set stops; Go plays.   "
+                            "Undo flips to Redo.   Tap sets tempo.";
         if (textWidthFor (hintFont, hint) > howToArea.getWidth())
-            hint = "Rec waits for the loop top.   Undo flips to Redo.   Tap sets the BPM.";
+            hint = "30 seconds max per track. Set stops; Go plays.";
         if (textWidthFor (hintFont, hint) > howToArea.getWidth())
-            hint = "Rec waits for the loop top.   Tap sets the BPM.";
+            hint = "30s max / track. Set stops; Go plays.";
 
         g.setColour (theme.textSecondary);
         g.setFont (hintFont);

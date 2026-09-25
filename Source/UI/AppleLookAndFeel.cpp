@@ -94,7 +94,7 @@ float AppleLookAndFeel::radiusFor (juce::Component& c, juce::Rectangle<float> bo
 juce::Font AppleLookAndFeel::getTextButtonFont (juce::TextButton&, int buttonHeight)
 {
     return juce::Font (juce::FontOptions ((float) juce::jlimit (10, 13, buttonHeight - 10))
-                           .withName ("Segoe UI Variable Text")
+                           .withName (juce::Font::getDefaultSansSerifFontName())
                            .withStyle ("Medium"))
         .withExtraKerningFactor (0.02f);
 }
@@ -241,7 +241,7 @@ void AppleLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& butt
 juce::Font AppleLookAndFeel::getComboBoxFont (juce::ComboBox&)
 {
     return juce::Font (juce::FontOptions (12.0f)
-                           .withName ("Segoe UI Variable Text")
+                           .withName (juce::Font::getDefaultSansSerifFontName())
                            .withStyle ("Medium"))
         .withExtraKerningFactor (0.015f);
 }

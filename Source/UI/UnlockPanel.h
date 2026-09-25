@@ -27,7 +27,7 @@ public:
         addAndMakeVisible (title);
 
         info.setText ("Paste the license key from your Gumroad receipt.\n"
-                      "Demo: 2 s of silence every 30 s, and your session is not saved.",
+                      "Demo: 2 s of silence every 60 s. Saving is enabled.",
                       juce::dontSendNotification);
         info.setFont (juce::Font (juce::FontOptions (13.0f)));
         info.setJustificationType (juce::Justification::centred);
@@ -192,9 +192,13 @@ public:
     }
 
     /** Fired when the panel is closed WITHOUT activating, so the editor can
-        follow up (the first-run guide waits behind this). Not called on a
-        successful activation - that path has its own confirmation. */
+        restore the workspace behind this full-window sheet. */
     std::function<void()> onDismiss;
+
+    /** Fired after a successful activation and its confirmation delay.  The
+        owning editor uses this to remove the sheet (not merely hide it) and
+        restore the controls that were covered by it. */
+    std::function<void()> onActivated;
 
 private:
     void dismiss()
@@ -276,7 +280,11 @@ private:
         juce::Timer::callAfterDelay (1600, [self]
         {
             if (self != nullptr)
+            {
                 self->setVisible (false);
+                if (self->onActivated != nullptr)
+                    self->onActivated();
+            }
         });
     }
 

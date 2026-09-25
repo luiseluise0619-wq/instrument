@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "copyright": "Original Slyce procedural/formant synthesis. No third-party or Output/Arcade audio.",
+  "mapping": "Fifteen different source performances on the white keys C2 through C4. Files are never pitch-cloned to fill the kit.",
+  "kits": [
+    {
+      "id": "midnight-bloom-01",
+      "name": "Midnight Bloom",
+      "bpm": 124,
+      "rootKey": "C minor",
+      "macros": {
+        "DREAM": "longer room + softened high end + compensated output",
+        "MOTION": "subtle formant movement + synced delay send",
+        "EDGE": "transient definition + gentle saturation"
+      },
+      "slots": [
+        {"key":"C2","midi":36,"role":"lead hook","file":"vox_velvet_bloom.wav","slice":1,"gainDb":0.0,"formant":0.0},
+        {"key":"D2","midi":38,"role":"bright answer","file":"vox_prism_vowel.wav","slice":2,"gainDb":-0.5,"formant":0.4},
+        {"key":"E2","midi":40,"role":"breathy short chop","file":"vox_silk_breath.wav","slice":1,"gainDb":0.5,"formant":1.0},
+        {"key":"F2","midi":41,"role":"rhythmic phrase","file":"vox_pulse_hook.wav","slice":5,"gainDb":-0.5,"formant":0.0},
+        {"key":"G2","midi":43,"role":"dream phrase","file":"vox_cloud_phrase.wav","slice":3,"gainDb":-1.0,"formant":0.0},
+        {"key":"A2","midi":45,"role":"air texture","file":"vox_glass_motion.wav","slice":1,"gainDb":-1.5,"formant":1.5},
+        {"key":"B2","midi":47,"role":"dark formant shot","file":"vox_noir_formant.wav","slice":2,"gainDb":0.0,"formant":-2.0},
+        {"key":"C3","midi":48,"role":"low response","file":"vox_ember_call.wav","slice":4,"gainDb":0.0,"formant":-1.2},
+        {"key":"D3","midi":50,"role":"wide harmony","file":"vox_aurora_tail.wav","slice":1,"gainDb":-2.0,"formant":0.0},
+        {"key":"E3","midi":52,"role":"long vowel tail","file":"vox_lunar_tail.wav","slice":4,"gainDb":-1.0,"formant":0.0},
+        {"key":"F3","midi":53,"role":"short stab","file":"vox_neon.wav","slice":3,"gainDb":0.5,"formant":0.5},
+        {"key":"G3","midi":55,"role":"held vowel","file":"vox_sustain.wav","slice":1,"gainDb":-1.5,"formant":0.0},
+        {"key":"A3","midi":57,"role":"reverse pickup","file":"vox_revchant.wav","slice":2,"gainDb":-0.5,"formant":0.0},
+        {"key":"B3","midi":59,"role":"low harmony","file":"vox_alto.wav","slice":4,"gainDb":-0.8,"formant":-0.8},
+        {"key":"C4","midi":60,"role":"top adlib","file":"vox_popadlib.wav","slice":6,"gainDb":0.0,"formant":1.0}
+      ]
+    }
+  ]
+}

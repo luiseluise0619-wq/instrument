@@ -61,7 +61,9 @@ void ReverbFX::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate > 0.0 ? spec.sampleRate : 44100.0;
     reverb.reset();
-    reverb.prepare (spec);
+    auto stereoSpec = spec;
+    stereoSpec.numChannels = 2;
+    reverb.prepare (stereoSpec);
 
     smoothedAmount.reset (sampleRate, 0.02); // ~20 ms ramp
     smoothedAmount.setCurrentAndTargetValue (0.0f);
@@ -78,7 +80,7 @@ void ReverbFX::prepare (const juce::dsp::ProcessSpec& spec)
     p.width    = 1.0f;
     reverb.setParameters (p);
 
-    wetBus.setSize (2, (int) spec.maximumBlockSize);
+    wetBus.setSize (2, juce::jmax (1, (int) spec.maximumBlockSize));
 
     preSamples = juce::jmax (1, (int) (0.012 * sampleRate));   // 12 ms pre-delay
     for (auto& l : preLine)
@@ -88,92 +90,87 @@ void ReverbFX::prepare (const juce::dsp::ProcessSpec& spec)
     // One-pole high-pass ~150 Hz on the wet return keeps the low end dry.
     hpCoeff = 1.0f - std::exp (-2.0f * juce::MathConstants<float>::pi
                                * 150.0f / (float) sampleRate);
-    hpState[0] = hpState[1] = 0.0f;
+    hpState[0] = hpState[1] = lpState[0] = lpState[1] = 0.0f;
+    lpCoeff = 1.0f - std::exp (-2.0f * juce::MathConstants<float>::pi
+                                 * juce::jmin (8500.0f, (float) sampleRate * 0.40f) / (float) sampleRate);
+    duckAttack = std::exp (-1.0f / (0.004f * (float) sampleRate));
+    duckRelease = std::exp (-1.0f / (0.160f * (float) sampleRate));
+    duckEnvelope = 0.0f;
+    idleFlushed = false;
 }
 
 void ReverbFX::process (juce::AudioBuffer<float>& buffer, float amount)
 {
+    const int numChannels = juce::jmin (2, buffer.getNumChannels());
+    const int numSamples = buffer.getNumSamples();
+    if (numChannels == 0 || numSamples == 0 || preSamples <= 0) return;
+    const int capacity = wetBus.getNumSamples();
+    if (numSamples > capacity)
+    {
+        for (int offset = 0; offset < numSamples; offset += capacity)
+        {
+            const int count = juce::jmin (capacity, numSamples - offset);
+            float* p[2] { buffer.getWritePointer (0, offset),
+                          buffer.getWritePointer (numChannels - 1, offset) };
+            juce::AudioBuffer<float> part (p, numChannels, count);
+            process (part, amount);
+        }
+        return;
+    }
     const float target = juce::jlimit (0.0f, 1.0f, amount);
     smoothedAmount.setTargetValue (target);
-
-    // Safe idle skip: only bail if fully off and not still ramping down.
     if (target <= 0.0f && ! smoothedAmount.isSmoothing())
     {
-        smoothedAmount.setCurrentAndTargetValue (0.0f);
         if (! idleFlushed)
         {
-            // Flush ONCE on entering idle: a frozen tail + pre-delay line
-            // would otherwise replay minutes-old audio when the knob returns.
             reverb.reset();
-            for (auto& l : preLine)
-                std::fill (l.begin(), l.end(), 0.0f);
-            hpState[0] = hpState[1] = 0.0f;
+            for (auto& line : preLine) std::fill (line.begin(), line.end(), 0.0f);
+            hpState[0] = hpState[1] = lpState[0] = lpState[1] = 0.0f;
+            duckEnvelope = 0.0f;
             idleFlushed = true;
         }
         return;
     }
     idleFlushed = false;
-
-    const int numSamples  = buffer.getNumSamples();
-    const int numChannels = juce::jmin (2, buffer.getNumChannels());
-    if (numSamples > wetBus.getNumSamples())
-        return;   // host exceeded the prepared block; skip defensively
-
-    // Feed the wet bus through the pre-delay ring.
     for (int ch = 0; ch < 2; ++ch)
     {
-        const float* in  = buffer.getReadPointer (juce::jmin (ch, numChannels - 1));
-        float*       wet = wetBus.getWritePointer (ch);
-        auto&        line = preLine[ch];
-        int          pos  = prePos;
-
+        const float* input = buffer.getReadPointer (juce::jmin (ch, numChannels - 1));
+        float* wet = wetBus.getWritePointer (ch);
+        int position = prePos;
         for (int n = 0; n < numSamples; ++n)
         {
-            wet[n] = line[(size_t) pos];
-            line[(size_t) pos] = in[n];
-            pos = (pos + 1) % preSamples;
+            wet[n] = preLine[ch][(size_t) position];
+            preLine[ch][(size_t) position] = input[n];
+            position = (position + 1) % preSamples;
         }
-        if (ch == 1)
-            prePos = pos;
+        if (ch == 1) prePos = position;
     }
+    juce::dsp::AudioBlock<float> block (wetBus.getArrayOfWritePointers(), 2, (size_t) numSamples);
+    juce::dsp::ProcessContextReplacing<float> context (block);
+    reverb.process (context);
 
-    // 100%-wet reverb on the bus.
-    juce::dsp::AudioBlock<float> block (wetBus.getArrayOfWritePointers(), 2,
-                                        (size_t) numSamples);
-    juce::dsp::ProcessContextReplacing<float> ctx (block);
-    reverb.process (ctx);
-
-    // A MIX, not a send.
-    //
-    // This used to be `out[n] += wet * amount * 0.85`, with the dry path left
-    // alone. Adding a wet signal on top of an untouched dry one means turning
-    // the knob up makes the whole patch LOUDER - measured at +6.2 dB against
-    // dry at full - so "more reverb" and "more volume" were the same gesture
-    // and the reverb could never sit behind anything. That is what "why is the
-    // reverb so strong" is describing.
-    //
-    // Equal-power crossfade instead, with the dry deliberately not going all
-    // the way out: this is an instrument's own space, not a send bus, and a
-    // fully-wet chop is not a sound anyone asked for. The wet ceiling of 0.62
-    // is set so full wet measures within about a dB of dry.
-    smoothedAmount.skip (numSamples);
-    const float amt     = smoothedAmount.getCurrentValue();
-    const float halfPi  = juce::MathConstants<float>::halfPi;
-    const float wetGain = std::sin (amt * halfPi) * 0.62f;
-    const float dryGain = std::cos (amt * halfPi * 0.55f);
-
-    for (int ch = 0; ch < numChannels; ++ch)
+    for (int n = 0; n < numSamples; ++n)
     {
-        float* out = buffer.getWritePointer (ch);
-        const float* wet = wetBus.getReadPointer (ch);
-        float state = hpState[ch];
-
-        for (int n = 0; n < numSamples; ++n)
+        // One shared per-sample ramp, not skip(blockSize) followed by a fixed
+        // block-end gain. The old code still stepped at every host buffer.
+        const float amt = smoothedAmount.getNextValue();
+        const float dryGain = std::cos (amt * juce::MathConstants<float>::halfPi * 0.55f);
+        const float wetGain = std::sin (amt * juce::MathConstants<float>::halfPi) * 0.62f;
+        float peak = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+            peak = juce::jmax (peak, std::abs (buffer.getSample (ch, n)));
+        const float coefficient = peak > duckEnvelope ? duckAttack : duckRelease;
+        duckEnvelope = peak + coefficient * (duckEnvelope - peak);
+        const float duck = juce::jmax (0.70f, 1.0f / (1.0f + 1.5f * duckEnvelope));
+        for (int ch = 0; ch < 2; ++ch)
         {
-            state += hpCoeff * (wet[n] - state);
-            out[n] = out[n] * dryGain + (wet[n] - state) * wetGain;
+            const float wet = wetBus.getSample (ch, n);
+            hpState[ch] += hpCoeff * (wet - hpState[ch]);
+            lpState[ch] += lpCoeff * ((wet - hpState[ch]) - lpState[ch]);
+            if (ch < numChannels)
+                buffer.setSample (ch, n, buffer.getSample (ch, n) * dryGain
+                                         + lpState[ch] * wetGain * duck);
         }
-        hpState[ch] = state;
     }
 }
 
@@ -193,6 +190,8 @@ void FilterFX::prepare (const juce::dsp::ProcessSpec& spec)
 
     smoothedCutoff.reset (sampleRate, 0.02); // ~20 ms ramp
     smoothedCutoff.setCurrentAndTargetValue (1000.0f);
+    smoothedQ.reset (sampleRate, 0.020);
+    smoothedQ.setCurrentAndTargetValue (0.707f);
 
     // Force a recompute on first process().
     lastCutoff = -1.0f;
@@ -257,6 +256,7 @@ void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float 
     const float q = juce::jlimit (0.1f, 8.0f, resonance);
 
     smoothedCutoff.setTargetValue (targetCut);
+    smoothedQ.setTargetValue (q);
 
     const int numCh      = juce::jmin (buffer.getNumChannels(), numChannels);
     const int numSamples = buffer.getNumSamples();
@@ -266,6 +266,7 @@ void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float 
     for (int n = 0; n < numSamples; ++n)
     {
         const float cut = smoothedCutoff.getNextValue();
+        const float qNow = smoothedQ.getNextValue();
 
         // Exact float comparison on purpose: this is a cache check, not a
         // measurement. smoothedCutoff returns bit-identical values once it has
@@ -275,16 +276,16 @@ void FilterFX::process (juce::AudioBuffer<float>& buffer, float cutoffHz, float 
         #pragma GCC diagnostic push
         #pragma GCC diagnostic ignored "-Wfloat-equal"
        #endif
-        const bool dirty = (cut != lastCutoff) || (q != lastQ) || (type != lastType);
+        const bool dirty = (cut != lastCutoff) || (qNow != lastQ) || (type != lastType);
        #if defined (__GNUC__) || defined (__clang__)
         #pragma GCC diagnostic pop
        #endif
 
         if (dirty)
         {
-            updateCoefficients (cut, q, type);
+            updateCoefficients (cut, qNow, type);
             lastCutoff = cut;
-            lastQ      = q;
+            lastQ      = qNow;
             lastType   = type;
         }
 
@@ -325,6 +326,17 @@ void DelayFX::prepare (const juce::dsp::ProcessSpec& spec)
 
     smoothedWet.reset (sampleRate, 0.02); // ~20 ms ramp
     smoothedWet.setCurrentAndTargetValue (0.0f);
+    smoothedFeedback.reset (sampleRate, 0.020);
+    smoothedFeedback.setCurrentAndTargetValue (feedback);
+    dampCoeff = 1.0f - std::exp (-2.0f * juce::MathConstants<float>::pi
+                                   * juce::jmin (3000.0f, (float) sampleRate * 0.4f) / (float) sampleRate);
+    feedbackHpCoeff = 1.0f - std::exp (-2.0f * juce::MathConstants<float>::pi * 70.0f / (float) sampleRate);
+    timeFadeLength = juce::jmax (1, (int) (0.020 * sampleRate));
+    timeFadePosition = timeFadeLength;
+    currentDelay = previousDelay = delaySamples;
+    duckAttack = std::exp (-1.0f / (0.004f * (float) sampleRate));
+    duckRelease = std::exp (-1.0f / (0.140f * (float) sampleRate));
+    idleFlushed = false;
 }
 
 void DelayFX::reset()
@@ -332,7 +344,10 @@ void DelayFX::reset()
     for (auto& l : line)
         std::fill (l.begin(), l.end(), 0.0f);
     writePos = 0;
-    dampState[0] = dampState[1] = 0.0f;
+    dampState[0] = dampState[1] = feedbackHp[0] = feedbackHp[1] = 0.0f;
+    duckEnvelope = 0.0f;
+    currentDelay = previousDelay = delaySamples;
+    timeFadePosition = timeFadeLength;
 }
 
 void DelayFX::updateDelay()
@@ -342,80 +357,56 @@ void DelayFX::updateDelay()
 
 void DelayFX::process (juce::AudioBuffer<float>& buffer, float amount)
 {
+    const int numChannels = juce::jmin (2, buffer.getNumChannels());
+    const int numSamples = buffer.getNumSamples();
+    if (numChannels == 0 || numSamples == 0 || line[0].empty()) return;
     const float target = juce::jlimit (0.0f, 1.0f, amount);
     smoothedWet.setTargetValue (target);
-
-    // Safe idle skip: only bail if fully off and not still ramping down; a
-    // fade-out still needs to feed the delay line and mix its tail.
+    smoothedFeedback.setTargetValue (feedback);
     if (target <= 0.0f && ! smoothedWet.isSmoothing())
     {
-        smoothedWet.setCurrentAndTargetValue (0.0f);
-        if (! idleFlushed)
-        {
-            reset();   // 2 s of stale echoes must not replay on the next raise
-            idleFlushed = true;
-        }
+        if (! idleFlushed) { reset(); idleFlushed = true; }
         return;
     }
     idleFlushed = false;
-
-    const int numChannels = juce::jmin (buffer.getNumChannels(), 2);
-    const int numSamples  = buffer.getNumSamples();
-
-    // Ping-pong only makes sense with a genuine stereo pair.
-    const bool doPingpong = pingpong && numChannels == 2;
-
+    const bool crossFeed = pingpong && numChannels == 2;
     for (int n = 0; n < numSamples; ++n)
     {
-        const float wet     = smoothedWet.getNextValue(); // per-sample wet mix
-        const int   readPos = (writePos - delaySamples + maxSamples) % maxSamples;
-
-        if (doPingpong)
+        // Crossfade fixed taps when tempo/division changes. Smoothing the
+        // read position instead would turn every tempo change into a pitch dive.
+        if (timeFadePosition >= timeFadeLength && currentDelay != delaySamples)
         {
-            auto& lL = line[0];
-            auto& lR = line[1];
-
-            const float inL = buffer.getSample (0, n);
-            const float inR = buffer.getSample (1, n);
-
-            const float delayedL = lL[(size_t) readPos];
-            const float delayedR = lR[(size_t) readPos];
-
-            // Damped feedback (one-pole lowpass) so repeats get warmer and
-            // darker like an analog echo instead of building up harshness.
-            dampState[0] += kDampCoeff * (delayedR - dampState[0]);
-            dampState[1] += kDampCoeff * (delayedL - dampState[1]);
-
-            // Cross-feed the feedback: the left tap feeds the right line and
-            // vice-versa, so echoes bounce L<->R.
-            lL[(size_t) writePos] = inL + dampState[0] * feedback;
-            lR[(size_t) writePos] = inR + dampState[1] * feedback;
-
-            buffer.setSample (0, n, inL + delayedL * wet);
-            buffer.setSample (1, n, inR + delayedR * wet);
+            previousDelay = currentDelay;
+            currentDelay = delaySamples;
+            timeFadePosition = 0;
         }
-        else
+        const float t = slyce::quality::smoothstep ((float) timeFadePosition / timeFadeLength);
+        if (timeFadePosition < timeFadeLength) ++timeFadePosition;
+        const int a = (writePos - previousDelay + maxSamples) % maxSamples;
+        const int b = (writePos - currentDelay + maxSamples) % maxSamples;
+        float delayed[2];
+        for (int ch = 0; ch < 2; ++ch)
+            delayed[ch] = line[ch][(size_t) a] * (1.0f - t) + line[ch][(size_t) b] * t;
+        const float input[2] { buffer.getSample (0, n),
+                               buffer.getSample (numChannels - 1, n) };
+        const float peak = juce::jmax (std::abs (input[0]), std::abs (input[1]));
+        const float coefficient = peak > duckEnvelope ? duckAttack : duckRelease;
+        duckEnvelope = peak + coefficient * (duckEnvelope - peak);
+        const float duck = juce::jmax (0.75f, 1.0f / (1.0f + 1.2f * duckEnvelope));
+        const float wet = smoothedWet.getNextValue();
+        const float fb = smoothedFeedback.getNextValue();
+        for (int ch = 0; ch < 2; ++ch)
         {
-            for (int ch = 0; ch < numChannels; ++ch)
-            {
-                auto& l = line[(size_t) ch];
-                const float in      = buffer.getSample (ch, n);
-                const float delayed = l[(size_t) readPos];
-
-                // Damped feedback: each repeat passes a gentle lowpass.
-                dampState[(size_t) ch] += kDampCoeff * (delayed - dampState[(size_t) ch]);
-
-                l[(size_t) writePos] = in + dampState[(size_t) ch] * feedback;
-                buffer.setSample (ch, n, in + delayed * wet);
-            }
+            const float feed = delayed[crossFeed ? 1 - ch : ch];
+            dampState[ch] += dampCoeff * (feed - dampState[ch]);
+            feedbackHp[ch] += feedbackHpCoeff * (dampState[ch] - feedbackHp[ch]);
+            line[ch][(size_t) writePos] = input[ch] + (dampState[ch] - feedbackHp[ch]) * fb;
+            if (ch < numChannels)
+                buffer.setSample (ch, n, input[ch] * (1.0f - 0.12f * wet)
+                                         + delayed[ch] * (0.72f * wet * duck));
         }
-
         writePos = (writePos + 1) % maxSamples;
     }
-
-    // If fewer than expected channels were present, keep the smoother advanced.
-    if (numChannels == 0)
-        smoothedWet.skip (numSamples);
 }
 
 //==============================================================================

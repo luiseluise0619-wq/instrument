@@ -348,7 +348,7 @@ KnobComponent::KnobComponent (const juce::String& captionText)
 
     label.setText (caption, juce::dontSendNotification);
     label.setFont (juce::Font (juce::FontOptions (11.5f)
-                                   .withName ("Segoe UI Variable Text")
+                                   .withName (juce::Font::getDefaultSansSerifFontName())
                                    .withStyle ("Medium"))
                        .withExtraKerningFactor (0.03f));
     label.setJustificationType (juce::Justification::centred);
@@ -358,7 +358,7 @@ KnobComponent::KnobComponent (const juce::String& captionText)
     subLabel.setJustificationType (juce::Justification::centred);
     subLabel.setInterceptsMouseClicks (false, false);
     subLabel.setFont (juce::Font (juce::FontOptions (9.2f)
-                                      .withName ("Segoe UI Variable Text"))
+                                      .withName (juce::Font::getDefaultSansSerifFontName()))
                           .withExtraKerningFactor (0.02f));
     addChildComponent (subLabel);          // shown only once one is set
 
