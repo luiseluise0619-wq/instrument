@@ -2757,16 +2757,28 @@ void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
     const juce::String category (d.category), name (d.name);
     if (category == "ARP")
     {
-        const int mode = name.containsIgnoreCase ("Cascade") ? 3
-                       : name.containsIgnoreCase ("Random")  ? 4
-                       : name.containsIgnoreCase ("Down")    ? 2 : 1;
-        const int rate = name.containsIgnoreCase ("Gate") || name.containsIgnoreCase ("Techno") ? 5
-                       : name.containsIgnoreCase ("Dream") || name.containsIgnoreCase ("Airy")   ? 3 : 4;
-        const int octaves = name.containsIgnoreCase ("Octave") || name.containsIgnoreCase ("Cascade") ? 2 : 1;
+        // Generic ARP names used to collapse to the same Up/1/16 patch. Give
+        // them a stable musical variation from their factory slot; explicit
+        // names still win so presets such as Random/Gate remain intentional.
+        const int arpSlot = juce::jmax (0, instrumentIndex);
+        int mode = 1 + (arpSlot % 4); // Up, Down, Up-Down, Random
+        int rate = 2 + ((arpSlot * 3) % 4); // 1/3 .. 1/32 grid
+        int octaves = 1 + ((arpSlot / 2) % 3);
+        float gate = 0.44f + 0.08f * (float) ((arpSlot * 5) % 5);
+        if (name.containsIgnoreCase ("Cascade")) mode = 3;
+        else if (name.containsIgnoreCase ("Random")) mode = 4;
+        else if (name.containsIgnoreCase ("Down")) mode = 2;
+        else if (name.containsIgnoreCase ("Up")) mode = 1;
+        if (name.containsIgnoreCase ("Gate") || name.containsIgnoreCase ("Techno")) rate = 5;
+        else if (name.containsIgnoreCase ("Dream") || name.containsIgnoreCase ("Airy")) rate = 3;
+        else if (name.containsIgnoreCase ("Fast")) rate = 4;
+        if (name.containsIgnoreCase ("Octave") || name.containsIgnoreCase ("Cascade")) octaves = 2;
+        if (name.containsIgnoreCase ("Gate")) gate = 0.42f;
         set ("arpMode", (float) mode);
         set ("arpRate", (float) rate);
-        set ("arpOct",  (float) octaves);
-        set ("arpGate", name.containsIgnoreCase ("Gate") ? 0.42f : 0.62f);
+        // arpOct is zero-based extra octaves; advanceArp adds one.
+        set ("arpOct",  (float) (octaves - 1));
+        set ("arpGate", juce::jlimit (0.30f, 0.86f, gate));
     }
     else
     {

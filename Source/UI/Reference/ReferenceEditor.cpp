@@ -646,6 +646,21 @@ public:
         if(palette.scheme==1){
             juce::ColourGradient noir(juce::Colour(0xff090b14).withAlpha(.38f),whole.getTopLeft(),juce::Colour(0xff24153b).withAlpha(.52f),whole.getBottomRight(),false);
             noir.addColour(.50,juce::Colour(0xff101221).withAlpha(.33f));bg.setGradientFill(noir);bg.fillRect(whole);
+        }else if(palette.scheme==8){
+            // Arcade Pulse is a real glass/arcade skin, not only a pink
+            // accent on the dark default: give it a violet-to-navy body,
+            // cyan horizon and restrained scanline texture.
+            juce::ColourGradient arcade(juce::Colour(0xff09071d).withAlpha(.72f),whole.getTopLeft(),
+                                         juce::Colour(0xff160d35).withAlpha(.78f),whole.getBottomRight(),false);
+            arcade.addColour(.34,juce::Colour(0xff17105a).withAlpha(.48f));
+            arcade.addColour(.66,juce::Colour(0xff071d3a).withAlpha(.48f));
+            bg.setGradientFill(arcade); bg.fillRect(whole);
+            bg.setColour(juce::Colour(0xffff3fd5).withAlpha(.075f));
+            bg.fillEllipse(82.0f,64.0f,610.0f,330.0f);
+            bg.setColour(juce::Colour(0xff45f2ff).withAlpha(.055f));
+            bg.fillEllipse(790.0f,385.0f,650.0f,390.0f);
+            bg.setColour(juce::Colour(0xff45f2ff).withAlpha(.035f));
+            for(int y=136; y<770; y+=6) bg.drawHorizontalLine(y,52.0f,1486.0f);
         }else if(palette.scheme==2){
             juce::ColourGradient mint(juce::Colours::white.withAlpha(.16f),whole.getTopLeft(),palette.skinTint().withAlpha(.31f),whole.getBottomRight(),false);
             mint.addColour(.52,juce::Colour(0xffeffffb).withAlpha(.20f));bg.setGradientFill(mint);bg.fillRect(whole);
