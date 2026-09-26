@@ -2680,10 +2680,18 @@ void VocalChopAudioProcessor::applyEnginePatch (int i)
     currentInstrument = i;
 }
 
+void VocalChopAudioProcessor::resetScopeRing() noexcept
+{
+    for (auto& sample : scopeRing)
+        sample.store (0.0f, std::memory_order_relaxed);
+    scopeWritePos.store (0, std::memory_order_release);
+}
+
 void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 {
     const juce::ScopedLock patchLock (getCallbackLock());
     applyEnginePatch (instrumentIndex);
+    resetScopeRing();
     const auto d = voicedDefinition(currentInstrument);
 
     const ScopedAtomicPatch patching (applyingPatch);

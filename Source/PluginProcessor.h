@@ -130,6 +130,7 @@ public:
         Size is a power of two; readers index with (i & (size-1)). */
     const std::array<std::atomic<float>, 2048>& getScopeRing() const { return scopeRing; }
     int getScopeWritePos() const { return scopeWritePos.load (std::memory_order_acquire); }
+    void resetScopeRing() noexcept;
 
     /** The slice the user last touched, in either the waveform or the
         keyboard, or -1. It lives here rather than in either view because it is
