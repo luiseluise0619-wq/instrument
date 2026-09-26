@@ -305,7 +305,21 @@ public:
         if(!pool || io.getNumChannels()<1)return;
         const int count=std::clamp(requestedSamples,0,io.getNumSamples());
         const int channels=std::min(2,io.getNumChannels());
-        const bool click=metroOn.load();
+        // Keep the transport silent while the looper is idle.  The metronome
+        // is a count-in/record aid, so it should only sound once a track has
+        // been armed or is actively recording; an untouched looper must pass
+        // audio through transparently.
+        bool countInActive = false;
+        for (const auto& track : tracks)
+        {
+            const auto state = track.state.load(std::memory_order_relaxed);
+            if (state == Armed || state == Recording)
+            {
+                countInActive = true;
+                break;
+            }
+        }
+        const bool click=metroOn.load() && countInActive;
         const double samplesPerBeat=srHz*60.0/std::max(40.0f,metroBpm.load());
         if(metroReset.exchange(false)){metroCountdown=0;metroBeat=0;}
         for(int n=0;n<count;++n){
@@ -512,7 +526,9 @@ private:
     // A first take should always have an audible four-beat count-in.  The
     // metronome can still be turned off from the Looper actions menu, but
     // starting a fresh session must not silently begin recording.
-    std::atomic<bool> metroOn{true},metroReset{false},tempoSync{false};
+    // Stay silent until the user enables the metronome.  Once enabled, a new
+    // recording gets the four-beat count-in; idle playback never emits ticks.
+    std::atomic<bool> metroOn{false},metroReset{false},tempoSync{false};
     std::atomic<float> metroBpm{120.0f};std::atomic<int> recordBars{0};
     double srHz=44100.0,metroCountdown=0;int metroBeat=0;
     float clickEnv=0,clickPhase=0,clickFreq=1046.5f,clickDecay=0.99f,gainSlew=0.005f;
