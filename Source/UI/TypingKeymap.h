@@ -37,40 +37,20 @@ namespace slyce::keymap
     /** Index of 'q' - where the upper row starts. */
     inline constexpr int topRowStart = 17;
 
-    /** Convert a zero-based pad number to the corresponding white-key
-        semitone.  Chop note routing translates white keys back to consecutive
-        slice numbers, so this keeps every computer key unique without making
-        the audio engine treat the pads as chromatic pitches. */
-    inline int padSemitone (int pad)
-    {
-        static constexpr int white[7] = { 0, 2, 4, 5, 7, 9, 11 };
-        const int octave = pad / 7;
-        const int degree = pad % 7;
-        return octave * 12 + white[degree];
-    }
-
     /** The semitone key `i` sends, which depends on the engine.
 
         Melodic engines want a piano: two rows an octave apart. That is what a
         player expects and what every DAW does, so it stays.
 
-        Chop mode is not a piano. Slices are pads, and an octave is a musical
-        interval that knows nothing about how many pieces the sample was cut
-        into - an octave is seven white keys, a sample is cut into eight or
-        twelve or sixteen. On the eight-slice demo that arithmetic put Q on
-        slice 7, the LAST one. Consistent with the mapping, and indistinguish-
-        able from a bug to anyone actually using it.
-
-        In Chop mode every physical typing key is therefore a unique pad.  The
-        lower row covers slices 1-17 and the upper row continues with 18-37.
-        This matters for user samples that auto-slice to more than eight parts:
-        restarting at Q made every slice after 17 impossible to reach. */
+        Chop mode still follows the visible piano layout: Z/X/C/V/B/N/M are
+        the white notes C/D/E/F/G/A/B and S/D/G/H/J are the black notes.  The
+        same chromatic table is used in every engine so the computer-key labels
+        on the keybed and the actual MIDI note never disagree. */
     inline int semitoneFor (int i, bool chopMode)
     {
         if (! juce::isPositiveAndBelow (i, numKeys))
             return i;
-        if (chopMode)
-            return padSemitone (i);
+        juce::ignoreUnused (chopMode);
         return semitone[i];
     }
 }

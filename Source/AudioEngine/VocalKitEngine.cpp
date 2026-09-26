@@ -194,19 +194,10 @@ void VocalKitEngine::noteOn (int note, float velocity, bool tap) noexcept
 
     const auto& s = slot.settings;
 
-    // Vocal phrases are monophonic by default.  Starting a new key must
-    // replace the previous phrase (C then D means C stops), otherwise long
-    // tails pile up and the instrument sounds as if note-off is broken.  A
-    // very short exponential fade prevents an edge click while remaining
-    // perceptually immediate.  Legacy choke-group data is still read from
-    // sessions, but it no longer permits phrases to overlap.
-    for (auto& oldVoice : voices)
-        if (oldVoice.active())
-        {
-            oldVoice.releasing = true;
-            oldVoice.envelopeStage = 3;
-            oldVoice.releaseCoeff = 0.93f;
-        }
+    // Vocal chop slots are independent playable voices.  Do not choke the
+    // entire kit when another key arrives: holding two pads/keys must allow
+    // both chops to sound together, just like a normal mapped instrument.
+    // Note-off still releases only the matching MIDI note below.
 
     auto* voice = freeVoice();
     *voice = {};
