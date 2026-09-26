@@ -829,6 +829,19 @@ void VocalChopAudioProcessor::renderSegment(juce::AudioBuffer<float>& whole, int
                           formantParam->load(),
                           mixParam->load());
 
+    // A single imported sample is pitch-shifted after it is mapped to the
+    // keyboard.  The stretcher naturally loses a little energy as the note
+    // moves upward, which made higher keys sound noticeably quieter than the
+    // root key.  Apply a small, bounded musical compensation only to the
+    // mapped-sample path; factory multisamples and the global pitch control
+    // keep their original gain staging.
+    if (isMelodyMode() && std::abs (mappedPitch) > 0.01f)
+    {
+        const float compensationDb = juce::jlimit (-3.0f, 3.0f,
+                                                   mappedPitch * 0.18f);
+        buffer.applyGain (juce::Decibels::decibelsToGain (compensationDb));
+    }
+
     // 4) Granular texture (bypassed unless its mix is raised).
     granularEngine.setGrainSize (grainSizeParam->load());
     granularEngine.setMix (grainMixParam->load());
