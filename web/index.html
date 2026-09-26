@@ -34,7 +34,7 @@ a { color: inherit; }
 <body>
 <style>
 /* ============================================================
-   Slyce 3.2.5
+   Slyce 3.3.5
 
    Every animation on this page is a reading of one 128 BPM clock,
    because that is the claim the release actually makes.
@@ -260,11 +260,24 @@ nav .btn { padding: .52rem 1.05rem; }
 
 .showcase { perspective: 1600px; }
 .device {
-  border-radius: 18px; overflow: hidden; border: 1px solid var(--line-2); background: var(--card);
+  position: relative; border-radius: 18px; overflow: hidden; border: 1px solid var(--line-2); background: var(--card);
   box-shadow: 0 40px 90px -40px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.03) inset;
-  transform-style: preserve-3d; will-change: transform;
+  transform-style: preserve-3d; will-change: transform, box-shadow;
+  transition: box-shadow .45s ease, border-color .45s ease;
+}
+.device::after {
+  content: ""; position: absolute; inset: -20% -45%; pointer-events: none;
+  background: linear-gradient(112deg, transparent 42%, color-mix(in srgb, var(--accent) 14%, transparent) 50%, transparent 58%);
+  transform: translateX(-72%) rotate(7deg); mix-blend-mode: screen; opacity: .7;
+  animation: device-sheen 8s cubic-bezier(.4,0,.2,1) infinite;
+}
+.device:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line-2));
+  box-shadow: 0 42px 90px -38px rgba(0,0,0,.86), 0 0 calc(20px + var(--pulse) * 24px) var(--glow), 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent) inset;
 }
 .device img { display: block; width: 100%; height: auto; }
+@keyframes device-sheen { 0%, 34% { transform: translateX(-72%) rotate(7deg); } 62%, 100% { transform: translateX(72%) rotate(7deg); } }
+@media (prefers-reduced-motion: reduce) { .device::after { animation: none; } }
 
 .scroll-hint {
   position: absolute; bottom: 1.4rem; left: 50%; translate: -50% 0;
@@ -1865,17 +1878,13 @@ const PG = (() => {
       await E.start();
       gate.remove();
       setMidiStatus("MIDI: connect a keyboard when you are ready");
-      onAudioStart();
     });
   }
-
-  let onAudioStart = () => {};
-  function setOnStart(fn) { onAudioStart = fn; }
 
   function tick() { scheduler(); dials.forEach(drawDial); drawPgScope(); }
 
   function init() { buildDials(); buildKeys(); wire(); }
-  return { init, tick, setOnStart, get analyser() { return E.analyser; } };
+  return { init, tick, get analyser() { return E.analyser; } };
 })();
 
 </script>
