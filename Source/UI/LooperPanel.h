@@ -222,6 +222,7 @@ private:
     juce::ComboBox engineBox;      // Chop / Synth
     juce::ComboBox instrumentBox;  // Featured + category submenus
     int selectedTrack = 0;         // Top picker targets the last-selected track.
+    std::array<int, LoopStation::kNumTracks> lastTrackStates{};
     bool syncingInstrumentPickers = false;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> engineAttachment;
     std::unique_ptr<juce::FileChooser> fileChooser;     // per-track audio import

@@ -340,9 +340,9 @@ public:
                 if(st==Empty||st==Stopped)continue;
                 advance=true;
                 if(st==Recording){
-                    if(!t.loop.set(t.recPos,inL,inR)){memoryFailures.fetch_add(1);finalize(t);continue;}
+                    if(!t.loop.set(t.recPos,inL,inR)){memoryFailures.fetch_add(1);finalize(t, true);continue;}
                     ++t.recPos;
-                    if(t.recPos>=maxLenSamples || (t.targetLen>0 && t.recPos>=t.targetLen))finalize(t);
+                    if(t.recPos>=maxLenSamples || (t.targetLen>0 && t.recPos>=t.targetLen))finalize(t, true);
                     continue;
                 }
                 const int len=t.lenSamples.load(std::memory_order_relaxed);if(len<=0)continue;
@@ -441,10 +441,14 @@ private:
     void retire(ImportPayload* p)noexcept{if(!p)return;auto* old=retired.load(std::memory_order_relaxed);do{p->retiredNext=old;}while(!retired.compare_exchange_weak(old,p,std::memory_order_release,std::memory_order_relaxed));}
     bool anyLength()const{for(auto& t:tracks)if(t.lenSamples.load()>0)return true;return false;}
     void clear(Track& t){t.loop.clear();t.undo.clear();t.lenSamples.store(0);t.layers.store(0);t.state.store(Empty);t.undoAvail.store(false);t.redoState.store(false);t.uiPos.store(0);t.recPos=t.targetLen=t.dubSamples=t.armCountdown=0;t.startStamp=transport;}
-    void finalize(Track& t){
+    void finalize(Track& t, bool resumePlaying){
         const int len=std::clamp(t.targetLen>0?std::min(t.targetLen,t.recPos):t.recPos,0,maxLenSamples);
         if(len<=0){clear(t);return;}
-        t.lenSamples.store(len);t.layers.store(1);t.targetLen=0;t.state.store(Stopped);t.undoAvail.store(false);
+        t.lenSamples.store(len);t.layers.store(1);t.targetLen=0;
+        // A completed take becomes part of the mix immediately. The next
+        // track can then be recorded over the still-playing first take.
+        t.state.store(resumePlaying ? Playing : Stopped);
+        t.undoAvail.store(false);
         if(masterLen<=0){masterLen=len;masterStamp=t.startStamp;}
     }
     void beginRecord(Track& t){
@@ -468,7 +472,7 @@ private:
     void apply(Command c){
         if(c.kind>=10){
             if(c.kind==12){for(auto& t:tracks)clear(t);masterLen=0;masterStamp=transport=0;metroReset.store(true);}
-            else if(c.kind==10){for(auto& t:tracks){const int st=t.state.load();if(st==Recording)finalize(t);else if(st==Armed)clear(t);else if(st==Playing||st==Overdub)t.state.store(Stopped);}}
+            else if(c.kind==10){for(auto& t:tracks){const int st=t.state.load();if(st==Recording)finalize(t, false);else if(st==Armed)clear(t);else if(st==Playing||st==Overdub)t.state.store(Stopped);}}
             else if(c.kind==11){
                 const auto oldMaster=masterStamp;transport=0;masterStamp=0;metroReset.store(true);
                 for(auto& t:tracks)if(t.lenSamples.load()>0){const int len=t.lenSamples.load();const int phase=positiveModulo(oldMaster-t.startStamp,len);t.startStamp=phase==0?0:len-phase;t.state.store(Playing);}
@@ -483,7 +487,7 @@ private:
         }
         if(c.kind==2){clear(t);if(!anyLength()){masterLen=0;masterStamp=transport;}return;}
         if(c.kind==4){clear(t);if(!anyLength()){masterLen=0;masterStamp=transport;}beginRecord(t);return;}
-        if(c.kind==6){if(st==Recording)finalize(t);else if(st==Armed)clear(t);else if(st==Playing||st==Overdub)t.state.store(Stopped);return;}
+        if(c.kind==6){if(st==Recording)finalize(t, false);else if(st==Armed)clear(t);else if(st==Playing||st==Overdub)t.state.store(Stopped);return;}
         if(c.kind==3){
             if(t.undoAvail.load() && (st==Playing||st==Overdub||st==Stopped)){
                 t.loop.swap(t.undo);const int before=t.layers.load();t.layers.store(t.undoLayers);t.undoLayers=before;t.redoState.store(!t.redoState.load());if(st==Overdub)t.state.store(Playing);
@@ -492,7 +496,7 @@ private:
         if(c.kind==1){
             if(st==Empty)beginRecord(t);
             else if(st==Armed)clear(t);
-            else if(st==Recording){t.targetLen=quantisedLength(t);if(t.recPos>=t.targetLen)finalize(t);}
+            else if(st==Recording){t.targetLen=quantisedLength(t);if(t.recPos>=t.targetLen)finalize(t, true);}
             else if(st==Stopped){t.state.store(Playing);setImmediateGain(t);}
             else if(st==Playing){
                 t.undo.captureFrom(t.loop,t.lenSamples.load());t.undoLayers=t.layers.load();t.dubSamples=0;t.redoState.store(false);t.undoAvail.store(true);t.state.store(Overdub);

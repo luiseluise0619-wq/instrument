@@ -701,6 +701,28 @@ void LooperPanel::timerCallback()
     {
         auto& t = trackUI[i];
         const int st = looper.getTrackState (i);
+        // Finishing a take now leaves that lane playing. Move the top picker
+        // to the next empty lane so the next record click is immediate, while
+        // all completed lanes continue to run underneath it.
+        if (lastTrackStates[(size_t) i] == LoopStation::Recording
+            && st == LoopStation::Playing)
+        {
+            for (int step = 1; step <= LoopStation::kNumTracks; ++step)
+            {
+                const int next = (i + step) % LoopStation::kNumTracks;
+                if (looper.getTrackState (next) == LoopStation::Empty)
+                {
+                    selectedTrack = next;
+                    syncingInstrumentPickers = true;
+                    instrumentBox.setSelectedId (trackUI[next].usesCurrentChop
+                                                     ? 0 : trackUI[next].chosenInstrument + 1,
+                                                 juce::dontSendNotification);
+                    syncingInstrumentPickers = false;
+                    break;
+                }
+            }
+        }
+        lastTrackStates[(size_t) i] = st;
         // Sentence case, and never longer than the pad is wide - resized()
         // sizes the pad from exactly this set of words, so "Overdub" (which
         // used to be cut in half on the pad) is now the three-letter "Dub"
