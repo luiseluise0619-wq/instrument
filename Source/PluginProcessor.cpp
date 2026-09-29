@@ -2700,6 +2700,11 @@ void VocalChopAudioProcessor::resetScopeRing() noexcept
 void VocalChopAudioProcessor::applyInstrument (int instrumentIndex)
 {
     const juce::ScopedLock patchLock (getCallbackLock());
+    // A browser change must replace the sound immediately. Without choking
+    // the previous synth/sampler voices, a held MIDI note could keep the old
+    // patch ringing and make VST3 users think the new instrument did not load.
+    synthEngine.chokeAll();
+    samplerEngine.chokeAll();
     applyEnginePatch (instrumentIndex);
     resetScopeRing();
     const auto d = voicedDefinition(currentInstrument);
