@@ -24,23 +24,23 @@ struct Palette {
     int scheme=0;
     juce::Colour text() const {
         if(scheme==1)return juce::Colour(0xfff0edff);
-        if(scheme==2)return juce::Colour(0xff123f42);
+        if(scheme==2)return juce::Colour(0xffeffff8);
         if(scheme==3)return juce::Colour(0xff4b2444);
-        if(scheme==4)return juce::Colour(0xff4a3012);
+        if(scheme==4)return juce::Colour(0xfffff3df);
         if(scheme==5)return juce::Colour(0xff12375f);
-        if(scheme==6)return juce::Colour(0xff3d2e66);
-        if(scheme==7)return juce::Colour(0xff493b2a);
+        if(scheme==6)return juce::Colour(0xfff3ecff);
+        if(scheme==7)return juce::Colour(0xfffff2d0);
         if(scheme==8)return juce::Colour(0xfff5f2ff);
         return juce::Colour(0xff1c355d);
     }
     juce::Colour secondary() const {
         if(scheme==1)return juce::Colour(0xffaaa2c6);
-        if(scheme==2)return juce::Colour(0xff49787a);
+        if(scheme==2)return juce::Colour(0xff88cfc1);
         if(scheme==3)return juce::Colour(0xff8d587c);
-        if(scheme==4)return juce::Colour(0xff88643a);
+        if(scheme==4)return juce::Colour(0xffd19b68);
         if(scheme==5)return juce::Colour(0xff4f7598);
-        if(scheme==6)return juce::Colour(0xff74679a);
-        if(scheme==7)return juce::Colour(0xff82725d);
+        if(scheme==6)return juce::Colour(0xffbda8e8);
+        if(scheme==7)return juce::Colour(0xffd0b57d);
         if(scheme==8)return juce::Colour(0xff8d91c7);
         return juce::Colour(0xff506b96);
     }
@@ -68,45 +68,45 @@ struct Palette {
     }
     juce::Colour top() const {
         if(scheme==1)return juce::Colour(0xff252438);
-        if(scheme==2)return juce::Colour(0xfff8fffd);
+        if(scheme==2)return juce::Colour(0xff18282a);
         if(scheme==3)return juce::Colour(0xfffffafd);
-        if(scheme==4)return juce::Colour(0xfffffcf4);
+        if(scheme==4)return juce::Colour(0xff2a1a16);
         if(scheme==5)return juce::Colour(0xfff8fcff);
-        if(scheme==6)return juce::Colour(0xfffdfaff);
-        if(scheme==7)return juce::Colour(0xfffffdfa);
+        if(scheme==6)return juce::Colour(0xff241a3b);
+        if(scheme==7)return juce::Colour(0xff2b2418);
         if(scheme==8)return juce::Colour(0xff101126);
         return juce::Colour(0xfff6faff);
     }
     juce::Colour bottom() const {
         if(scheme==1)return juce::Colour(0xff0c0d17);
-        if(scheme==2)return juce::Colour(0xffdcf4ee);
+        if(scheme==2)return juce::Colour(0xff071415);
         if(scheme==3)return juce::Colour(0xfff6dfeb);
-        if(scheme==4)return juce::Colour(0xfff3e3c8);
+        if(scheme==4)return juce::Colour(0xff100907);
         if(scheme==5)return juce::Colour(0xffdceefc);
-        if(scheme==6)return juce::Colour(0xffede4fb);
-        if(scheme==7)return juce::Colour(0xffede5d8);
+        if(scheme==6)return juce::Colour(0xff0c0718);
+        if(scheme==7)return juce::Colour(0xff100d08);
         if(scheme==8)return juce::Colour(0xff060712);
         return juce::Colour(0xffe7eff7);
     }
     juce::Colour line() const {
         if(scheme==1)return juce::Colour(0xff51496d);
-        if(scheme==2)return juce::Colour(0xffa7d5cd);
+        if(scheme==2)return juce::Colour(0xff2d6964);
         if(scheme==3)return juce::Colour(0xffe1b9cf);
-        if(scheme==4)return juce::Colour(0xffdec296);
+        if(scheme==4)return juce::Colour(0xff70452f);
         if(scheme==5)return juce::Colour(0xffa6cfe9);
-        if(scheme==6)return juce::Colour(0xffcbbce9);
-        if(scheme==7)return juce::Colour(0xffd3c4ad);
+        if(scheme==6)return juce::Colour(0xff604d88);
+        if(scheme==7)return juce::Colour(0xff725d38);
         if(scheme==8)return juce::Colour(0xff464a78);
         return juce::Colour(0xffcbd9e9);
     }
     juce::Colour skinTint() const {
         if(scheme==1)return juce::Colour(0xff2b194c);
-        if(scheme==2)return juce::Colour(0xffcef9ed);
+        if(scheme==2)return juce::Colour(0xff0b2d2b);
         if(scheme==3)return juce::Colour(0xffffe0f1);
-        if(scheme==4)return juce::Colour(0xffffedc8);
+        if(scheme==4)return juce::Colour(0xff321b15);
         if(scheme==5)return juce::Colour(0xffd6f1ff);
-        if(scheme==6)return juce::Colour(0xffe9ddff);
-        if(scheme==7)return juce::Colour(0xfff4e6ca);
+        if(scheme==6)return juce::Colour(0xff271542);
+        if(scheme==7)return juce::Colour(0xff352611);
         if(scheme==8)return juce::Colour(0xff171a45);
         return juce::Colour(0xffe7f3ff);
     }
@@ -628,7 +628,7 @@ public:
         auto safe=juce::Component::SafePointer<Surface>(this);m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(engineButton),[safe](int id){if(!safe||id<1)return;safe->releaseTyped();safe->keybed.release();const int engine=id-1;if(engine==4&&!safe->proc.getVocalKit().hasSlot(0))safe->proc.loadFactoryVocalKit(0);else if(engine==5)safe->proc.applyAirVocalPreset(safe->proc.getCurrentAirVocalPreset());else safe->setParameter("engine",(float)engine);safe->dirty=true;safe->syncRightPanel();safe->refreshSample();safe->updateContextControls();safe->repaint();});
     }
     void showThemeMenu(){
-        juce::PopupMenu m;const char* names[]={"Paper Light","Noir Violet Glass","Mint Frosted Glass","Rose Quartz","Amber Studio","Azure Ice Glass","Lavender Haze","Champagne Silver","Arcade Pulse"};
+        juce::PopupMenu m;const char* names[]={"Arctic Blue","Noir Violet Glass","Emerald Night","Rose Pink","Sunset Carbon","Azure Ice Glass","Ultraviolet Glass","Carbon Gold","Arcade Pulse"};
         for(int i=0;i<9;++i)m.addItem(i+1,names[i],true,palette.scheme==i);
         auto safe=juce::Component::SafePointer<Surface>(this);m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(themeButton),[safe](int id){if(safe&&id>0)safe->setTheme(id-1);});
     }
@@ -717,7 +717,7 @@ public:
     }
     void setTheme(int scheme) {
         palette.scheme=juce::jlimit(0,8,scheme);
-        palette.dark=palette.scheme==1||palette.scheme==8;
+        palette.dark=palette.scheme==1||palette.scheme==2||palette.scheme==4||palette.scheme==6||palette.scheme==7||palette.scheme==8;
         proc.setReferenceThemeScheme(palette.scheme);
         ThemeManager::setIndex(palette.dark?20:21);
         rebuildThemeChrome();
@@ -989,7 +989,7 @@ public:
     void notify(juce::String title,juce::String message){juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon,title,message,"OK",this);}
     void savePreset(){auto* alert=new juce::AlertWindow("Save user preset","Name this sound",juce::MessageBoxIconType::NoIcon,this);alert->addTextEditor("name",currentTitle(),"Name");alert->addButton("Save",1);alert->addButton("Cancel",0);auto safe=juce::Component::SafePointer<Surface>(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert](int id){if(!safe||id!=1)return;auto name=alert->getTextEditorContents("name").trim();if(name.isEmpty())return;if(!safe->proc.saveUserPreset(name))safe->notify("Save failed","The user preset could not be written.");else{safe->dirty=false;safe->selectedPresetName=name;safe->updateContextControls();safe->notify("Saved to USER",name+" is ready in the USER tab.");}safe->refreshBrowser(false);}),true);}
     void editBpm(){auto* alert=new juce::AlertWindow("Recording tempo","Sets the metronome and recording grid. Existing loops keep their recorded length.",juce::MessageBoxIconType::NoIcon,this);alert->addTextEditor("bpm",juce::String(proc.getLooper().getMetroBpm(),0),"BPM (40-240)");alert->addButton("Apply",1);alert->addButton("Cancel",0);auto safe=juce::Component::SafePointer<Surface>(this);alert->enterModalState(true,juce::ModalCallbackFunction::create([safe,alert](int id){if(safe&&id==1){safe->proc.getLooper().setMetroBpm(alert->getTextEditorContents("bpm").getFloatValue());safe->repaint();}}),true);}
-    void showMenu(){juce::PopupMenu m;juce::PopupMenu appearance;appearance.addItem(101,"Paper Light",true,palette.scheme==0);appearance.addItem(102,"Noir Violet Glass",true,palette.scheme==1);appearance.addItem(103,"Mint Frosted Glass",true,palette.scheme==2);appearance.addItem(104,"Rose Quartz",true,palette.scheme==3);appearance.addItem(105,"Amber Studio",true,palette.scheme==4);appearance.addSeparator();appearance.addItem(106,"Azure Ice Glass",true,palette.scheme==5);appearance.addItem(107,"Lavender Haze",true,palette.scheme==6);appearance.addItem(108,"Champagne Silver",true,palette.scheme==7);appearance.addItem(109,"Arcade Pulse",true,palette.scheme==8);m.addSubMenu("Theme",appearance);m.addSeparator();m.addItem(1,"Load and map one sample...");m.addItem(2,"Load SFZ instrument...");m.addItem(3,"Save user preset...");m.addItem(4,"All sounds / presets");m.addSeparator();
+    void showMenu(){juce::PopupMenu m;juce::PopupMenu appearance;appearance.addItem(101,"Arctic Blue",true,palette.scheme==0);appearance.addItem(102,"Noir Violet Glass",true,palette.scheme==1);appearance.addItem(103,"Emerald Night",true,palette.scheme==2);appearance.addItem(104,"Rose Pink",true,palette.scheme==3);appearance.addItem(105,"Sunset Carbon",true,palette.scheme==4);appearance.addSeparator();appearance.addItem(106,"Azure Ice Glass",true,palette.scheme==5);appearance.addItem(107,"Ultraviolet Glass",true,palette.scheme==6);appearance.addItem(108,"Carbon Gold",true,palette.scheme==7);appearance.addItem(109,"Arcade Pulse",true,palette.scheme==8);m.addSubMenu("Theme",appearance);m.addSeparator();m.addItem(1,"Load and map one sample...");m.addItem(2,"Load SFZ instrument...");m.addItem(3,"Save user preset...");m.addItem(4,"All sounds / presets");m.addSeparator();
         juce::PopupMenu engines;auto* parameter=proc.getAPVTS().getRawParameterValue("engine");int selected=parameter?(int)parameter->load():0;struct EngineItem{int engine;const char* name;};static constexpr EngineItem engineItems[]={{0,"Chop"},{1,"Instrument"},{2,"Sampled"},{3,"Mapped Sample"},{5,"Air Vocal"}};for(const auto& item:engineItems)engines.addItem(201+item.engine,item.name,true,selected==item.engine);m.addSubMenu("Engine",engines);
         m.addItem(5,"Voice / envelope details");m.addItem(6,"FX / space details");m.addItem(7,"Master / arpeggiator");m.addItem(8,"Synth / modulation");m.addItem(9,"Loop station");m.addItem(10,"Chords");
         juce::PopupMenu slice;const int divisions[]={4,8,16,32,64};for(int i=0;i<5;++i)slice.addItem(301+i,juce::String(divisions[i])+" equal slices");m.addSubMenu("Grid slicing",slice);m.addSeparator();m.addItem(11,proc.isLicensed()?"Activation / licence":"Activate SLYCE...");m.addItem(12,"Build "+juce::String(ref::build));
