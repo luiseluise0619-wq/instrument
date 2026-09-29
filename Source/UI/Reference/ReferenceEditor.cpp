@@ -650,10 +650,10 @@ public:
             // Arcade Pulse is a real glass/arcade skin, not only a pink
             // accent on the dark default: give it a violet-to-navy body,
             // cyan horizon and restrained scanline texture.
-            juce::ColourGradient arcade(juce::Colour(0xff09071d).withAlpha(.72f),whole.getTopLeft(),
-                                         juce::Colour(0xff160d35).withAlpha(.78f),whole.getBottomRight(),false);
-            arcade.addColour(.34,juce::Colour(0xff17105a).withAlpha(.48f));
-            arcade.addColour(.66,juce::Colour(0xff071d3a).withAlpha(.48f));
+            juce::ColourGradient arcade(juce::Colour(0xff020208),whole.getTopLeft(),
+                                         juce::Colour(0xff090616),whole.getBottomRight(),false);
+            arcade.addColour(.34,juce::Colour(0xff120b30));
+            arcade.addColour(.66,juce::Colour(0xff041326));
             bg.setGradientFill(arcade); bg.fillRect(whole);
             bg.setColour(juce::Colour(0xffff3fd5).withAlpha(.075f));
             bg.fillEllipse(82.0f,64.0f,610.0f,330.0f);

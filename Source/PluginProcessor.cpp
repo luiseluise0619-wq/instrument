@@ -870,6 +870,16 @@ void VocalChopAudioProcessor::renderSegment(juce::AudioBuffer<float>& whole, int
     // 9) Brick-wall limiter.
     limiter.process (buffer);
 
+    // Final output guard for extreme Creative FX combinations. The limiter
+    // normally keeps this below ceiling, but a stale/non-finite sample from a
+    // third-party host or an FX feedback edge must never reach the DAC.
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int n = 0; n < buffer.getNumSamples(); ++n)
+        {
+            const float x = buffer.getSample (ch, n);
+            buffer.setSample (ch, n, std::isfinite (x) ? juce::jlimit (-0.98f, 0.98f, x) : 0.0f);
+        }
+
 }
 
 void VocalChopAudioProcessor::handleMidiMessage(const juce::MidiMessage& msg)
