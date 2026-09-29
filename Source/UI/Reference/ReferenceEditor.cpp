@@ -686,7 +686,17 @@ public:
         };
         for(const auto panel:panels){
             if(palette.dark){
-                juce::ColourGradient glass(juce::Colour(0xff40345c).withAlpha(.28f),panel.getTopLeft(),juce::Colour(0xff080a12).withAlpha(.34f),panel.getBottomLeft(),false);
+                juce::Colour panelTop = juce::Colour(0xff40345c);
+                juce::Colour panelBottom = juce::Colour(0xff080a12);
+                if (palette.scheme == 2) { panelTop = juce::Colour(0xff123f42); panelBottom = juce::Colour(0xff041416); }
+                else if (palette.scheme == 4) { panelTop = juce::Colour(0xff4b2418); panelBottom = juce::Colour(0xff120907); }
+                else if (palette.scheme == 6) { panelTop = juce::Colour(0xff3d2764); panelBottom = juce::Colour(0xff0d071b); }
+                else if (palette.scheme == 7) { panelTop = juce::Colour(0xff49391f); panelBottom = juce::Colour(0xff110d08); }
+                juce::ColourGradient glass(panelTop.withAlpha(.42f),panel.getTopLeft(),panelBottom.withAlpha(.58f),panel.getBottomLeft(),false);
+                if (palette.scheme == 2) glass.addColour(.45, juce::Colour(0xff0b6b65).withAlpha(.18f));
+                else if (palette.scheme == 4) glass.addColour(.52, juce::Colour(0xffd5652b).withAlpha(.15f));
+                else if (palette.scheme == 6) glass.addColour(.42, juce::Colour(0xff8a54e8).withAlpha(.19f));
+                else if (palette.scheme == 7) glass.addColour(.58, juce::Colour(0xffd0a04c).withAlpha(.16f));
                 bg.setGradientFill(glass);bg.fillRoundedRectangle(panel,10);
                 bg.setColour(palette.ice().withAlpha(.08f));bg.drawRoundedRectangle(panel.reduced(1),9,1);
             }else{
